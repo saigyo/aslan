@@ -21,6 +21,7 @@
 - Descriptions of ASL fields are written in the plugin's own words with a link to the AWS documentation page. No text is copied from the AWS documentation or from the ASL specification.
 - All committed test data uses an invented English domain (a film archive that takes in batches of reels). A private definition from a closed-source project lies git-excluded in the repository root. Never commit it, never copy names or comments from it, never name it in committed files.
 - The repository is hosted at github.com/saigyo/aslan. A GitHub Actions workflow builds and tests every push to `main` and every pull request. Every test must pass on the runner as well as locally, so no test may depend on files outside the repository. Pushing is always the human partner's decision.
+- Every commit message ends with a `Co-Authored-By` trailer that names the Claude model that made the commit, in the form `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>`. Use your own model's name: an implementer running on a different model writes that model's name, not the one in this example. The commit commands in this plan carry the trailer as a second `-m` argument with the placeholder `<your model name>`; replace the placeholder. A commit without the trailer is not finished: amend it before moving on.
 - Message wording, icons and exact colours are the implementer's choice. Tests assert problem identifiers, elements and structure, never message text.
 
 ## Review Focus
@@ -194,7 +195,7 @@ Task 16 adds the feature list once the features exist. Do not describe features 
 
 ```bash
 git add .gitignore .github README.md settings.gradle.kts build.gradle.kts gradle.properties gradlew gradlew.bat gradle src
-git commit -m "build: scaffold the Aslan plugin project with CI workflow and README"
+git commit -m "build: scaffold the Aslan plugin project with CI workflow and README" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -266,7 +267,7 @@ Expected: 4 tests passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src && git commit -m "feat: recognise ASL files by name, with extra patterns in settings"
+git add src && git commit -m "feat: recognise ASL files by name, with extra patterns in settings" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -427,7 +428,7 @@ Expected: 9 tests passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: format-independent value tree over YAML and JSON"
+git add src && git commit -m "feat: format-independent value tree over YAML and JSON" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -609,7 +610,7 @@ Expected: 9 tests passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: bundled reference data for Amazon States Language"
+git add src && git commit -m "feat: bundled reference data for Amazon States Language" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -785,7 +786,7 @@ Expected: 8 tests passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: typed state machine model with schema index"
+git add src && git commit -m "feat: typed state machine model with schema index" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -885,7 +886,7 @@ Expected: the validator reports the definition as valid. Repeat for the other tw
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/test && git commit -m "test: synthetic film archive definitions as main test data"
+git add src/test && git commit -m "test: synthetic film archive definitions as main test data" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1062,7 +1063,7 @@ Expected: all passed. If a clean definition shows a finding, decide whether the 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src && git commit -m "feat: structure checks reported as errors"
+git add src && git commit -m "feat: structure checks reported as errors" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1121,7 +1122,7 @@ Expected: all passed, including `InspectionsTest` for the clean definitions.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: transition and state name checks"
+git add src && git commit -m "feat: transition and state name checks" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1190,7 +1191,7 @@ Expected: all passed, including the clean definitions.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src && git commit -m "feat: warning checks for probable mistakes"
+git add src && git commit -m "feat: warning checks for probable mistakes" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1290,7 +1291,7 @@ Expected: 13 tests passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src && git commit -m "feat: completion for ASL field names and fixed values"
+git add src && git commit -m "feat: completion for ASL field names and fixed values" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1378,7 +1379,7 @@ Expected: all passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: completion for state types, state names, error names and resources"
+git add src && git commit -m "feat: completion for state types, state names, error names and resources" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1458,7 +1459,7 @@ Expected: 8 tests passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src && git commit -m "feat: quick documentation for ASL fields, state types and values"
+git add src && git commit -m "feat: quick documentation for ASL fields, state types and values" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1595,7 +1596,7 @@ Expected: 10 tests passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: navigation, usages and rename for state names"
+git add src && git commit -m "feat: navigation, usages and rename for state names" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1733,7 +1734,7 @@ Expected: 5 tests passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src && git commit -m "feat: structure view of states by type"
+git add src && git commit -m "feat: structure view of states by type" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1833,7 +1834,7 @@ Expected: 5 tests passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src && git commit -m "feat: semantic highlighting and placeholder support"
+git add src && git commit -m "feat: semantic highlighting and placeholder support" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1884,7 +1885,7 @@ Expected: `BUILD SUCCESSFUL`; the verifier reports the plugin as compatible with
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md NOTICE src && git commit -m "docs: README, notice and plugin description for stage 1"
+git add README.md NOTICE src && git commit -m "docs: README, notice and plugin description for stage 1" -m "Co-Authored-By: <your model name> <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 6: Confirm the CI run**
