@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aslan design mockup</title>
+<style>
+  body { margin:0; padding:24px 16px 48px; background:#f5f5f7; color:#1d1d1f; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.5; }
+  main { max-width:1280px; margin:0 auto; }
+  h1 { font-size:1.4rem; margin:0 0 .25rem; }
+  h2 { font-size:1.05rem; margin:2rem 0 .5rem; }
+  p.lead { color:#5f6065; margin:0 0 1rem; }
+  ol { padding-left:1.25rem; } li { margin-bottom:.35rem; }
+  code { font-family:"JetBrains Mono",Menlo,Consolas,monospace; font-size:.9em; }
+  @media (prefers-color-scheme: dark) { body { background:#1d1d1f; color:#f5f5f7; } p.lead { color:#a1a1a6; } }
+
+  .ide { background:#1e1f22; color:#bcbec4; border:1px solid #393b40; border-radius:8px; overflow:hidden; font-size:12px; line-height:1.4; }
+  .ide-bar { display:flex; align-items:center; justify-content:space-between; background:#2b2d30; border-bottom:1px solid #393b40; padding:6px 10px; }
+  .ide-tab { color:#dfe1e5; border-bottom:2px solid #3574f0; padding:2px 4px 4px; }
+  .seg span { display:inline-block; padding:2px 8px; border:1px solid #43454a; color:#9da0a8; margin-left:-1px; }
+  .seg span:first-child { border-radius:4px 0 0 4px; margin-left:0; }
+  .seg span:last-child { border-radius:0 4px 4px 0; }
+  .seg span.on { background:#3574f0; border-color:#3574f0; color:#fff; }
+  .ide-grid { display:grid; grid-template-columns:190px minmax(0,1.15fr) minmax(0,1fr); }
+  .ide-pane { border-right:1px solid #393b40; min-width:0; }
+  .ide-pane:last-child { border-right:0; }
+  .pane-title { color:#9da0a8; font-size:10px; text-transform:uppercase; letter-spacing:.06em; padding:8px 10px 4px; }
+  .tree { padding:0 6px 10px; line-height:1.75; white-space:nowrap; overflow:hidden; }
+  .tree div { padding:0 4px; border-radius:3px; overflow:hidden; text-overflow:ellipsis; }
+  .tree .sel { background:#2e436e; color:#fff; }
+  .tree .sub { padding-left:22px; color:#9da0a8; }
+  .tree .sub2 { padding-left:22px; }
+  .tree i { font-style:normal; color:#7a7e85; font-size:10px; margin-left:4px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
+  .t-task { background:#56a8f5; } .t-choice { background:#e0a84e; } .t-pass { background:#8a8d93; }
+  .t-map { background:#6aab73; } .t-par { background:#c77dbb; } .t-end { background:#db5c5c; }
+  .code { font-family:"JetBrains Mono",Menlo,Consolas,monospace; font-size:11px; line-height:1.65; padding:8px 0; white-space:pre; overflow:hidden; }
+  .code .ln { display:inline-block; width:34px; text-align:right; margin-right:12px; color:#4b5059; }
+  .code .cur { background:#26282e; display:block; }
+  .c { color:#7a7e85; } .k { color:#cf8e6d; } .sn { color:#dfe1e5; font-weight:600; }
+  .str { color:#6aab73; } .al { color:#2aacb8; }
+  .jx { background:rgba(86,168,245,.09); border-radius:2px; }
+  .jd { color:#7a7e85; }
+  .v { color:#c77dbb; } .bi { color:#c77dbb; font-style:italic; }
+  .hl { background:#3b4a3a; outline:1px solid #5a7a57; border-radius:2px; }
+  .ph { color:#e0a84e; background:rgba(224,168,78,.12); border-radius:2px; }
+  .ref { color:#56a8f5; text-decoration:underline dotted; }
+  .caret { border-left:2px solid #dfe1e5; margin-left:-1px; }
+  .dg-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 10px; border-bottom:1px solid #393b40; font-size:11px; color:#9da0a8; }
+  .dg-bar .seg span { padding:1px 7px; }
+  .diagram { padding:6px 8px 0; }
+  .diagram svg { width:100%; height:auto; display:block; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 14px; padding:4px 10px 8px; color:#9da0a8; font-size:10px; }
+  .inspector { border-top:1px solid #393b40; padding:0 10px 10px; }
+  .inspector .head { display:flex; justify-content:space-between; color:#dfe1e5; padding:7px 0 5px; font-weight:600; }
+  .inspector .head span { color:#9da0a8; font-weight:400; }
+  .inspector table { border-collapse:collapse; width:100%; font-size:11px; }
+  .inspector td { padding:2px 0; vertical-align:top; }
+  .inspector td:first-child { color:#9da0a8; width:70px; }
+  .inspector.closed { padding-bottom:0; }
+  .single { max-width:520px; }
+  @media (max-width:900px) { .ide-grid { grid-template-columns:1fr; } .ide-pane { border-right:0; border-bottom:1px solid #393b40; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Aslan design mockup</h1>
+<p class="lead">Belongs to the design of 2026-11-13, section 6.5. All names are invented. The pictures fix the arrangement and behaviour; exact colours, icons and spacing are left to the builder.</p>
+
+<h2>Figure 1: structure view, editor and diagram, with a state selected</h2>
+<div class="ide">
+  <div class="ide-bar">
+    <span class="ide-tab">intake.asl.yaml</span>
+    <span class="seg"><span>Editor</span><span class="on">Split</span><span>Diagram</span></span>
+  </div>
+  <div class="ide-grid">
+
+    <div class="ide-pane">
+      <div class="pane-title">Structure</div>
+      <div class="tree">
+        <div><span class="dot t-pass"></span>Prepare<i>Pass</i></div>
+        <div><span class="dot t-choice"></span>CheckKey<i>Choice</i></div>
+        <div><span class="dot t-task"></span>AcquireLock<i>Task</i></div>
+        <div><span class="dot t-task"></span>SplitBatch<i>Task</i></div>
+        <div><span class="dot t-choice"></span>InspectManifest<i>Choice</i></div>
+        <div class="sel"><span class="dot t-task"></span>ListReelFolder<i>Task</i></div>
+        <div class="sub">Assign hasCatalogCopy</div>
+        <div class="sub">Assign hasSeal</div>
+        <div class="sub">Catch States.ALL</div>
+        <div><span class="dot t-choice"></span>CheckFolder<i>Choice</i></div>
+        <div><span class="dot t-task"></span>LoadEarlierCatalog<i>Task</i></div>
+        <div>…</div>
+        <div><span class="dot t-map"></span>ValidateReels<i>Map</i></div>
+        <div class="sub2"><span class="dot t-task"></span>ValidateReel<i>Task</i></div>
+        <div class="sub2"><span class="dot t-pass"></span>ReelFault<i>Pass</i></div>
+        <div>…</div>
+        <div><span class="dot t-par"></span>ReportIncident<i>Parallel</i></div>
+        <div><span class="dot t-end"></span>Failed<i>Fail</i></div>
+      </div>
+    </div>
+
+    <div class="ide-pane">
+      <div class="code"><span class="ln">148</span>  <span class="c"># Step 3: look for the catalog copy and the seal of an earlier batch with this ID.</span>
+<span class="ln">149</span>  <span class="sn">ListReelFolder</span>:
+<span class="ln">150</span>    <span class="k">Type</span>: Task
+<span class="ln">151</span>    <span class="k">Resource</span>: arn:aws:states:::aws-sdk:s3:listObjectsV2
+<span class="ln">152</span>    <span class="k">Arguments</span>:
+<span class="ln">153</span>      Bucket: <span class="ph">${ArchiveBucket}</span>
+<span class="cur"><span class="ln">154</span>      Prefix: '<span class="jx"><span class="jd">{%</span> <span class="str">"batches/"</span> &amp; <span class="v hl">$ba<span class="caret"></span>tch</span>.batchId &amp; <span class="str">"/"</span> <span class="jd">%}</span></span>'</span><span class="ln">155</span>    <span class="k">Assign</span>:
+<span class="ln">156</span>      hasCatalogCopy: &gt;-
+<span class="ln">157</span>        <span class="jx"><span class="jd">{%</span> (<span class="str">"batches/"</span> &amp; <span class="v hl">$batch</span>.batchId &amp; <span class="str">"/catalog.json"</span>) <span class="k">in</span> <span class="bi">$states</span>.result.Contents.Key <span class="jd">%}</span></span>
+<span class="ln">158</span>      hasSeal: &gt;-
+<span class="ln">159</span>        <span class="jx"><span class="jd">{%</span> (<span class="str">"batches/"</span> &amp; <span class="v hl">$batch</span>.batchId &amp; <span class="str">"/sealed.json"</span>) <span class="k">in</span> <span class="bi">$states</span>.result.Contents.Key <span class="jd">%}</span></span>
+<span class="ln">160</span>    <span class="k">Retry</span>: [<span class="al">*noRetry</span>, <span class="al">*retryAll</span>]
+<span class="ln">161</span>    <span class="k">Catch</span>:
+<span class="ln">162</span>      - <span class="k">ErrorEquals</span>:
+<span class="ln">163</span>          - States.ALL
+<span class="ln">164</span>        <span class="k">Assign</span>:
+<span class="ln">165</span>          fault: '<span class="jx"><span class="jd">{%</span> {<span class="str">"step"</span>: <span class="str">"ListReelFolder"</span>, <span class="str">"error"</span>: <span class="bi">$states</span>.errorOutput.Error, <span class="str">"cause"</span>: <span class="bi">$states</span>.errorOutput.Cause} <span class="jd">%}</span></span>'
+<span class="ln">166</span>        <span class="k">Next</span>: <span class="ref">ClassifyFault</span>
+<span class="ln">167</span>    <span class="k">Next</span>: <span class="ref">CheckFolder</span>
+<span class="ln">168</span>
+<span class="ln">169</span>  <span class="sn">CheckFolder</span>:
+<span class="ln">170</span>    <span class="k">Type</span>: Choice
+<span class="ln">171</span>    <span class="k">Choices</span>:
+<span class="ln">172</span>      - <span class="k">Condition</span>: '<span class="jx"><span class="jd">{%</span> <span class="v">$hasCatalogCopy</span> <span class="jd">%}</span></span>'
+<span class="ln">173</span>        <span class="k">Next</span>: <span class="ref">LoadEarlierCatalog</span>
+<span class="ln">174</span>    <span class="k">Default</span>: <span class="ref">ReadShelfIndex</span></div>
+    </div>
+
+    <div class="ide-pane">
+      <div class="dg-bar">
+        <span>Catch paths <span class="seg"><span class="on">Normal</span><span>Muted</span><span>Hidden</span></span></span>
+        <span class="seg"><span>−</span><span>+</span><span>Fit</span></span>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 634 545" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a8d93"/></marker>
+            <marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#db5c5c"/></marker>
+          </defs>
+          <g fill="none" stroke="#8a8d93" stroke-width="1.4" marker-end="url(#ah)">
+            <path d="M324,56 V110"/>
+            <path d="M229,36 H8 V506 H24"/>
+            <path d="M419,36 H559 V298"/>
+            <path d="M324,150 V204"/>
+            <path d="M229,224 H119 V298"/>
+            <path d="M324,244 V486"/>
+            <path d="M119,338 V392"/>
+            <path d="M214,412 H274 V486"/>
+            <path d="M119,432 V486"/>
+          </g>
+          <g fill="none" stroke="#db5c5c" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahc)">
+            <path d="M419,130 H499 V298"/>
+            <path d="M214,318 H434"/>
+          </g>
+          <g font-size="10" fill="#9da0a8" style="paint-order:stroke" stroke="#1e1f22" stroke-width="5" stroke-linejoin="round">
+            <text x="330" y="87">status = "split"</text>
+            <text x="119" y="30" text-anchor="middle">status = "rejected"</text>
+            <text x="489" y="30" text-anchor="middle">Default</text>
+            <text x="119" y="268" text-anchor="middle">$hasCatalogCopy</text>
+            <text x="330" y="372">Default</text>
+            <text x="220" y="406">Rule 1</text>
+            <text x="125" y="464">Default</text>
+            <text x="459" y="124" text-anchor="middle" fill="#db5c5c">Catch</text>
+            <text x="379" y="312" text-anchor="middle" fill="#db5c5c">Catch</text>
+          </g>
+          <g font-size="11">
+            <g><rect x="229" y="16" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="16" width="5" height="40" rx="2" fill="#e0a84e"/><text x="242" y="33" fill="#dfe1e5" font-weight="600">InspectManifest</text><text x="242" y="47" fill="#9da0a8" font-size="9">Choice</text></g>
+            <g><rect x="229" y="110" width="190" height="40" rx="6" fill="#2e436e" stroke="#3574f0" stroke-width="2"/><rect x="229" y="110" width="5" height="40" rx="2" fill="#56a8f5"/><text x="242" y="127" fill="#fff" font-weight="600">ListReelFolder</text><text x="242" y="141" fill="#c3cde0" font-size="9">Task · S3 listObjectsV2</text></g>
+            <g><rect x="229" y="204" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="204" width="5" height="40" rx="2" fill="#e0a84e"/><text x="242" y="221" fill="#dfe1e5" font-weight="600">CheckFolder</text><text x="242" y="235" fill="#9da0a8" font-size="9">Choice</text></g>
+            <g><rect x="24" y="298" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="24" y="298" width="5" height="40" rx="2" fill="#56a8f5"/><text x="37" y="315" fill="#dfe1e5" font-weight="600">LoadEarlierCatalog</text><text x="37" y="329" fill="#9da0a8" font-size="9">Task · S3 getObject</text></g>
+            <g><rect x="24" y="392" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="24" y="392" width="5" height="40" rx="2" fill="#e0a84e"/><text x="37" y="409" fill="#dfe1e5" font-weight="600">CompareCatalogs</text><text x="37" y="423" fill="#9da0a8" font-size="9">Choice</text></g>
+            <g><rect x="24" y="486" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="24" y="486" width="5" height="40" rx="2" fill="#56a8f5"/><text x="37" y="503" fill="#dfe1e5" font-weight="600">WriteRejectionLog</text><text x="37" y="517" fill="#9da0a8" font-size="9">Task · Lambda invoke</text></g>
+            <g><rect x="229" y="486" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="486" width="5" height="40" rx="2" fill="#56a8f5"/><text x="242" y="503" fill="#dfe1e5" font-weight="600">ReadShelfIndex</text><text x="242" y="517" fill="#9da0a8" font-size="9">Task · DynamoDB batchGetItem</text></g>
+            <g><rect x="434" y="298" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="434" y="298" width="5" height="40" rx="2" fill="#e0a84e"/><text x="447" y="315" fill="#dfe1e5" font-weight="600">ClassifyFault</text><text x="447" y="329" fill="#9da0a8" font-size="9">Choice</text></g>
+          </g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><span class="dot t-task"></span>Task</span>
+        <span><span class="dot t-choice"></span>Choice</span>
+        <span><span class="dot t-pass"></span>Pass</span>
+        <span><span class="dot t-map"></span>Map</span>
+        <span><span class="dot t-par"></span>Parallel</span>
+        <span style="color:#db5c5c">- - - Catch</span>
+      </div>
+      <div class="inspector">
+        <div class="head">ListReelFolder <span>▾ collapse</span></div>
+        <table>
+          <tr><td>Type</td><td>Task</td></tr>
+          <tr><td>Resource</td><td>aws-sdk:s3:listObjectsV2</td></tr>
+          <tr><td>Reads</td><td><span class="v">$batch</span></td></tr>
+          <tr><td>Assigns</td><td><span class="v">$hasCatalogCopy</span>, <span class="v">$hasSeal</span></td></tr>
+          <tr><td>Retry</td><td>noRetry, retryAll</td></tr>
+          <tr><td>Catch</td><td>States.ALL → <span class="ref">ClassifyFault</span></td></tr>
+          <tr><td>Next</td><td><span class="ref">CheckFolder</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ol>
+  <li><strong>One selection, three views.</strong> The caret is inside <code>ListReelFolder</code>, so that state is selected in the structure view and in the diagram. Clicking a node or a structure entry moves the caret instead.</li>
+  <li><strong>JSONata reads as code.</strong> Expressions have a faint background. Strings, operators, variables and the built-in <code>$states</code> each have a colour.</li>
+  <li><strong>Variable highlighting.</strong> The caret is on <code>$batch</code>, so its occurrences are marked.</li>
+  <li><strong>Placeholders and state references stand out.</strong> <code>${ArchiveBucket}</code> has its own colour, and transition targets are links.</li>
+  <li><strong>Diagram toolbar.</strong> A three-way switch for catch paths, and zoom controls.</li>
+  <li><strong>Details panel.</strong> Read-only facts about the selected state, with a control to collapse it.</li>
+</ol>
+
+<h2>Figure 2: diagram pane with a path selected, catch paths muted, details collapsed</h2>
+<div class="ide single">
+  <div class="dg-bar">
+    <span>Catch paths <span class="seg"><span>Normal</span><span class="on">Muted</span><span>Hidden</span></span></span>
+    <span class="seg"><span>−</span><span>+</span><span>Fit</span></span>
+  </div>
+  <div class="diagram">
+    <svg viewBox="0 0 634 545" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a8d93"/></marker>
+        <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#55585e"/></marker>
+        <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5a9bff"/></marker>
+      </defs>
+      <g fill="none" stroke="#8a8d93" stroke-width="1.4" marker-end="url(#ah2)">
+        <path d="M324,56 V110"/>
+        <path d="M229,36 H8 V506 H24"/>
+        <path d="M419,36 H559 V298"/>
+        <path d="M324,150 V204"/>
+        <path d="M324,244 V486"/>
+        <path d="M119,338 V392"/>
+        <path d="M214,412 H274 V486"/>
+        <path d="M119,432 V486"/>
+      </g>
+      <g fill="none" stroke="#55585e" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ahm)">
+        <path d="M419,130 H499 V298"/>
+        <path d="M214,318 H434"/>
+      </g>
+      <path d="M229,224 H119 V298" fill="none" stroke="#5a9bff" stroke-width="2.8" marker-end="url(#ahs)"/>
+      <g font-size="10" fill="#9da0a8" style="paint-order:stroke" stroke="#1e1f22" stroke-width="5" stroke-linejoin="round">
+        <text x="330" y="87">status = "split"</text>
+        <text x="119" y="30" text-anchor="middle">status = "rejected"</text>
+        <text x="489" y="30" text-anchor="middle">Default</text>
+        <text x="119" y="268" text-anchor="middle" fill="#fff" font-weight="600">$hasCatalogCopy</text>
+        <text x="330" y="372">Default</text>
+        <text x="220" y="406">Rule 1</text>
+        <text x="125" y="464">Default</text>
+        <text x="459" y="124" text-anchor="middle" fill="#55585e">Catch</text>
+        <text x="379" y="312" text-anchor="middle" fill="#55585e">Catch</text>
+      </g>
+      <g font-size="11">
+        <g><rect x="229" y="16" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="16" width="5" height="40" rx="2" fill="#e0a84e"/><text x="242" y="33" fill="#dfe1e5" font-weight="600">InspectManifest</text><text x="242" y="47" fill="#9da0a8" font-size="9">Choice</text></g>
+        <g><rect x="229" y="110" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="110" width="5" height="40" rx="2" fill="#56a8f5"/><text x="242" y="127" fill="#dfe1e5" font-weight="600">ListReelFolder</text><text x="242" y="141" fill="#9da0a8" font-size="9">Task · S3 listObjectsV2</text></g>
+        <g><rect x="225" y="200" width="198" height="48" rx="9" fill="none" stroke="#5a9bff" stroke-opacity=".4" stroke-width="4"/><rect x="229" y="204" width="190" height="40" rx="6" fill="#2b2d30" stroke="#5a9bff" stroke-width="2"/><rect x="229" y="204" width="5" height="40" rx="2" fill="#e0a84e"/><text x="242" y="221" fill="#fff" font-weight="600">CheckFolder</text><text x="242" y="235" fill="#9da0a8" font-size="9">Choice</text></g>
+        <g><rect x="20" y="294" width="198" height="48" rx="9" fill="none" stroke="#5a9bff" stroke-opacity=".4" stroke-width="4"/><rect x="24" y="298" width="190" height="40" rx="6" fill="#2b2d30" stroke="#5a9bff" stroke-width="2"/><rect x="24" y="298" width="5" height="40" rx="2" fill="#56a8f5"/><text x="37" y="315" fill="#fff" font-weight="600">LoadEarlierCatalog</text><text x="37" y="329" fill="#9da0a8" font-size="9">Task · S3 getObject</text></g>
+        <g><rect x="24" y="392" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="24" y="392" width="5" height="40" rx="2" fill="#e0a84e"/><text x="37" y="409" fill="#dfe1e5" font-weight="600">CompareCatalogs</text><text x="37" y="423" fill="#9da0a8" font-size="9">Choice</text></g>
+        <g><rect x="24" y="486" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="24" y="486" width="5" height="40" rx="2" fill="#56a8f5"/><text x="37" y="503" fill="#dfe1e5" font-weight="600">WriteRejectionLog</text><text x="37" y="517" fill="#9da0a8" font-size="9">Task · Lambda invoke</text></g>
+        <g><rect x="229" y="486" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="229" y="486" width="5" height="40" rx="2" fill="#56a8f5"/><text x="242" y="503" fill="#dfe1e5" font-weight="600">ReadShelfIndex</text><text x="242" y="517" fill="#9da0a8" font-size="9">Task · DynamoDB batchGetItem</text></g>
+        <g><rect x="434" y="298" width="190" height="40" rx="6" fill="#2b2d30" stroke="#4e5157"/><rect x="434" y="298" width="5" height="40" rx="2" fill="#e0a84e"/><text x="447" y="315" fill="#dfe1e5" font-weight="600">ClassifyFault</text><text x="447" y="329" fill="#9da0a8" font-size="9">Choice</text></g>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <span><span class="dot t-task"></span>Task</span>
+    <span><span class="dot t-choice"></span>Choice</span>
+    <span><span class="dot t-pass"></span>Pass</span>
+    <span><span class="dot t-map"></span>Map</span>
+    <span><span class="dot t-par"></span>Parallel</span>
+    <span style="color:#55585e">- - - Catch</span>
+  </div>
+  <div class="inspector closed">
+    <div class="head">Details <span>▸ expand</span></div>
+  </div>
+</div>
+
+<ol>
+  <li><strong>Selected path.</strong> The path from <code>CheckFolder</code> to <code>LoadEarlierCatalog</code> is selected. The path is emphasised and both states it connects get a highlighted outline. No state is selected.</li>
+  <li><strong>Muted catch paths.</strong> With the switch on "Muted", catch paths and their labels are drawn faintly. On "Hidden" they are not drawn at all.</li>
+  <li><strong>Collapsed details.</strong> The details panel is reduced to its header, and the diagram uses the freed space.</li>
+</ol>
+</main>
+</body>
+</html>
