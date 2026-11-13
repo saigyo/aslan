@@ -20,6 +20,7 @@
 - A problem is an **error** only if AWS documents that it rejects the definition at deployment. Everything else is a **warning** at most. Placeholders (`${name}`), YAML anchors, aliases and merge keys, and anything inside free-form data are never reported.
 - Descriptions of ASL fields are written in the plugin's own words with a link to the AWS documentation page. No text is copied from the AWS documentation or from the ASL specification.
 - All committed test data uses an invented English domain (a film archive that takes in batches of reels). A private definition from a closed-source project lies git-excluded in the repository root. Never commit it, never copy names or comments from it, never name it in committed files.
+- The repository is hosted at github.com/saigyo/aslan. A GitHub Actions workflow builds and tests every push to `main` and every pull request. Every test must pass on the runner as well as locally, so no test may depend on files outside the repository. Pushing is always the human partner's decision.
 - Message wording, icons and exact colours are the implementer's choice. Tests assert problem identifiers, elements and structure, never message text.
 
 ## Review Focus
@@ -39,6 +40,8 @@ All paths are under `src/main/kotlin/io/github/saigyo/aslan/` unless they start 
 | Path | Responsibility |
 |---|---|
 | `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, `src/main/resources/META-INF/plugin.xml` | Build and plugin descriptor |
+| `.github/workflows/build.yml` | CI: test, build and compatibility check on pushes to `main` and on pull requests |
+| `README.md`, `NOTICE` | Project introduction, status, build instructions; licence notice |
 | `files/AslFiles.kt` | Decides whether a file is an ASL file |
 | `settings/AslSettings.kt`, `settings/AslConfigurable.kt` | Extra file name patterns, settings page |
 | `tree/AslNode.kt` | Format-independent value tree types |
@@ -65,10 +68,10 @@ All paths are under `src/main/kotlin/io/github/saigyo/aslan/` unless they start 
 
 ---
 
-### Task 1: Build scaffold and plugin descriptor
+### Task 1: Build scaffold, plugin descriptor, CI workflow and README
 
 **Files:**
-- Create: `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`, `gradle/wrapper/*`, `src/main/resources/META-INF/plugin.xml`
+- Create: `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`, `gradle/wrapper/*`, `src/main/resources/META-INF/plugin.xml`, `.github/workflows/build.yml`, `README.md`
 - Modify: `.gitignore`
 - Test: `src/test/kotlin/io/github/saigyo/aslan/AslTestCase.kt`, `src/test/kotlin/io/github/saigyo/aslan/PluginLoadsTest.kt`
 
@@ -108,11 +111,90 @@ class PluginLoadsTest : AslTestCase() {
 Run: `./gradlew test --tests "io.github.saigyo.aslan.PluginLoadsTest"`
 Expected: `BUILD SUCCESSFUL`, 1 test passed. Then run `./gradlew buildPlugin` and expect `build/distributions/aslan-0.1.0.zip`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Write the CI workflow `.github/workflows/build.yml`**
+
+```yaml
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew check buildPlugin
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports
+          path: build/reports/tests
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plugin-distribution
+          path: build/distributions/*.zip
+
+  verify:
+    name: Verify IDE compatibility
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew verifyPlugin
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: plugin-verifier-reports
+          path: build/reports/pluginVerifier
+```
+
+The workflow runs on every push to `main` and on every pull request. It needs no secrets. The private file test finds nothing on the runner and passes. If the verify job later fails for lack of disk space, add the `jlumbroso/free-disk-space@v2.0.0` step that the official template uses before checkout.
+
+- [ ] **Step 7: Check the workflow file**
+
+Run: `python3 -c 'import yaml,sys; d=yaml.safe_load(open(".github/workflows/build.yml")); print(sorted(d["jobs"]))'`
+Expected: `['test', 'verify']`. If `actionlint` is installed, also run `actionlint .github/workflows/build.yml` and expect no output. The first real run happens when the branch is pushed; pushing is the human partner's decision (see Task 16).
+
+- [ ] **Step 8: Write the first `README.md`**
+
+Sections, in this order:
+
+1. Title `Aslan` and one sentence: editor support for Amazon States Language (AWS Step Functions) definitions in JetBrains IDEs.
+2. The build badge: `[![Build](https://github.com/saigyo/aslan/actions/workflows/build.yml/badge.svg)](https://github.com/saigyo/aslan/actions/workflows/build.yml)`.
+3. **Status**: in development, not yet published; stage 1 of 4 (ASL-aware editing) in progress; the other stages are JSONata support, variable navigation and a live diagram.
+4. **Requirements**: IntelliJ IDEA or another JetBrains IDE with YAML support, version 2026.2 or newer; Java 25 to build.
+5. **Building**: `./gradlew test` (tests), `./gradlew buildPlugin` (plugin zip in `build/distributions`), `./gradlew runIde` (sandbox IDE with the plugin), `./gradlew verifyPlugin` (compatibility check).
+6. **Design**: links to the design document and the plans under `docs/superpowers/`.
+7. **Licence**: Apache-2.0.
+
+Task 16 adds the feature list once the features exist. Do not describe features that are not built yet as available.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add .gitignore settings.gradle.kts build.gradle.kts gradle.properties gradlew gradlew.bat gradle src
-git commit -m "build: scaffold the Aslan plugin project"
+git add .gitignore .github README.md settings.gradle.kts build.gradle.kts gradle.properties gradlew gradlew.bat gradle src
+git commit -m "build: scaffold the Aslan plugin project with CI workflow and README"
 ```
 
 ---
@@ -1759,8 +1841,8 @@ git add src && git commit -m "feat: semantic highlighting and placeholder suppor
 ### Task 16: Private file check, compatibility and hand-over
 
 **Files:**
-- Create: `README.md`, `NOTICE`
-- Modify: `src/main/resources/META-INF/plugin.xml`
+- Create: `NOTICE`
+- Modify: `README.md`, `src/main/resources/META-INF/plugin.xml`
 - Test: `src/test/kotlin/io/github/saigyo/aslan/fixtures/PrivateFilesTest.kt`
 
 **Interfaces:**
@@ -1795,9 +1877,9 @@ Expected: PASS. The test output says so when no private definition was found; re
 Run: `./gradlew test verifyPlugin buildPlugin`
 Expected: `BUILD SUCCESSFUL`; the verifier reports the plugin as compatible with 2026.2.3 and 2026.3, with no "deprecated API" finding for the documentation provider. If it reports one, apply the fallback named in Task 12.
 
-- [ ] **Step 4: Write `README.md`, `NOTICE` and the plugin description**
+- [ ] **Step 4: Complete `README.md`, write `NOTICE` and the plugin description**
 
-`README.md`: what the plugin does today (stage 1 features), which files it recognises and how to add patterns, how to build, test and run it (`./gradlew test`, `./gradlew runIde`), how to run the private file check, and the planned stages. `NOTICE`: the plugin's name and licence, and a line that the field descriptions are original and link to the AWS documentation. Update the `<description>` in `plugin.xml` to list the stage 1 features.
+`README.md`: after the badge, add a **Features** section listing what stage 1 provides (completion, validation with the error and warning policy in two sentences, quick documentation, state-name navigation and rename, structure view, highlighting, placeholders), and a **Recognised files** section (the three name suffixes and where to add patterns in settings). Add to **Building** how to run the private file check (`-Paslan.privateFixtures=<directory>`, or a git-ignored `private-fixtures/` directory). Update **Status** to say stage 1 is complete. `NOTICE`: the plugin's name and licence, and a line that the field descriptions are original and link to the AWS documentation. Update the `<description>` in `plugin.xml` to list the stage 1 features.
 
 - [ ] **Step 5: Commit**
 
@@ -1805,7 +1887,11 @@ Expected: `BUILD SUCCESSFUL`; the verifier reports the plugin as compatible with
 git add README.md NOTICE src && git commit -m "docs: README, notice and plugin description for stage 1"
 ```
 
-- [ ] **Step 6: Hand the manual check to the human partner**
+- [ ] **Step 6: Confirm the CI run**
+
+Ask the human partner before pushing. Once the branch is pushed or a pull request is open, run `gh run list --workflow build.yml --limit 1` and expect the latest run to have conclusion `success`. On a failure, read the log with `gh run view --log-failed`, fix the cause, and repeat. A failure that appears only on the runner (for example a test that depends on the local machine) is a defect to fix, not to skip.
+
+- [ ] **Step 7: Hand the manual check to the human partner**
 
 Automated tests cannot cover editor behaviour fully. Report that the stage is ready for a manual check and give this list. Start with `./gradlew runIde`, open `src/test/testData/clean/film-archive-intake.asl.yaml` in the sandbox IDE, then:
 
