@@ -19,30 +19,30 @@ class FixtureShapeTest : AslTestCase() {
         val file = load("film-archive-intake.asl.yaml")
         val text = file.text
         val doc = AslModel.of(file)!!
-        assertTrue(text.lines().size > 1000)
-        assertTrue(doc.allStates().size >= 40)
-        assertEquals(setOf("Task", "Pass", "Choice", "Wait", "Succeed", "Fail", "Parallel", "Map"), doc.allStates().mapNotNull { it.typeName }.toSet())
-        assertTrue(doc.allStates().any { it.typeName == "Map" && it.children.single().states.size >= 2 })
-        assertTrue(doc.allStates().any { it.typeName == "Parallel" && it.children.size == 2 })
-        assertTrue(Regex("""\*\w+""").findAll(text).count() >= 20)
-        assertTrue(Regex("""^\s+\$\{\w+}:""", RegexOption.MULTILINE).containsMatchIn(text))        // placeholder as key
-        assertTrue(Regex(""""[^"\n]*\$\{\w+}[^"\n]*"""").containsMatchIn(text))                     // inside a JSONata string
-        assertTrue(listOf(": >-", ": |-", ": '{%", ": \"{%").all { it in text })
+        assertTrue("intake has more than 1,000 lines", text.lines().size > 1000)
+        assertTrue("intake has at least 40 states", doc.allStates().size >= 40)
+        assertEquals("intake uses all eight state types", setOf("Task", "Pass", "Choice", "Wait", "Succeed", "Fail", "Parallel", "Map"), doc.allStates().mapNotNull { it.typeName }.toSet())
+        assertTrue("intake has a Map with an inline processor of at least two states", doc.allStates().any { it.typeName == "Map" && it.children.single().states.size >= 2 })
+        assertTrue("intake has a Parallel state with two branches", doc.allStates().any { it.typeName == "Parallel" && it.children.size == 2 })
+        assertTrue("intake reuses retry rules through at least 20 aliases", Regex("""\*\w+""").findAll(text).count() >= 20)
+        assertTrue("intake has a placeholder as a mapping key", Regex("""^\s+\$\{\w+}:""", RegexOption.MULTILINE).containsMatchIn(text))
+        assertTrue("intake has a placeholder inside a JSONata string literal", Regex(""""[^"\n]*\$\{\w+}[^"\n]*"""").containsMatchIn(text))
+        assertTrue("intake has JSONata in folded, literal, single- and double-quoted scalars", listOf(": >-", ": |-", ": '{%", ": \"{%").all { it in text })
         val assignments = objects(doc.rootNode).flatMap { it.entries }.filter { it.key == "Assign" }
             .flatMap { (it.value as? AslObject)?.entries.orEmpty() }.groupingBy { it.key }.eachCount()
-        assertTrue(assignments.values.max() >= 15)                                                  // one variable assigned in many places
-        assertTrue(doc.root!!.states.maxOf { it.transitions.size } >= 6)                            // the dispatching Choice
-        assertTrue(text.lines().count { it.trimStart().startsWith("#") } >= 30)
+        assertTrue("intake assigns one variable in at least 15 places", assignments.values.max() >= 15)
+        assertTrue("intake has a Choice with at least six transitions", doc.root!!.states.maxOf { it.transitions.size } >= 6)
+        assertTrue("intake has at least 30 comment lines", text.lines().count { it.trimStart().startsWith("#") } >= 30)
     }
 
     fun `test json and jsonpath definitions load`() {
-        assertTrue(AslModel.of(load("reel-check.asl.json"))!!.allStates().size >= 6)
+        assertTrue("reel-check loads with at least 6 states", AslModel.of(load("reel-check.asl.json"))!!.allStates().size >= 6)
         val legacy = AslModel.of(load("legacy-loan.asl.yaml"))!!
-        assertTrue(legacy.allStates().all { it.queryLanguage == QueryLanguage.JSONPATH })
+        assertTrue("every legacy-loan state uses JSONPath", legacy.allStates().all { it.queryLanguage == QueryLanguage.JSONPATH })
     }
 
     fun `test no name from outside the invented domain`() {
         for (name in listOf("film-archive-intake.asl.yaml", "reel-check.asl.json", "legacy-loan.asl.yaml"))
-            assertFalse(Regex("[äöüßÄÖÜ]").containsMatchIn(load(name).text))
+            assertFalse("$name contains no German umlauts or sharp s", Regex("[äöüßÄÖÜ]").containsMatchIn(load(name).text))
     }
 }

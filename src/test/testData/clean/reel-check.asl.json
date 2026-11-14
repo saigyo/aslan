@@ -93,11 +93,20 @@
       "Type": "Choice",
       "Choices": [
         {
+          "Condition": "{% $not($type($measurement.shrinkagePercent) = 'number') %}",
+          "Next": "MeasurementIncomplete"
+        },
+        {
           "Condition": "{% $measurement.shrinkagePercent > 1.2 or $measurement.acidity >= 0.5 or $measurement.shrinkagePercent - $reel.shrinkage > 0.3 %}",
           "Next": "RecordDeterioration"
         }
       ],
       "Default": "RecordCheck"
+    },
+    "MeasurementIncomplete": {
+      "Type": "Fail",
+      "Error": "Archive.MeasurementIncomplete",
+      "Cause": "{% 'The inspector reported no shrinkage for reel ' & $reelId %}"
     },
     "RecordDeterioration": {
       "Type": "Task",
@@ -117,6 +126,25 @@
         }
       },
       "Output": "{% {'reelId': $reelId, 'status': 'repair', 'measurement': $measurement} %}",
+      "Retry": [
+        {
+          "ErrorEquals": ["DynamoDB.ConditionalCheckFailedException", "DynamoDB.ValidationException"],
+          "MaxAttempts": 0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Output": "{% $states.errorOutput %}",
+          "Next": "ReelCheckFailed"
+        }
+      ],
       "Next": "CheckDone"
     },
     "RecordCheck": {
@@ -135,6 +163,25 @@
         }
       },
       "Output": "{% {'reelId': $reelId, 'status': $reel.status, 'measurement': $measurement} %}",
+      "Retry": [
+        {
+          "ErrorEquals": ["DynamoDB.ConditionalCheckFailedException", "DynamoDB.ValidationException"],
+          "MaxAttempts": 0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Output": "{% $states.errorOutput %}",
+          "Next": "ReelCheckFailed"
+        }
+      ],
       "Next": "CheckDone"
     },
     "CheckDone": {

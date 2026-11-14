@@ -8,8 +8,9 @@
 # every reel and has each reel measured. It then writes the catalog in one DynamoDB transaction,
 # stores a catalog copy (and a seal when the depositor marks the delivery as final), publishes
 # events and cleans up. Rejected batches get a rejection notice; faults are filed as incidents.
-# When the catalog write cannot be confirmed either way, the run stops with the lock still held,
-# so nothing touches the batch until someone has reconciled it by hand.
+# When the catalog write cannot be confirmed either way, the run stops without releasing the lock,
+# so no other run touches the batch until the lock expires four days later; that leaves time to
+# reconcile the catalog by hand.
 #
 # Deployment replaces the ${...} placeholders with bucket, table, topic and function names.
 Comment: Takes in a batch of film reels described by a depositor's manifest
@@ -42,6 +43,9 @@ States:
       # catalog write idempotent when it has to be repeated.
       lockToken: '{% $uuid() %}'
       transactionId: '{% $uuid() %}'
+      # Set once when the reels have been measured. Every attempt of the catalog write must send
+      # identical items, or DynamoDB refuses the repeated client request token.
+      catalogStamp: null
       lockHeld: false
       lockAttempts: 0
       manifest: null
@@ -55,12 +59,15 @@ States:
       shelfPages: 0
       route: standard
       reviewDecision: none
+      conservationNotified: false
+      loanDeskNotified: false
       verdicts: []
       catalogWriteAttempts: 0
       catalogConfirmed: false
       rejection: null
       fault: null
-      severity: low
+      # A fault no rule in ClassifyFault recognises is unexpected, and rated medium.
+      severity: medium
       warnings: []
       outcome: pending
     Next: CheckManifestKey
@@ -177,7 +184,52 @@ States:
         Assign:
           fault: '{% {"step": "ReadManifest", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
         Next: ClassifyFault
-    Next: SplitManifest
+    Next: CheckManifestShape
+
+  # Check the types of the manifest's values before SplitManifest works with them. A Pass state
+  # cannot catch errors, so a title that is a number or a length such as "about 900" must be
+  # turned into a rejection here; otherwise $trim or $number would fail the run with the lock taken.
+  CheckManifestShape:
+    Type: Choice
+    Choices:
+      - Condition: '{% $not($type($manifest) = "object") %}'
+        Assign:
+          rejection: '{% {"code": "manifest-unreadable", "reason": "The manifest must be a JSON object"} %}'
+        Next: RejectBatch
+      - Condition: '{% $not($manifest.formatVersion in [2, 3]) %}'
+        Assign:
+          rejection: '{% {"code": "unsupported-format", "reason": "Manifest format " & $string($manifest.formatVersion) & " is not supported"} %}'
+        Next: RejectBatch
+      - Condition: '{% $not($type($manifest.destinationVault) = "string") or $trim($manifest.destinationVault) = "" %}'
+        Assign:
+          rejection: '{% {"code": "no-vault", "reason": "The manifest names no destination vault"} %}'
+        Next: RejectBatch
+      - Condition: '{% $exists($manifest.reels) and $type($manifest.reels) != "array" %}'
+        Assign:
+          rejection: '{% {"code": "malformed-reels", "reason": "The reels of a manifest must be a list"} %}'
+        Next: RejectBatch
+      - Condition: |-
+          {% (
+            /* Absent fields are allowed here; DecideRoute reports them as incomplete. */
+            $isText := function($v) { $not($exists($v)) or $type($v) = "string" };
+            $isCount := function($v) {
+              $not($exists($v)) or $type($v) = "number"
+                or ($type($v) = "string" and $contains($v, /^(0|[1-9][0-9]*)$/))
+            };
+            $exists($manifest.reels[
+              $type($) != "object"
+                or $not($isText(reelId) and $isText(title) and $isText(gauge) and $isText(base) and $isText(condition))
+                or $not($isCount(lengthFeet) and $isCount(cans))
+            ])
+          ) %}
+        Assign:
+          rejection: >-
+            {% {
+              "code": "malformed-values",
+              "reason": "Reel fields must be text, and lengthFeet and cans whole numbers"
+            } %}
+        Next: RejectBatch
+    Default: SplitManifest
 
   # Split the manifest into the batch header and a normalised list of reels. Depositors write gauges
   # as "35 mm" or "35mm" and bases in any case; the catalog wants one spelling. Each reel records
@@ -215,16 +267,12 @@ States:
         )] %}
     Next: InspectManifest
 
-  # Reject manifests the rest of the workflow cannot handle. The reel limit keeps the catalog write
+  # Reject manifests whose reels the rest of the workflow cannot handle. The reel limit keeps the catalog write
   # within the 100 items a single DynamoDB transaction allows. Reels without an ID are left to the
   # completeness check in DecideRoute, which names every missing field at once.
   InspectManifest:
     Type: Choice
     Choices:
-      - Condition: '{% $not($manifest.formatVersion in [2, 3]) %}'
-        Assign:
-          rejection: '{% {"code": "unsupported-format", "reason": "Manifest format " & $string($manifest.formatVersion) & " is not supported"} %}'
-        Next: RejectBatch
       - Condition: '{% $count($reels) = 0 %}'
         Assign:
           rejection: '{% {"code": "empty", "reason": "The manifest lists no reels"} %}'
@@ -414,8 +462,9 @@ States:
         ) %}
     Next: DecideRoute
 
-  # Decide which way the batch goes. The routes are exclusive and the first match wins: a revision
-  # that brings nitrate goes to conservation first, whose notice also lists the removed reels.
+  # Decide which way the batch goes. The routes are exclusive and the first match wins. Routes that
+  # end in a notice still owe the other notices: PendingNotices sends whatever is left, so a nitrate
+  # revision tells both conservation and the loan desk, and a reviewed batch is not let off either.
   DecideRoute:
     Type: Pass
     Assign:
@@ -471,6 +520,8 @@ States:
 
   # No shelf fits some reels. A curator assigns shelves in the review tool, which answers with
   # SendTaskSuccess and a decision; silence for three days counts as a rejection.
+  # No retry: a retry would post the review request again and restart the three days, and a
+  # SendTaskFailure from the review tool is meant as final.
   RequestManualReview:
     Type: Task
     Resource: arn:aws:states:::sqs:sendMessage.waitForTaskToken
@@ -498,7 +549,6 @@ States:
           $placed ? $merge([$, {"shelf": $placed.shelfId}]) : $
         )] %}
     Output: '{% {"curator": $states.result.curator, "note": $states.result.note} %}'
-    Retry: [*noRetry, *retryAll]
     Catch:
       - ErrorEquals: [States.Timeout]
         Assign:
@@ -522,6 +572,19 @@ States:
         Assign:
           rejection: '{% {"code": "unplaced", "reason": "The review left reels without a shelf"} %}'
         Next: RejectBatch
+    Default: PendingNotices
+
+  # Send the notices a batch needs and has not had yet. Each notice state marks itself as sent and
+  # comes back here, so whichever route a batch took, it leaves with every notice it owes.
+  PendingNotices:
+    Type: Choice
+    Choices:
+      - Condition: '{% "nitrate" in $reels.base and $not($conservationNotified) %}'
+        Next: NotifyConservation
+      - Condition: >-
+          {% $hasCatalogCopy and $not($loanDeskNotified)
+            and $count($revision.removed) + $count($revision.changed) > 0 %}
+        Next: NotifyLoanDesk
     Default: ValidateReels
 
   # Nitrate is flammable; conservation must know before the cans leave the loading bay.
@@ -536,14 +599,14 @@ States:
           "Batch " & $batch.batchId & " from " & $batch.depositor & " contains nitrate reels.",
           "They are booked into the isolated cold rooms:",
           $reels[base = "nitrate"].("  " & reelId & "  " & title & "  -> " & shelf),
-          $revision and $count($revision.removed) > 0
-            ? "This delivery also withdraws: " & $join($revision.removed, ", "),
           "Please inspect the cans on arrival."
         ], "\n") %}
       MessageAttributes:
         vault:
           DataType: String
           StringValue: '{% $batch.vault %}'
+    Assign:
+      conservationNotified: true
     Output: '{% {"notified": "conservation"} %}'
     Retry: [*noRetry, *retryAll]
     Catch:
@@ -551,7 +614,7 @@ States:
         Assign:
           fault: '{% {"step": "NotifyConservation", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
         Next: ClassifyFault
-    Next: ValidateReels
+    Next: PendingNotices
 
   # A revision withdraws or changes reels that may be out on loan; the loan desk checks its bookings.
   NotifyLoanDesk:
@@ -561,6 +624,8 @@ States:
       TopicArn: ${LoanDeskTopicArn}
       Subject: '{% "Batch " & $batch.batchId & " revised (revision " & $string($revision.number) & ")" %}'
       Message: '{% $string({"batchId": $batch.batchId, "removed": $revision.removed, "changed": $revision.changed}) %}'
+    Assign:
+      loanDeskNotified: true
     Output: '{% {"notified": "loan-desk"} %}'
     Retry:
       - *noRetry
@@ -663,6 +728,7 @@ States:
 
     Assign:
       verdicts: '{% $states.result %}'
+      catalogStamp: '{% $now() %}'
     Output: '{% {"measured": $count($states.result)} %}'
     Catch:
       - ErrorEquals: [States.ALL]
@@ -688,13 +754,15 @@ States:
   # Step 6: write the catalog in one transaction: a summary item for the batch, one item per reel,
   # and a withdrawal for every reel a revision removes. The client request token makes a repeated
   # call with the same transaction ID a no-op, so retries and the re-write after a timeout are safe.
+  # That holds only while every attempt sends the same items, so the expression reads nothing that
+  # changes between attempts: the time stamp comes from $catalogStamp, not from $now().
   WriteCatalogTransaction:
     Type: Task
     Resource: arn:aws:states:::aws-sdk:dynamodb:transactWriteItems
     TimeoutSeconds: 30
     Arguments: |-
       {% (
-        $stamp := $now();
+        $stamp := $catalogStamp;
         $put := function($v) {
           {
             "Put": {
@@ -748,7 +816,12 @@ States:
       catalogConfirmed: true
       outcome: catalogued
     Output: '{% {"transactionId": $transactionId} %}'
-    Retry: [*noRetry, *retryAll]
+    Retry:
+      - *noRetry
+      # These leave the outcome open. They go to the catcher, which looks before writing again.
+      - ErrorEquals: [States.Timeout, DynamoDb.InternalServerErrorException]
+        MaxAttempts: 0
+      - *retryAll
     Catch:
       # After a timeout nobody knows whether the transaction committed. Look before writing again.
       - ErrorEquals: [States.Timeout, DynamoDb.InternalServerErrorException]
@@ -812,7 +885,7 @@ States:
           "depositorId": $batch.depositorId,
           "revision": $revision ? $revision.number : 1,
           "transactionId": $transactionId,
-          "cataloguedAt": $now(),
+          "cataloguedAt": $catalogStamp,
           "reels": [$verdicts.{
             "reelId": reelId, "title": title, "gauge": gauge, "base": base,
             "lengthFeet": lengthFeet, "cans": cans, "condition": condition,
@@ -1020,7 +1093,7 @@ States:
       MessageAttributes:
         depositorId:
           DataType: String
-          StringValue: '{% $exists($batch.depositorId) ? $batch.depositorId : "unknown" %}'
+          StringValue: '{% $exists($batch.depositorId) ? $string($batch.depositorId) : "unknown" %}'
     Retry: [*noRetry, *retryAll]
     Catch:
       - ErrorEquals: [States.ALL]
@@ -1029,8 +1102,10 @@ States:
         Next: ClassifyFault
     Next: CheckLockHeld
 
-  # Incidents: rate the fault before filing it. Permission and expression errors are defects in the
-  # deployment; errors of the services behind the tasks usually pass on their own.
+  # Incidents: rate the fault before filing it; the first matching rule decides. Permission and
+  # expression errors are defects in the deployment. A fault after the catalog write leaves the
+  # catalog and the bucket disagreeing until someone repairs it. Errors of the services behind the
+  # tasks usually pass on their own. Anything else keeps the medium rating set in InitialiseRun.
   ClassifyFault:
     Type: Choice
     Choices:
@@ -1040,7 +1115,7 @@ States:
         Next: ReportIncident
       - Condition: '{% $catalogConfirmed %}'
         Assign:
-          severity: medium
+          severity: high
         Next: ReportIncident
       - Condition: '{% $contains($fault.error, /^(Lambda|DynamoDB|DynamoDb|S3|SNS|SQS)\./) %}'
         Assign:
@@ -1153,7 +1228,8 @@ States:
     Cause: '{% $fault ? $fault.step & ": " & $fault.cause : "The run failed without recording a fault" %}'
 
   # Outcome unknown: the catalog may or may not hold this batch. Page the archive engineers and
-  # stop with the lock held, so no later delivery of the batch runs into a half-known state.
+  # stop without releasing the lock, so no later delivery of the batch runs into a half-known state
+  # before the lock expires four days later.
   ReportOutcomeUnknown:
     Type: Task
     Resource: arn:aws:states:::sns:publish
