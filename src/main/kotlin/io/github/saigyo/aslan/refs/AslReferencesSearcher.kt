@@ -26,7 +26,11 @@ open class AslReferencesSearcher : QueryExecutorBase<PsiReference, ReferencesSea
         }
     }
 
-    /** The references in [document] to [target]; for a state's entry, those of every value that names the state. */
+    /**
+     * The references in [document] to [target]; for a state's entry, those of every value that names the state; for an
+     * assignment entry, every read of the variables it assigns.
+     */
     protected open fun referencesTo(target: PsiElement, document: AslDocument): List<PsiReference> =
-        StateTargets.statesDeclaredBy(document, target).flatMap { StateTargets.referencesTo(document, it) }
+        StateTargets.statesDeclaredBy(document, target).flatMap { StateTargets.referencesTo(document, it) } +
+            AslVariableTargets.variablesAssignedAt(target).flatMap { AslVariableTargets.readReferences(it) }
 }

@@ -15,6 +15,7 @@ import io.github.saigyo.aslan.jsonata.JsonataLanguage
 import io.github.saigyo.aslan.jsonata.parser.JsonataElements
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.jsonata.refs.JsonataVariableReference
+import io.github.saigyo.aslan.refs.AslVariableTargets
 
 open class JsonataElement(node: ASTNode) : ASTWrapperPsiElement(node) {
     /** The child nodes of the tree, without tokens, whitespace, comments and error elements. */
@@ -23,8 +24,9 @@ open class JsonataElement(node: ASTNode) : ASTWrapperPsiElement(node) {
 
 /**
  * A `$name` (`VARIABLE_REF`) or a parameter of a function definition (`PARAMETER`). Its name is the name without `$`;
- * [JsonataScopes] decides whether it is a local variable. Only a local variable that is not its own first declaration
- * has a reference, to that first declaration; the use scope is the file, since every expression is its own world.
+ * [JsonataScopes] decides whether it is a local variable. A local variable that is not its own first declaration has a
+ * reference to that first declaration, and a read of a state machine variable one to its assignments; the use scope is
+ * the file, since every expression is its own world.
  */
 class JsonataVariableRef(node: ASTNode) : JsonataElement(node), PsiNameIdentifierOwner {
     /** The name without the leading `$`, decoded from the host's escapes. */
@@ -42,8 +44,12 @@ class JsonataVariableRef(node: ASTNode) : JsonataElement(node), PsiNameIdentifie
     /** The variable token, `$` included. */
     override fun getNameIdentifier(): PsiElement? = node.findChildByType(JsonataTokens.VARIABLE)?.psi
 
+    /**
+     * A local variable's reference to its first declaration, as above; for a `$name` that is no local variable, the
+     * reference to the assignments of the state machine variable it reads, when the definition has one.
+     */
     override fun getReference(): PsiReference? {
-        val target = JsonataScopes.declarations(this).firstOrNull() ?: return null
+        val target = JsonataScopes.declarations(this).firstOrNull() ?: return AslVariableTargets.readReference(this)
         return if (target === this) null else JsonataVariableReference(this)
     }
 
