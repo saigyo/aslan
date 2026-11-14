@@ -45,12 +45,24 @@ internal object StructureChecks {
      * The query language that applies to a value, whether it is known or decided by a placeholder, and whether the
      * value lies in a state (rather than at the top level of a state machine).
      */
-    private class Context(val ql: QueryLanguage, val known: Boolean, val inState: Boolean) {
+    internal class Context(val ql: QueryLanguage, val known: Boolean, val inState: Boolean) {
         /** Where a `{%` string may stand for any kind of value. */
         val jsonataPossible: Boolean get() = ql == QueryLanguage.JSONATA || !known
 
         /** Where Step Functions evaluates `{%` strings in JSONata fields and free-form data. */
         val evaluatesJsonata: Boolean get() = inState && known && ql == QueryLanguage.JSONATA
+
+        companion object {
+            /** The context of the top level of [root], whose `QueryLanguage` decides that of every state unless it sets its own. */
+            fun topLevel(root: AslStateMachine): Context {
+                val language = root.obj["QueryLanguage"]?.value as? AslScalar
+                val known = language == null || !Placeholders.contains(language.text)
+                val jsonata = language?.type == ScalarType.STRING && language.text == QueryLanguage.JSONATA.text
+                return Context(if (jsonata) QueryLanguage.JSONATA else QueryLanguage.JSONPATH, known, inState = false)
+            }
+
+            fun of(state: AslState) = Context(state.queryLanguage, state.queryLanguageKnown, inState = true)
+        }
     }
 
     private class Walk(val doc: AslDocument, val root: AslStateMachine, val out: MutableList<AslFinding>) {
@@ -59,9 +71,7 @@ internal object StructureChecks {
         private val topLevelJsonata = rootLanguage?.type == ScalarType.STRING && rootLanguage.text == QueryLanguage.JSONATA.text
 
         fun run() {
-            val known = rootLanguage == null || !Placeholders.contains(rootLanguage.text)
-            val ql = if (topLevelJsonata) QueryLanguage.JSONATA else QueryLanguage.JSONPATH
-            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context(ql, known, inState = false), root.obj.anchorPsi)
+            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(root), root.obj.anchorPsi)
         }
 
         private fun report(problem: AslProblem, element: PsiElement, message: String) {
@@ -104,31 +114,27 @@ internal object StructureChecks {
                 if (jsonata && ctx.evaluatesJsonata) unclosed(node)
                 return
             }
+            if (!fitsKind(node, kind, nullable)) {
+                wrongKind(node, expectedText(kind))
+                return
+            }
             when (kind) {
-                is ValueKind.Struct ->
-                    if (node is AslObject) obj(node, AslSpec.structure(kind.id), ctx, anchor) else wrongKind(node, "a mapping")
+                is ValueKind.Struct -> obj(node as AslObject, AslSpec.structure(kind.id), ctx, anchor)
                 is ValueKind.ListOf ->
-                    if (node is AslArray) {
-                        for (item in node.items) value(item, kind.element, false, jsonata, ctx, (item as? AslObject)?.anchorPsi ?: item.psi, owner)
-                    } else {
-                        wrongKind(node, "a list")
-                    }
-                ValueKind.StatesMap ->
-                    if (node is AslObject) machines[owner]?.let(::states) else wrongKind(node, "a mapping of states")
-                ValueKind.ErrorNames -> if (node !is AslArray) wrongKind(node, "a list of error names")
-                else -> scalar(node, kind, nullable)
+                    for (item in (node as AslArray).items) value(item, kind.element, false, jsonata, ctx, (item as? AslObject)?.anchorPsi ?: item.psi, owner)
+                ValueKind.StatesMap -> machines[owner]?.let(::states)
+                else -> {}
             }
         }
 
-        private fun scalar(node: AslNode, kind: ValueKind, nullable: Boolean) {
-            val (expected, what) = when (kind) {
-                ValueKind.Text, ValueKind.StateName, ValueKind.ResourceArn, is ValueKind.OneOf -> ScalarType.STRING to "a string"
-                ValueKind.Integer, ValueKind.Number -> ScalarType.NUMBER to "a number"
-                ValueKind.Bool -> ScalarType.BOOLEAN to "true or false"
-                else -> return
-            }
-            val fits = node is AslScalar && (node.type == expected || (node.type == ScalarType.NULL && nullable))
-            if (!fits) wrongKind(node, what)
+        private fun expectedText(kind: ValueKind): String = when (kind) {
+            is ValueKind.Struct -> "a mapping"
+            is ValueKind.ListOf -> "a list"
+            ValueKind.StatesMap -> "a mapping of states"
+            ValueKind.ErrorNames -> "a list of error names"
+            ValueKind.Integer, ValueKind.Number -> "a number"
+            ValueKind.Bool -> "true or false"
+            else -> "a string"
         }
 
         private fun wrongKind(node: AslNode, expected: String) = report(WRONG_VALUE_KIND, node.psi, "Expected $expected")
@@ -144,7 +150,7 @@ internal object StructureChecks {
                 return
             }
             if (skipped(state)) return
-            val ctx = Context(state.queryLanguage, state.queryLanguageKnown, inState = true)
+            val ctx = Context.of(state)
             val typeEntry = o["Type"]?.takeIf { !it.viaMerge }
             val typeValue = typeEntry?.value as? AslScalar
             if (state.type == null && typeValue != null && typeValue.type == ScalarType.STRING && !typeValue.ambiguous) {
@@ -207,7 +213,23 @@ internal object StructureChecks {
         else -> false
     }
 
-    private fun isJsonata(scalar: AslScalar) = scalar.type == ScalarType.STRING && scalar.text.startsWith("{%")
+    /**
+     * Whether the basic kind of [node] fits [kind]: a mapping for a structure or the states, a list for a list or error
+     * names, and for scalar kinds a scalar of the matching type, or `null` where the field is [nullable].
+     */
+    internal fun fitsKind(node: AslNode, kind: ValueKind, nullable: Boolean): Boolean {
+        val expected = when (kind) {
+            ValueKind.FreeForm -> return true
+            is ValueKind.Struct, ValueKind.StatesMap -> return node is AslObject
+            is ValueKind.ListOf, ValueKind.ErrorNames -> return node is AslArray
+            ValueKind.Text, ValueKind.StateName, ValueKind.ResourceArn, is ValueKind.OneOf -> ScalarType.STRING
+            ValueKind.Integer, ValueKind.Number -> ScalarType.NUMBER
+            ValueKind.Bool -> ScalarType.BOOLEAN
+        }
+        return node is AslScalar && (node.type == expected || (node.type == ScalarType.NULL && nullable))
+    }
+
+    internal fun isJsonata(scalar: AslScalar) = scalar.type == ScalarType.STRING && scalar.text.startsWith("{%")
 
     /** `End` counts as possibly true unless it is the Boolean `false`; a placeholder or ambiguous value stays possible. */
     internal fun mayEnd(end: AslEntry?): Boolean {

@@ -44,6 +44,12 @@ class InspectionsTest : CheckTestCase() {
         assertEquals(listOf("many"), highlights(text, tools = withoutType).map { it.second })
     }
 
+    fun `test a warning finding surfaces as a warning`() =
+        assertEquals(listOf(HighlightSeverity.WARNING to "Retries"), highlights(edit("    Next: Decide\n" to "    Next: Decide\n    Retries: 3\n")))
+
+    fun `test a Choice without Default surfaces as a weak warning`() =
+        assertEquals(listOf(HighlightSeverity.WEAK_WARNING to "Decide"), highlights(edit("    Default: Rejected\n" to "")))
+
     fun `test nothing in other files`() =
         assertEquals(emptyList<Any>(), highlights(edit("Type: Task" to "Type: Tsak"), "plain.yaml"))
 

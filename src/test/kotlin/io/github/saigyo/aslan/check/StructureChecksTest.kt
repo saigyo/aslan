@@ -175,7 +175,7 @@ class StructureChecksTest : CheckTestCase() {
         assertEquals(listOf(MISSING_TRANSITION to "Inspect"), found(edit("    Next: Decide\n" to "    End: false\n")))
 
     fun `test unclosed delimiter in a field that is never evaluated`() = assertEquals(
-        emptyList<Any>(),
+        listOf(AslProblem.JSONATA_IN_STATIC_FIELD to "'{% todo'"),
         found(edit("    Type: Succeed" to "    Type: Succeed\n    Comment: '{% todo'")),
     )
 

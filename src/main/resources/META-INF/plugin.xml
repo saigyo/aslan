@@ -62,6 +62,22 @@
                          displayName="Heartbeat not shorter than timeout" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslUnreachableState" implementationClass="io.github.saigyo.aslan.check.AslUnreachableStateInspection"
                          displayName="Unreachable state" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslEmptyList" implementationClass="io.github.saigyo.aslan.check.AslEmptyListInspection"
+                         displayName="Empty list where one entry is needed" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslUnknownPredefinedError" implementationClass="io.github.saigyo.aslan.check.AslUnknownPredefinedErrorInspection"
+                         displayName="Unknown predefined error name" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslMalformedChoiceRule" implementationClass="io.github.saigyo.aslan.check.AslMalformedChoiceRuleInspection"
+                         displayName="Choice rule that is neither a comparison nor a combination" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslInvalidPath" implementationClass="io.github.saigyo.aslan.check.AslInvalidPathInspection"
+                         displayName="Malformed path" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslInvalidTimestamp" implementationClass="io.github.saigyo.aslan.check.AslInvalidTimestampInspection"
+                         displayName="Malformed timestamp" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslInvalidMapLabel" implementationClass="io.github.saigyo.aslan.check.AslInvalidMapLabelInspection"
+                         displayName="Invalid Map label" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslIncompleteConfiguration" implementationClass="io.github.saigyo.aslan.check.AslIncompleteConfigurationInspection"
+                         displayName="Incomplete Map configuration" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslInapplicableField" implementationClass="io.github.saigyo.aslan.check.AslInapplicableFieldInspection"
+                         displayName="Reader field that does not apply to the input type" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>
