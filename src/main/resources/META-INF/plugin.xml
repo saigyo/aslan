@@ -23,6 +23,8 @@
         <referencesSearch implementation="io.github.saigyo.aslan.refs.AslReferencesSearcher"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
+        <yaml.customStructureViewFactory implementation="io.github.saigyo.aslan.structure.AslYamlStructureViewFactory"/>
+        <json.customStructureViewFactory order="first" implementation="io.github.saigyo.aslan.structure.AslJsonStructureViewFactory"/>
         <applicationService serviceImplementation="io.github.saigyo.aslan.settings.AslSettings"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>
