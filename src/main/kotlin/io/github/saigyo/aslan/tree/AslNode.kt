@@ -49,7 +49,10 @@ class AslScalar(
     val dynamic: Boolean = false,
 ) : AslNode
 
-/** An alias that does not resolve, or resolves into itself. */
+/**
+ * A value the file does not settle: an alias that does not resolve or resolves into itself, or a YAML mapping or list
+ * with a tag such as `!Join [...]` or `!If [...]`, where whatever handles the tag decides the value.
+ */
 class AslUnresolved(override val psi: PsiElement, override val usePsi: PsiElement) : AslNode
 
 enum class ScalarType { STRING, NUMBER, BOOLEAN, NULL }

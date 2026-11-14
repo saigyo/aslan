@@ -22,6 +22,9 @@ internal object YamlTree {
     /** The tags that say "this is a string" and nothing else: the short and the verbatim form. */
     private val STRING_TAGS = setOf("!!str", "!<tag:yaml.org,2002:str>")
 
+    /** The tags that say "this is a mapping" or "this is a list" and nothing else. */
+    private val COLLECTION_TAGS = setOf("!!map", "!!seq", "!<tag:yaml.org,2002:map>", "!<tag:yaml.org,2002:seq>")
+
     /** How many nodes one file may build. Aliases can double the tree at every level, so their expansion is capped. */
     internal const val NODE_BUDGET = 200_000
 
@@ -42,6 +45,7 @@ internal object YamlTree {
         fun node(value: YAMLValue, usePsi: PsiElement): AslNode {
             ProgressManager.checkCanceled()
             if (value is YAMLAlias) return alias(value)
+            if (value !is YAMLScalar && value.tag?.text?.let { it !in COLLECTION_TAGS } == true) return AslUnresolved(value, usePsi)
             if (!inProgress.add(value)) return AslUnresolved(usePsi, usePsi)
             built++
             try {
