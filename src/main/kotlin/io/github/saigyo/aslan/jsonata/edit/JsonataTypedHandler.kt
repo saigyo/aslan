@@ -14,6 +14,7 @@ import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import io.github.saigyo.aslan.files.AslFiles
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
+import org.jetbrains.annotations.TestOnly
 import java.lang.ref.WeakReference
 
 /**
@@ -79,22 +80,26 @@ class JsonataTypedHandler : TypedHandlerDelegate() {
      */
     private fun escapeAtAllCarets(c: Char, project: Project, hostEditor: Editor, top: PsiFile): Result {
         val command = CommandProcessor.getInstance().currentCommand
+        val carets = hostEditor.caretModel.caretCount
         val remembered = decision
-        val allInside = if (command != null && remembered != null && remembered.command === command && remembered.editor.get() === hostEditor) {
-            remembered.allInside
+        val allInside: Boolean
+        if (command != null && remembered != null && remembered.command.get() === command && remembered.editor.get() === hostEditor &&
+            remembered.char == c && remembered.carets == carets
+        ) {
+            allInside = remembered.allInside
         } else {
             PsiDocumentManager.getInstance(project).commitDocument(hostEditor.document)
-            val answer = hostEditor.caretModel.allCarets.all { each ->
+            allInside = hostEditor.caretModel.allCarets.all { each ->
                 val from = if (each.hasSelection()) each.selectionStart else each.offset
                 val to = if (each.hasSelection()) each.selectionEnd else from
                 val window = windowAt(top, from, project)
                 window != null && isOurs(window, c, from, to)
             }
-            decision = if (command != null) Decision(command, WeakReference(hostEditor), answer) else null
-            answer
+            decision = if (command != null && carets > 1) Decision(WeakReference(command), WeakReference(hostEditor), c, carets, allInside) else null
         }
         if (!allInside) return Result.CONTINUE
         val caret = hostEditor.caretModel.currentCaret
+        finished()
         val from = if (caret.hasSelection()) caret.selectionStart else caret.offset
         val to = if (caret.hasSelection()) caret.selectionEnd else from
         val escaped = escaped(c)
@@ -104,9 +109,27 @@ class JsonataTypedHandler : TypedHandlerDelegate() {
         return Result.STOP
     }
 
-    private class Decision(val command: Any, val editor: WeakReference<Editor>, val allInside: Boolean)
+    /** The platform has typed the character at the current caret: when it has done so at the last caret, the decision ends. */
+    override fun charTyped(c: Char, project: Project, editor: Editor, file: PsiFile): Result {
+        finished()
+        return Result.CONTINUE
+    }
+
+    private fun finished() {
+        val current = decision ?: return
+        if (++current.done >= current.carets) decision = null
+    }
+
+    private class Decision(
+        val command: WeakReference<Any>, val editor: WeakReference<Editor>, val char: Char, val carets: Int, val allInside: Boolean,
+        /** How many carets are finished: written here, or typed by the platform ([charTyped]). */
+        var done: Int = 0,
+    )
 
     @Volatile private var decision: Decision? = null
+
+    /** Whether a decision is remembered; none is after a keystroke has been answered for all carets. */
+    @TestOnly internal fun remembersDecision(): Boolean = decision != null
 
     private fun escaped(c: Char): String = if (c == '\'') "''" else "\\\""
 
