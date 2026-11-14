@@ -16,14 +16,14 @@ internal val predefinedErrorNames = listOf(
     errorName("States.HeartbeatTimeout", "Raised when the worker behind a Task state stays silent for longer than HeartbeatSeconds allows."),
     errorName("States.Http.Socket", "Raised when an HTTP task gets no answer within its 60-second limit."),
     errorName("States.IntrinsicFailure", "Raised in a JSONPath state when a call such as States.Format inside a payload template goes wrong."),
-    errorName("States.ItemReaderFailed", "Raised by a Map state when reading its items through ItemReader goes wrong, for example a missing S3 object."),
+    errorName("States.ItemReaderFailed", "Raised by a Map state when reading its items through ItemReader goes wrong."),
     errorName("States.NoChoiceMatched", "Raised by a Choice state that has no Default when none of its rules is true for the input."),
     errorName("States.ParameterPathFailure", "Raised in a JSONPath state when a .\$ key in Parameters or a similar template points at data that is not there."),
     errorName("States.Permissions", "Raised when the execution role lacks the rights a Task state needs to call its resource."),
     errorName("States.QueryEvaluationError", "Raised in a JSONata state when an expression throws, yields nothing, " +
         "or yields a value the field cannot use."),
     errorName("States.ResultPathMatchFailure", "Raised in a JSONPath state when the result cannot be inserted at the location ResultPath names."),
-    errorName("States.ResultWriterFailed", "Raised by a Map state when storing its results through ResultWriter goes wrong, for example a bucket in another account."),
+    errorName("States.ResultWriterFailed", "Raised by a Map state when storing its results through ResultWriter goes wrong."),
     errorName("States.Runtime", "Stops the execution on an unexpected internal problem, such as a path applied to null input. " +
         "Retry and Catch rules, even with the wildcard, cannot handle it."),
     errorName("States.TaskFailed", "Raised when the work behind a Task state goes wrong. As a match, it covers every error except a timeout."),
