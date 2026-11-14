@@ -58,6 +58,8 @@ data class FieldSpec(
     val min: Double? = null,
     val max: Double? = null,
     val deprecated: Boolean = false,
+    /** The kind of the value is never checked, because it is not confirmed how AWS treats other kinds. */
+    val lenient: Boolean = false,
     val description: String,
     val docUrl: String,
 )

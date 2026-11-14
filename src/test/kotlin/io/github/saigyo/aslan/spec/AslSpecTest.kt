@@ -81,6 +81,8 @@ class AslSpecTest : TestCase() {
         assertFalse(field(RESULT_WRITER, "Resource").required)
         assertEquals(Mode.BOTH, field(PASS, "Assign").mode)
         assertEquals(Mode.BOTH, field(MAP, "ItemSelector").mode)
+        assertTrue(field(STATE_MACHINE, "Version").lenient)
+        assertFalse(field(TASK, "Resource").lenient)
     }
 
     fun `test generic state structure`() =
