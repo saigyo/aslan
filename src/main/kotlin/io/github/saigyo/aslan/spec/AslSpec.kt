@@ -1,11 +1,14 @@
 package io.github.saigyo.aslan.spec
 
 import io.github.saigyo.aslan.spec.data.choiceRuleStructures
+import io.github.saigyo.aslan.spec.data.contextObjectFields
 import io.github.saigyo.aslan.spec.data.errorHandlingStructures
+import io.github.saigyo.aslan.spec.data.jsonataFunctionList
 import io.github.saigyo.aslan.spec.data.mapStructures
 import io.github.saigyo.aslan.spec.data.optimisedResourceArns
 import io.github.saigyo.aslan.spec.data.predefinedErrorNames
 import io.github.saigyo.aslan.spec.data.stateMachineStructures
+import io.github.saigyo.aslan.spec.data.statesFieldDocs
 import io.github.saigyo.aslan.spec.data.stateStructures
 import io.github.saigyo.aslan.spec.data.stateTypeSpecs
 
@@ -41,4 +44,17 @@ object AslSpec {
 
     /** Whether any ASL structure defines a field of this name. */
     fun definesFieldAnywhere(name: String): Boolean = name in allFieldNames
+
+    /** The JSONata built-in functions and the functions Step Functions adds. */
+    val jsonataFunctions: List<JsonataFunction> = jsonataFunctionList
+
+    private val jsonataFunctionsByName = jsonataFunctions.associateBy { it.name }
+
+    /** The function of this name, given without the `$`. */
+    fun jsonataFunction(name: String): JsonataFunction? = jsonataFunctionsByName[name]
+
+    fun statesFieldDoc(field: StatesField): NamedDoc = statesFieldDocs.getValue(field)
+
+    /** The fields of `$states.context`. */
+    val contextFields: List<ContextField> = contextObjectFields
 }
