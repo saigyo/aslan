@@ -11,8 +11,10 @@ import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.AslState
+import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.FieldInfo
 import io.github.saigyo.aslan.model.ObjectInfo
+import io.github.saigyo.aslan.refs.StateTargets
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
@@ -37,6 +39,12 @@ sealed interface CompletionContext {
 
     /** The caret is in the value of a known field. */
     data class Value(val field: FieldInfo, val state: AslState?) : CompletionContext
+
+    /**
+     * The caret is in a value that the model reads as a state name: a `StartAt` or a transition target, in a state of
+     * any type. [machine] holds the states it can name, [from] is the state the transition leaves (null for `StartAt`).
+     */
+    data class StateName(val machine: AslStateMachine, val from: AslState?) : CompletionContext
 }
 
 /**
@@ -108,10 +116,11 @@ object CompletionContexts {
             val text = keyValue.containingFile.viewProvider.contents
             val start = scalar.textRange.startOffset
             val scalarLineStart = lineStart(text, start)
-            if (scalarLineStart <= key.textRange.endOffset) return value(doc, key)
+            if (scalarLineStart <= key.textRange.endOffset) return value(doc, key, scalar)
             // On a later line but not indented deeper than the key: a new key next to it, not its value.
             val keyStart = key.textRange.startOffset
             if (start - scalarLineStart <= keyStart - lineStart(text, keyStart)) return keyIn(doc, keyValue.parentMapping, position)
+            stateName(doc, scalar)?.let { return it }
             // The value is still empty and the caret is on the first line under the key: the first key of the value.
             doc.schema.stateNameKey(key)?.let { state ->
                 return CompletionContext.Key(ObjectInfo(AslSpec.structure(StructureId.STATE), state.queryLanguage, state), emptySet())
@@ -120,7 +129,7 @@ object CompletionContexts {
             return when (val kind = field.spec.kind) {
                 is ValueKind.Struct -> firstKey(field, kind.id)
                 is ValueKind.ListOf, ValueKind.StatesMap, ValueKind.FreeForm -> null
-                else -> value(doc, key)
+                else -> value(doc, key, scalar)
             }
         }
 
@@ -153,7 +162,7 @@ object CompletionContexts {
             return when (val holder = literal.parent) {
                 is JsonProperty -> when {
                     holder.nameElement === literal -> keyIn(doc, holder.parent as? JsonObject ?: return null, position)
-                    holder.value === literal -> value(doc, holder.nameElement)
+                    holder.value === literal -> value(doc, holder.nameElement, literal)
                     else -> null
                 }
                 is JsonArray -> {
@@ -186,11 +195,17 @@ object CompletionContexts {
     private fun firstKey(field: FieldInfo, id: StructureId): CompletionContext =
         CompletionContext.Key(ObjectInfo(AslSpec.structure(id), field.owner.queryLanguage, field.owner.state), emptySet())
 
-    private fun value(doc: AslDocument, keyPsi: PsiElement): CompletionContext? {
+    /** The value [valueElement] of the key [keyPsi]: a state name where the model reads one, else the field's value. */
+    private fun value(doc: AslDocument, keyPsi: PsiElement, valueElement: PsiElement): CompletionContext? {
+        stateName(doc, valueElement)?.let { return it }
         val field = doc.schema.field(keyPsi) ?: return null
         if (field.spec.kind == ValueKind.FreeForm) return null
         return CompletionContext.Value(field, field.owner.state)
     }
+
+    /** A state-name context when the model reads [valueElement] as a `StartAt` or a transition target. */
+    private fun stateName(doc: AslDocument, valueElement: PsiElement): CompletionContext? =
+        StateTargets.site(doc, valueElement)?.let { CompletionContext.StateName(it.machine, it.from) }
 
     /** The object of the tree whose PSI is [target], descending only into values written around it. */
     private fun findObject(node: AslNode, target: PsiElement): AslObject? {

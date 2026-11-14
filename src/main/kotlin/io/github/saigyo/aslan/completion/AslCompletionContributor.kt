@@ -15,16 +15,18 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.codeInsight.completion.PrefixMatcher
 import com.intellij.psi.PsiDocumentManager
-import io.github.saigyo.aslan.model.AslModel
+import io.github.saigyo.aslan.refs.NameWriter
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.FieldSpec
 import io.github.saigyo.aslan.spec.NamedDoc
+import io.github.saigyo.aslan.spec.StructureId
 import io.github.saigyo.aslan.spec.ValueKind
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLMapping
 import org.jetbrains.yaml.psi.YAMLQuotedText
+import org.jetbrains.yaml.psi.impl.YAMLPlainTextImpl
 
 /**
  * Completes ASL field names and fixed values. Where [CompletionContexts] finds a context, its items are the only
@@ -34,6 +36,7 @@ class AslCompletionContributor : CompletionContributor() {
     override fun fillCompletionVariants(parameters: CompletionParameters, result: CompletionResultSet) {
         when (val context = CompletionContexts.at(parameters) ?: return) {
             is CompletionContext.Key -> addKeys(context, parameters, result)
+            is CompletionContext.StateName -> if (!addStateNames(context, parameters, result)) return
             is CompletionContext.Value -> {
                 // Only fixed values are offered here; where none are, the IDE's own completion keeps working.
                 if (!addValues(context, parameters, result)) return
@@ -80,9 +83,12 @@ class AslCompletionContributor : CompletionContributor() {
         val parent = parameters.position.parent
         if (context.field.spec.name == "Type" && kind is ValueKind.OneOf) return addStateTypes(context, parameters, result)
         when (kind) {
-            ValueKind.StateName -> return addStateNames(context, parameters, result)
+            // A state name the model does not read as a transition (such as `Next` in a nested rule) gets no names.
+            ValueKind.StateName -> return false
             ValueKind.ErrorNames -> return addNamed(AslSpec.errorNames, parameters, result, anywhere = false)
-            ValueKind.ResourceArn -> return addNamed(AslSpec.resourceArns, parameters, result, anywhere = true)
+            // The service integration ARNs are those of Task states; ItemReader and ResultWriter take others.
+            ValueKind.ResourceArn ->
+                return context.field.owner.structure.id == StructureId.TASK && addNamed(AslSpec.resourceArns, parameters, result, anywhere = true)
             else -> Unit
         }
         val quoted = parent is JsonStringLiteral || parent is YAMLQuotedText
@@ -118,23 +124,26 @@ class AslCompletionContributor : CompletionContributor() {
         return types.isNotEmpty()
     }
 
-    /** The state names of the machine the value belongs to; the state being edited comes last. */
-    private fun addStateNames(context: CompletionContext.Value, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
-        val doc = AslModel.of(parameters.position.containingFile) ?: return false
-        val entry = context.field.entry.entryPsi
-        val machine = if (context.field.spec.name == "StartAt") {
-            doc.allMachines().firstOrNull { m -> m.obj.entries.any { it.entryPsi === entry } }
-        } else {
-            context.state?.machine
-        } ?: return false
+    /**
+     * The state names of the machine the value belongs to; the state being edited comes last. A name that would not
+     * read back as itself written plain in YAML is inserted in double quotes.
+     */
+    private fun addStateNames(context: CompletionContext.StateName, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
         val matcher = result.withPrefixMatcher(StartOrAnywhere(typedPrefix(parameters), false))
-        val own = context.state?.name.takeIf { context.field.spec.name != "StartAt" }
+        val own = context.from?.name
         val quote = isBareJson(parameters)
+        val plainYaml = parameters.position.parent is YAMLPlainTextImpl
         var added = false
-        for (state in machine.states) {
+        for (state in context.machine.states) {
             val name = state.name
             if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || !matcher.prefixMatcher.prefixMatches(name)) continue
-            val item = LookupElementBuilder.create(name).let { if (quote) it.withInsertHandler(JsonQuoteInsertHandler) else it }
+            val item = LookupElementBuilder.create(name).let {
+                when {
+                    quote -> it.withInsertHandler(JsonQuoteInsertHandler)
+                    plainYaml && !NameWriter.isPlainSafe(parameters.originalFile.project, name) -> it.withInsertHandler(YamlQuoteInsertHandler)
+                    else -> it
+                }
+            }
             matcher.addElement(PrioritizedLookupElement.withPriority(item, if (name == own) 0.0 else 1.0))
             added = true
         }
@@ -200,6 +209,15 @@ private class YamlKeyInsertHandler(private val kind: ValueKind) : InsertHandler<
         }
         document.insertString(tail, insert)
         context.editor.caretModel.moveToOffset(tail + insert.length)
+    }
+}
+
+/** Writes a state name inserted as a plain YAML value in double quotes, so that it reads back as that name. */
+private object YamlQuoteInsertHandler : InsertHandler<LookupElement> {
+    override fun handleInsert(context: InsertionContext, item: LookupElement) {
+        val text = NameWriter.yamlValue(context.project, item.lookupString)
+        context.document.replaceString(context.startOffset, context.tailOffset, text)
+        context.editor.caretModel.moveToOffset(context.startOffset + text.length)
     }
 }
 

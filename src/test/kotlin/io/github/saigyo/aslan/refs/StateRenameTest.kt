@@ -207,4 +207,23 @@ class StateRenameTest : AslTestCase() {
             for (state in document.allStates()) appendLine("${state.name}: ${state.transitions.map { "${it.kind} ${it.targetName}" }}")
         }
     }
+
+    /**
+     * Definitions in which the state `A` refers to `B` although the reference data does not know its `Next` (or its
+     * catcher) as a field: its type is a placeholder, unknown or missing, or it is a Pass state with a `Catch`.
+     */
+    private val unknownTypeCases = listOf(
+        "    Type: ${'$'}{Kind}\n    Next: B\n",
+        "    Type: Tsak\n    Next: B\n",
+        "    Comment: no type yet\n    Next: B\n",
+        "    Type: Pass\n    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: B\n    Next: B\n",
+    ).map { "StartAt: A\nStates:\n  A:\n$it  B:\n    Type: Succeed\n" }
+
+    fun `test rename reaches transitions of states the reference data does not describe`() {
+        for (text in unknownTypeCases) {
+            myFixture.configureByText("test.asl.yaml", text)
+            myFixture.renameElement(AslModel.of(myFixture.file)!!.root!!.state("B")!!.entry.entryPsi, "C")
+            assertEquals(text, text.replace("B", "C"), myFixture.file.text)
+        }
+    }
 }

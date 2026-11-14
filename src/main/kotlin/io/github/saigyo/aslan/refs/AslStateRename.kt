@@ -112,7 +112,7 @@ internal object NameWriter {
             element is YAMLPlainTextImpl && isPlainSafe(project, name) -> name
             else -> doubleQuoted(project, name)
         }
-        val prefix = element.text.substring(0, YamlScalars.contentStart(element))
+        val prefix = element.text.substring(0, YamlScalarContent.start(element))
         val file = YAMLElementGenerator.getInstance(project).createDummyYamlWithText("k: $prefix$content")
         val fresh = PsiTreeUtil.findChildOfType(file, YAMLScalar::class.java) ?: error("no scalar in dummy YAML")
         return element.replace(fresh)
@@ -137,6 +137,9 @@ internal object NameWriter {
         }
         return entry
     }
+
+    /** [name] as a plain YAML value where it reads back as the same string there, else double-quoted. */
+    fun yamlValue(project: Project, name: String): String = if (isPlainSafe(project, name)) name else doubleQuoted(project, name)
 
     /**
      * [name] as a double-quoted YAML scalar. The YAML plugin's encoder writes a line break as is, which YAML folds to a
@@ -176,8 +179,9 @@ internal object NameWriter {
 }
 
 /** Where the content of a YAML scalar starts, after any tag and anchor written in front of it. */
-internal object YamlScalars {
-    fun contentStart(scalar: YAMLScalar): Int {
+internal object YamlScalarContent {
+    /** The offset in [scalar] at which its content starts. */
+    fun start(scalar: YAMLScalar): Int {
         var child = scalar.firstChild
         while (child != null && (child is YAMLAnchor || child is PsiWhiteSpace || child.node.elementType == YAMLTokenTypes.TAG)) {
             child = child.nextSibling

@@ -82,4 +82,33 @@ class ValueCompletionTest : AslTestCase() {
         myFixture.completeBasic()
         myFixture.checkResult("""{"StartAt": "Alpha"<caret>, "States": {"Alpha": {"Type": "Succeed"}, "Beta": {"Type": "Succeed"}}}""")
     }
+
+    /**
+     * Definitions in which the state `A` refers to `B` although the reference data does not know its `Next` (or its
+     * catcher) as a field: its type is a placeholder, unknown or missing, or it is a Pass state with a `Catch`.
+     */
+    private val unknownTypeCases = listOf(
+        "    Type: ${'$'}{Kind}\n    Next: B\n",
+        "    Type: Tsak\n    Next: B\n",
+        "    Comment: no type yet\n    Next: B\n",
+        "    Type: Pass\n    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: B\n    Next: B\n",
+    ).map { "StartAt: A\nStates:\n  A:\n$it  B:\n    Type: Succeed\n" }
+
+    fun `test state names for transitions of states the reference data does not describe`() {
+        for (text in unknownTypeCases) {
+            assertEquals(text, listOf("A", "B"), complete(text.replaceFirst("Next: B", "Next: <caret>")).sorted())
+        }
+    }
+
+    fun `test a state name that is not plain-safe is inserted quoted`() {
+        val text = "StartAt: A\nStates:\n  A:\n    Type: Pass\n    Next: Nee<caret>\n  'Needs: review':\n    Type: Succeed\n"
+        myFixture.configureByText("test.asl.yaml", text)
+        myFixture.completeBasic()
+        myFixture.checkResult(text.replace("Nee<caret>", "\"Needs: review\"<caret>"))
+    }
+
+    fun `test service ARNs are not offered for an ItemReader resource`() {
+        val text = two + "  Each:\n    Type: Map\n    ItemReader:\n      Resource: dynamo<caret>\n    ItemProcessor:\n      StartAt: In\n      States:\n        In:\n          Type: Succeed\n    End: true"
+        assertEquals(emptyList<String>(), complete(text).filter { it.startsWith("arn:aws:states:::dynamodb") })
+    }
 }

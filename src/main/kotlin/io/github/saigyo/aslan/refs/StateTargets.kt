@@ -1,6 +1,5 @@
 package io.github.saigyo.aslan.refs
 
-import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementManipulators
@@ -10,11 +9,10 @@ import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.AslState
 import io.github.saigyo.aslan.model.AslStateMachine
-import io.github.saigyo.aslan.spec.ValueKind
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
-import org.jetbrains.yaml.psi.YAMLKeyValue
+import org.jetbrains.yaml.psi.YAMLQuotedText
 import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
@@ -22,7 +20,10 @@ import org.jetbrains.yaml.psi.YAMLScalar
  * states they name, and which values name a given state. Everything is read from the model.
  */
 internal object StateTargets {
-    /** The reference on [element] when it is the value of a `StartAt`, `Next` or `Default` field, else null. */
+    /**
+     * The reference on [element] when the model reads it as the `StartAt` of a state machine or as the target of a
+     * transition (`Next`, `Default`, a Choice rule's or a catcher's `Next`), whatever the type of its state; else null.
+     */
     fun referenceAt(element: PsiElement): AslStateReference? {
         if (element !is YAMLScalar && element !is JsonStringLiteral) return null
         val file = element.containingFile ?: return null
@@ -36,8 +37,13 @@ internal object StateTargets {
     internal fun valueRange(element: PsiElement): TextRange {
         val range = ElementManipulators.getValueTextRange(element)
         if (element !is YAMLScalar) return range
-        val start = YamlScalars.contentStart(element)
-        return if (range.startOffset >= start) range else TextRange(start, maxOf(start, range.endOffset))
+        val content = YamlScalarContent.start(element)
+        if (range.startOffset >= content) return range
+        // The platform measures the quotes from the start of the element, so with a tag or anchor in front the
+        // range starts too early and still holds the opening quote.
+        val quote = element is YAMLQuotedText && content < element.textLength && element.text[content] in "'\""
+        val start = if (quote) content + 1 else content
+        return TextRange(start, maxOf(start, range.endOffset))
     }
 
     /** The entries of the states that the state name written as [element] names. */
@@ -73,7 +79,7 @@ internal object StateTargets {
         val renamed = referencesTo(document, state).map { it.element }.toSet()
         return document.allMachines().flatMap { machine ->
             namedTargets(machine).filter { scalar ->
-                scalar.usePsi !== scalar.psi && scalar.text == state.name && isStateNameField(document, scalar.usePsi) &&
+                scalar.usePsi !== scalar.psi && scalar.text == state.name &&
                     (machine === state.machine) != (scalar.psi in renamed)
             }.map { it.usePsi }
         }.distinct()
@@ -85,34 +91,35 @@ internal object StateTargets {
         for (s in machine.states) for (t in s.transitions) t.target?.let { add(it) }
     }.filter { it.type == ScalarType.STRING }
 
-    private fun isStateNameField(document: AslDocument, value: PsiElement): Boolean {
-        val keyPsi = keyOf(value) ?: return false
-        return document.schema.field(keyPsi)?.spec?.kind == ValueKind.StateName
+    /**
+     * Where a value written directly as [element] names a state: [machine] is the machine whose states it names, and
+     * [from] the state whose transition it is (null for a `StartAt`).
+     */
+    internal class Site(val scalar: AslScalar, val machine: AslStateMachine, val from: AslState?)
+
+    /**
+     * The [Site] of [element] when the model reads it, written directly and not through an alias, as the `StartAt` of a
+     * machine or the target of a transition; null otherwise. The model alone decides, so this holds in states whose
+     * type is a placeholder, unknown or missing too.
+     */
+    internal fun site(document: AslDocument, element: PsiElement): Site? {
+        fun AslScalar.isWrittenAs(element: PsiElement) = psi === element && usePsi === element
+        val owner = document.stateAt(element)
+        if (owner == null) {
+            val root = document.root ?: return null
+            return startScalar(root)?.takeIf { it.isWrittenAs(element) }?.let { Site(it, root, null) }
+        }
+        owner.transitions.firstNotNullOfOrNull { t -> t.target?.takeIf { it.isWrittenAs(element) } }?.let { return Site(it, owner.machine, owner) }
+        return owner.children.firstNotNullOfOrNull { m -> startScalar(m)?.takeIf { it.isWrittenAs(element) }?.let { Site(it, m, null) } }
     }
 
     /** The machine and the name for the state name written as [element]; null when [element] is not one. */
     private fun target(document: AslDocument, element: PsiElement): Pair<AslStateMachine, String>? {
-        if (!isStateNameField(document, element)) return null
-        val owner = document.stateAt(element)
-        val (scalar, machine) = if (owner == null) {
-            val root = document.root ?: return null
-            (startScalar(root) ?: return null) to root
-        } else {
-            owner.transitions.firstNotNullOfOrNull { t -> t.target?.takeIf { it.psi === element } }?.let { it to owner.machine }
-                ?: owner.children.firstNotNullOfOrNull { m -> startScalar(m)?.takeIf { it.psi === element }?.let { it to m } }
-                ?: return null
-        }
-        if (scalar.psi !== element || scalar.usePsi !== element) return null
+        val site = site(document, element) ?: return null
+        val scalar = site.scalar
         if (scalar.type != ScalarType.STRING || Placeholders.contains(scalar.text)) return null
-        return machine to scalar.text
+        return site.machine to scalar.text
     }
 
     private fun startScalar(machine: AslStateMachine): AslScalar? = machine.startAt?.value as? AslScalar
-
-    /** The key of the entry whose value is [element]. */
-    internal fun keyOf(element: PsiElement): PsiElement? = when (val parent = element.parent) {
-        is YAMLKeyValue -> parent.key?.takeIf { parent.value === element }
-        is JsonProperty -> parent.nameElement.takeIf { parent.value === element }
-        else -> null
-    }
 }

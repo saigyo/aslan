@@ -162,4 +162,36 @@ class StateReferenceTest : AslTestCase() {
             for (state in document.allStates()) appendLine("${state.name}: ${state.transitions.map { "${it.kind} ${it.targetName}" }}")
         }
     }
+
+    /**
+     * Definitions in which the state `A` refers to `B` although the reference data does not know its `Next` (or its
+     * catcher) as a field: its type is a placeholder, unknown or missing, or it is a Pass state with a `Catch`.
+     */
+    private val unknownTypeCases = listOf(
+        "    Type: ${'$'}{Kind}\n    Next: B\n",
+        "    Type: Tsak\n    Next: B\n",
+        "    Comment: no type yet\n    Next: B\n",
+        "    Type: Pass\n    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: B\n    Next: B\n",
+    ).map { "StartAt: A\nStates:\n  A:\n$it  B:\n    Type: Succeed\n" }
+
+    fun `test transitions of states the reference data does not describe resolve`() {
+        for (text in unknownTypeCases) {
+            myFixture.configureByText("test.asl.yaml", text)
+            val targets = Regex("Next: B").findAll(text).map { it.range.last }.toList()
+            assertTrue(targets.isNotEmpty())
+            for (offset in targets) {
+                val reference = myFixture.file.findReferenceAt(offset)
+                assertNotNull("$text at $offset", reference)
+                assertEquals(text, "B", (reference!!.resolve() as YAMLKeyValue).keyText)
+            }
+        }
+    }
+
+    fun `test an anchored quoted target has the name as its range`() {
+        for (quote in listOf("'", "\"")) {
+            myFixture.configureByText("test.asl.yaml", "StartAt: A\nStates:\n  A:\n    Type: Pass\n    Next: &b ${quote}B<caret>$quote\n  B:\n    Type: Succeed\n")
+            val reference = myFixture.getReferenceAtCaretPosition()!!
+            assertEquals(quote, "B", reference.rangeInElement.substring(reference.element.text))
+        }
+    }
 }
