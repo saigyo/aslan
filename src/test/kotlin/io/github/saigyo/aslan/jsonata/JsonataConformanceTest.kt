@@ -19,6 +19,7 @@ class JsonataConformanceTest : AslTestCase() {
     )
     // S0402 ("function signatures are not validated") is not a gap: the only suite case of it,
     // `λ($arr)<(sa<n>)>>{$arr}([[1]])`, also fails to parse after the signature (S0202 at the third `>`), so it is found.
+    // JsonataReferenceTest lists S0402 as a gap, since there the reference also fails expressions whose only fault is the signature.
 
     private fun failed(case: Case): Boolean = JsonataScanner.scan(case.expr).error != null
 
