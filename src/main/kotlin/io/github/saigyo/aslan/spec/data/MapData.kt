@@ -1,0 +1,168 @@
+package io.github.saigyo.aslan.spec.data
+
+import io.github.saigyo.aslan.spec.FieldSpec
+import io.github.saigyo.aslan.spec.Mode
+import io.github.saigyo.aslan.spec.NamedDoc
+import io.github.saigyo.aslan.spec.StructureId
+import io.github.saigyo.aslan.spec.StructureSpec
+import io.github.saigyo.aslan.spec.ValueKind
+
+private fun values(url: String, vararg entries: Pair<String, String>) = ValueKind.OneOf(entries.map { NamedDoc(it.first, it.second, url) })
+
+/** A reference path twin of [field], used in JSONPath states instead of a literal value. */
+private fun pathTwin(field: String, url: String, what: String) = FieldSpec("${field}Path", ValueKind.Text, Mode.JSONPATH,
+    description = "JSONPath only. A reference path to $what in the input to use as $field.", docUrl = url)
+
+internal val mapStructures = listOf(
+    StructureSpec(StructureId.MAP, stateFields(Doc.MAP_INLINE, Shared(transition = true, assign = true, io = true, errors = true), listOf(
+        FieldSpec("ItemProcessor", ValueKind.Struct(StructureId.ITEM_PROCESSOR),
+            description = "The steps to run for each item, as a state machine with StartAt and States, and the processing mode.",
+            docUrl = Doc.MAP_INLINE),
+        FieldSpec("Iterator", ValueKind.Struct(StructureId.ITEM_PROCESSOR), deprecated = true,
+            description = "Deprecated name of ItemProcessor: the steps to run for each item. Use ItemProcessor instead.",
+            docUrl = Doc.MAP_INLINE),
+        FieldSpec("Items", ValueKind.FreeForm, Mode.JSONATA, jsonata = true,
+            description = "JSONata only. The items to process: an array, an object, or an expression that yields one.",
+            docUrl = Doc.MAP_INLINE),
+        FieldSpec("ItemsPath", ValueKind.Text, Mode.JSONPATH,
+            description = "JSONPath only. A reference path to the array or object in the input whose items are processed.",
+            docUrl = Doc.MAP_INLINE),
+        FieldSpec("ItemSelector", ValueKind.FreeForm, jsonata = true,
+            description = "Rebuilds each item before it is processed, for example to add data from the state input or the context object.",
+            docUrl = Doc.MAP_INLINE),
+        parametersField(Doc.MAP_INLINE, "each iteration", deprecated = true).copy(
+            description = "Deprecated in Map states and JSONPath only. Rebuilds each item before it is processed; use ItemSelector instead."),
+        resultPathField(Doc.MAP_INLINE),
+        FieldSpec("ItemReader", ValueKind.Struct(StructureId.ITEM_READER),
+            description = "Reads the items from a data source such as an Amazon S3 object or listing instead of from the state input.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+        FieldSpec("ItemBatcher", ValueKind.Struct(StructureId.ITEM_BATCHER),
+            description = "Groups the items into batches so that each child execution processes several items at once.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+        FieldSpec("ResultWriter", ValueKind.Struct(StructureId.RESULT_WRITER),
+            description = "Formats the results of the child executions and can write them to Amazon S3 instead of returning them.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+        FieldSpec("MaxConcurrency", ValueKind.Integer, jsonata = true, min = 0.0,
+            description = "How many iterations may run at the same time at most; 0, the default, sets no limit of its own.",
+            docUrl = Doc.MAP_INLINE),
+        pathTwin("MaxConcurrency", Doc.MAP_INLINE, "a non-negative integer"),
+        FieldSpec("ToleratedFailurePercentage", ValueKind.Number, jsonata = true, min = 0.0, max = 100.0,
+            description = "The share of failed items, from 0 to 100 per cent, that a Distributed Map tolerates before it fails.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+        pathTwin("ToleratedFailurePercentage", Doc.MAP_DISTRIBUTED, "a number from 0 to 100"),
+        FieldSpec("ToleratedFailureCount", ValueKind.Integer, jsonata = true, min = 0.0,
+            description = "The number of failed items that a Distributed Map tolerates before it fails.", docUrl = Doc.MAP_DISTRIBUTED),
+        pathTwin("ToleratedFailureCount", Doc.MAP_DISTRIBUTED, "a non-negative integer"),
+        FieldSpec("Label", ValueKind.Text,
+            description = "A name for the Map Run of a Distributed Map, added to its ARN; at most 40 characters and unique in the definition.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+    )),
+        oneOfRequired = listOf(setOf("ItemProcessor", "Iterator")),
+        exclusive = listOf(nextOrEnd, setOf("ItemProcessor", "Iterator"), setOf("MaxConcurrency", "MaxConcurrencyPath"),
+            setOf("ToleratedFailurePercentage", "ToleratedFailurePercentagePath"), setOf("ToleratedFailureCount", "ToleratedFailureCountPath"))),
+
+    StructureSpec(StructureId.ITEM_PROCESSOR, listOf(
+        startAtField(Doc.MAP_INLINE),
+        statesField(Doc.MAP_INLINE),
+        commentField(Doc.MAP_INLINE, "these steps"),
+        FieldSpec("ProcessorConfig", ValueKind.Struct(StructureId.PROCESSOR_CONFIG),
+            description = "How the iterations run: in Inline mode inside this execution, or in Distributed mode as child executions.",
+            docUrl = Doc.MAP_INLINE),
+    )),
+
+    StructureSpec(StructureId.PROCESSOR_CONFIG, listOf(
+        FieldSpec("Mode", values(Doc.MAP_DISTRIBUTED,
+            "INLINE" to "Iterations run inside the current execution, with up to 40 at a time; the default.",
+            "DISTRIBUTED" to "Each iteration runs as a child workflow execution, which allows high concurrency and large data sets."),
+            description = "The processing mode of the Map state, INLINE or DISTRIBUTED; INLINE when absent.", docUrl = Doc.MAP_DISTRIBUTED),
+        FieldSpec("ExecutionType", values(Doc.MAP_DISTRIBUTED,
+            "STANDARD" to "Child executions are Standard workflows.",
+            "EXPRESS" to "Child executions are Express workflows."),
+            description = "The workflow type of the child executions in Distributed mode, where it must be given.",
+            docUrl = Doc.MAP_DISTRIBUTED),
+    )),
+
+    StructureSpec(StructureId.ITEM_READER, listOf(
+        FieldSpec("Resource", ValueKind.ResourceArn, required = true,
+            description = "The Amazon S3 action that reads the data set, such as arn:aws:states:::s3:getObject.", docUrl = Doc.ITEM_READER),
+        argumentsField(Doc.ITEM_READER, "the Amazon S3 read action"),
+        parametersField(Doc.ITEM_READER, "the Amazon S3 read action"),
+        FieldSpec("ReaderConfig", ValueKind.Struct(StructureId.READER_CONFIG),
+            description = "Describes the data set: its format, how CSV headers are found, and how many items to read.",
+            docUrl = Doc.ITEM_READER),
+    )),
+
+    StructureSpec(StructureId.READER_CONFIG, listOf(
+        FieldSpec("InputType", values(Doc.ITEM_READER,
+            "CSV" to "A text file with delimited columns.",
+            "JSON" to "A JSON file holding an array or object of items.",
+            "JSONL" to "A JSON Lines file with one item per line.",
+            "PARQUET" to "An Apache Parquet file.",
+            "MANIFEST" to "An Athena manifest file listing the data files to read."),
+            description = "The format of the data set to read.", docUrl = Doc.ITEM_READER),
+        FieldSpec("CSVHeaderLocation", values(Doc.ITEM_READER,
+            "FIRST_ROW" to "The first line of the file holds the column names.",
+            "GIVEN" to "The column names are listed in CSVHeaders."),
+            description = "Where the column names of a delimited file come from.", docUrl = Doc.ITEM_READER),
+        FieldSpec("CSVHeaders", ValueKind.ListOf(ValueKind.Text),
+            description = "The column names of a delimited file, when CSVHeaderLocation is GIVEN.", docUrl = Doc.ITEM_READER),
+        FieldSpec("CSVDelimiter", values(Doc.ITEM_READER,
+            "COMMA" to "Columns are separated by commas; the default.",
+            "PIPE" to "Columns are separated by vertical bars.",
+            "SEMICOLON" to "Columns are separated by semicolons.",
+            "SPACE" to "Columns are separated by spaces.",
+            "TAB" to "Columns are separated by tab characters."),
+            description = "The character that separates columns in a CSV or manifest input.", docUrl = Doc.ITEM_READER),
+        FieldSpec("MaxItems", ValueKind.Integer, jsonata = true, min = 0.0, max = 100_000_000.0,
+            description = "Reads at most this many items from the data set; up to 100,000,000.", docUrl = Doc.ITEM_READER),
+        pathTwin("MaxItems", Doc.ITEM_READER, "an integer"),
+        FieldSpec("ItemsPointer", ValueKind.Text,
+            description = "A JSON Pointer, such as /data/items, to the array or object inside a JSON file whose items are read.",
+            docUrl = Doc.ITEM_READER),
+        FieldSpec("Transformation", values(Doc.ITEM_READER,
+            "NONE" to "The items are the object metadata returned by the listing; the default.",
+            "LOAD_AND_FLATTEN" to "The listed objects are read and their contents become the items; needs InputType."),
+            description = "For an Amazon S3 listing, whether to process the object metadata or the contents of the objects.",
+            docUrl = Doc.ITEM_READER),
+        FieldSpec("ManifestType", values(Doc.ITEM_READER,
+            "ATHENA_DATA" to "An Athena manifest listing data files.",
+            "S3_INVENTORY" to "An Amazon S3 inventory report; InputType must then be left out."),
+            description = "The kind of manifest the reader is given.", docUrl = Doc.ITEM_READER),
+    ), exclusive = listOf(setOf("MaxItems", "MaxItemsPath"))),
+
+    StructureSpec(StructureId.ITEM_BATCHER, listOf(
+        FieldSpec("MaxItemsPerBatch", ValueKind.Integer, jsonata = true, min = 1.0,
+            description = "The largest number of items in one batch, a positive integer.", docUrl = Doc.ITEM_BATCHER),
+        pathTwin("MaxItemsPerBatch", Doc.ITEM_BATCHER, "a positive integer"),
+        FieldSpec("MaxInputBytesPerBatch", ValueKind.Integer, jsonata = true, min = 1.0, max = 262_144.0,
+            description = "The largest size of one batch in bytes, up to 256 KiB.", docUrl = Doc.ITEM_BATCHER),
+        pathTwin("MaxInputBytesPerBatch", Doc.ITEM_BATCHER, "a positive integer"),
+        FieldSpec("BatchInput", ValueKind.FreeForm, jsonata = true,
+            description = "Fixed data added to every batch, next to its items, as the input of each child execution.",
+            docUrl = Doc.ITEM_BATCHER),
+    ),
+        oneOfRequired = listOf(setOf("MaxItemsPerBatch", "MaxItemsPerBatchPath", "MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath")),
+        exclusive = listOf(setOf("MaxItemsPerBatch", "MaxItemsPerBatchPath"), setOf("MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath"))),
+
+    StructureSpec(StructureId.RESULT_WRITER, listOf(
+        FieldSpec("Resource", ValueKind.ResourceArn,
+            description = "The Amazon S3 action that stores the results, arn:aws:states:::s3:putObject; leave out to keep them in the output.",
+            docUrl = Doc.RESULT_WRITER),
+        argumentsField(Doc.RESULT_WRITER, "the Amazon S3 write action"),
+        parametersField(Doc.RESULT_WRITER, "the Amazon S3 write action"),
+        FieldSpec("WriterConfig", ValueKind.Struct(StructureId.WRITER_CONFIG),
+            description = "How the results are shaped and formatted before they are returned or stored.", docUrl = Doc.RESULT_WRITER),
+    ), oneOfRequired = listOf(setOf("Resource", "WriterConfig"))),
+
+    StructureSpec(StructureId.WRITER_CONFIG, listOf(
+        FieldSpec("Transformation", values(Doc.RESULT_WRITER,
+            "NONE" to "Each child execution's output is kept as it is, together with its execution metadata.",
+            "COMPACT" to "Only the outputs of the child executions are kept.",
+            "FLATTEN" to "Only the outputs are kept, and outputs that are arrays are merged into one array."),
+            description = "How the results of the child executions are shaped.", docUrl = Doc.RESULT_WRITER),
+        FieldSpec("OutputType", values(Doc.RESULT_WRITER,
+            "JSON" to "The results form one JSON array.",
+            "JSONL" to "The results are written as JSON Lines, one per line."),
+            description = "The file format of the results.", docUrl = Doc.RESULT_WRITER),
+    )),
+)
