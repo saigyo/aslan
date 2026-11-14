@@ -66,6 +66,14 @@ class AslHighlightingTest : AslTestCase() {
     fun `test nothing in other files`() =
         assertEquals(emptyList<Any>(), marks("Type: Task\nResource: ${'$'}{Fn}", "plain.yaml"))
 
+    fun `test a target that is not a string has no reference colour`() {
+        val m = marks("StartAt: A\nStates:\n  A:\n    Type: Pass\n    Next: 123\n  B:\n    Type: Pass\n    Next: null\n  C:\n    Type: Succeed")
+        assertEquals(listOf("A"), m.filter { it.first == "ASL_STATE_REFERENCE" }.map { it.second })
+    }
+
+    // The platform logs "Cannot restore YAML sequence item" for this text even in `plain.yaml`, with no Aslan code
+    // involved, so the first input of the test below uses a different malformed text:
+    // "States: [\n  - : \${\n  ?"
     fun `test broken files do not throw`() {
         marks("States:\n  \${: x\n  ?\n  A: [1, \"\${Q\n  *nope: !!str\nNext: &a")
         marks("{\"States\": {\"A\": ", "test.asl.json")
