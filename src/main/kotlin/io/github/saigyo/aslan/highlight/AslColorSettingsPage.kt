@@ -38,7 +38,7 @@ class AslColorSettingsPage : ColorSettingsPage {
             <field>Type</field>: Task
             <field>Resource</field>: <placeholder>${'$'}{ReceiveFn}</placeholder>
             <field>Parameters</field>:
-              <field>Shelf</field>: archive-<placeholder>${'$'}{Stage}</placeholder>
+              Shelf: archive-<placeholder>${'$'}{Stage}</placeholder>
             <field>Next</field>: <reference>Catalogue</reference>
           <state>Catalogue</state>:
             <field>Type</field>: Pass

@@ -102,4 +102,29 @@ class AslHighlightingTest : AslTestCase() {
         for (tag in page.additionalHighlightingTagToDescriptorMap.keys) assertTrue(tag, page.demoText.contains("<$tag>"))
         assertEquals(4, page.additionalHighlightingTagToDescriptorMap.size)
     }
+
+    /**
+     * Definitions in which the state `A` refers to `B` although the reference data does not know its `Next` (or its
+     * catcher) as a field: its type is a placeholder, unknown or missing, or it is a Pass state with a `Catch`.
+     */
+    private val unknownTypeCases = listOf(
+        "    Type: ${'$'}{Kind}\n    Next: B\n",
+        "    Type: Tsak\n    Next: B\n",
+        "    Comment: no type yet\n    Next: B\n",
+        "    Type: Pass\n    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: B\n    Next: B\n",
+    ).map { "StartAt: A\nStates:\n  A:\n$it  B:\n    Type: Succeed\n" }
+
+    fun `test transitions of states the reference data does not describe are coloured`() {
+        for (text in unknownTypeCases) {
+            val references = marks(text).filter { it.first == "ASL_STATE_REFERENCE" }.map { it.second }
+            assertEquals(text, listOf("A") + List(Regex("Next: B").findAll(text).count()) { "B" }, references)
+        }
+    }
+
+    fun `test the colour settings demo is coloured as the annotator colours it`() {
+        val demo = AslColorSettingsPage().demoText
+        val tags = AslColorSettingsPage().additionalHighlightingTagToDescriptorMap
+        val expected = Regex("<(\\w+)>(.*?)</\\1>").findAll(demo).map { tags.getValue(it.groupValues[1]).externalName to it.groupValues[2] }.toList()
+        assertEquals(expected, marks(demo.replace(Regex("</?\\w+>"), "")))
+    }
 }
