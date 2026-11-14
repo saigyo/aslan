@@ -18,6 +18,7 @@ import io.github.saigyo.aslan.check.AslProblem.STATES_ALL_PLACEMENT
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_ENUM_VALUE
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_FIELD
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_PREDEFINED_ERROR
+import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_SERVICE_INTEGRATION
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_STATE_TYPE
 import io.github.saigyo.aslan.check.AslProblem.UNREACHABLE_STATE
 import io.github.saigyo.aslan.check.AslProblem.VALUE_OUT_OF_RANGE
@@ -67,6 +68,37 @@ class WarningChecksTest : CheckTestCase() {
     fun `test heartbeat not below timeout`() =
         assertEquals(listOf(HEARTBEAT_NOT_BELOW_TIMEOUT to "30"),
             found(edit(inspectNext to "$inspectNext    TimeoutSeconds: 30\n    HeartbeatSeconds: 30\n")))
+
+    private fun resourceMessages(value: String) =
+        AslChecker.findings(myFixture.configureByText("test.asl.yaml", edit("Resource: arn:aws:states:::lambda:invoke" to "Resource: $value")))
+            .map { it.problem to it.message }
+
+    fun `test a service integration the plugin does not know`() {
+        val unknown = listOf("lamda:invoke", "dynamodb:query", "lambda:invoke.sync", "lambda", "s3:getObject")
+        for (rest in unknown) {
+            assertEquals(rest, listOf(UNKNOWN_SERVICE_INTEGRATION to "'$rest' is not a service integration the plugin knows"),
+                resourceMessages("arn:aws:states:::$rest"))
+        }
+    }
+
+    fun `test service integrations the plugin knows`() {
+        val known = listOf("arn:aws:states:::lambda:invoke.waitForTaskToken", "arn:aws:states:::states:startExecution.sync:2",
+            "arn:aws:states:::http:invoke", "arn:aws-cn:states:::sns:publish", "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+            "arn:aws:states:::aws-sdk:dynamodb:transactWriteItems.waitForTaskToken", "arn:aws:states:::aws-sdk:emr-serverless:startJobRun")
+        for (arn in known) assertEquals(arn, emptyList<Any>(), resourceMessages(arn))
+    }
+
+    fun `test AWS SDK integrations with a wrong form`() {
+        assertEquals(listOf(UNKNOWN_SERVICE_INTEGRATION to "An AWS SDK integration cannot use '.sync'"),
+            resourceMessages("arn:aws:states:::aws-sdk:codebuild:startBuild.sync"))
+        assertEquals(listOf(UNKNOWN_SERVICE_INTEGRATION to "An AWS SDK integration is written aws-sdk:service:action"),
+            resourceMessages("arn:aws:states:::aws-sdk:s3"))
+    }
+
+    fun `test a resource of an ItemReader is not judged`() {
+        val map = "  Rejected:\n    Type: Map\n    ItemReader:\n      Resource: nonsense\n    ItemProcessor:\n      StartAt: P\n      States:\n        P:\n          Type: Succeed\n    End: true\n"
+        assertEquals(emptyList<Any>(), found(edit("  Rejected:\n    Type: Fail\n" to map)))
+    }
 
     fun `test unreachable state`() =
         assertEquals(listOf(UNREACHABLE_STATE to "Orphan"), found(BASE + "  Orphan:\n    Type: Succeed\n"))

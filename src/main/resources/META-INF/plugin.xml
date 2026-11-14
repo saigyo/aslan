@@ -70,6 +70,8 @@
                          displayName="State name too long" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslDuplicateMapLabel" implementationClass="io.github.saigyo.aslan.check.AslDuplicateMapLabelInspection"
                          displayName="Map label used twice" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslInvalidResourceArn" implementationClass="io.github.saigyo.aslan.check.AslInvalidResourceArnInspection"
+                         displayName="Task resource that is not an ARN" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslUnknownField" implementationClass="io.github.saigyo.aslan.check.AslUnknownFieldInspection"
                          displayName="Unknown field" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslMisplacedField" implementationClass="io.github.saigyo.aslan.check.AslMisplacedFieldInspection"
@@ -88,6 +90,8 @@
                          displayName="Heartbeat not shorter than timeout" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslUnreachableState" implementationClass="io.github.saigyo.aslan.check.AslUnreachableStateInspection"
                          displayName="Unreachable state" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslUnknownServiceIntegration" implementationClass="io.github.saigyo.aslan.check.AslUnknownServiceIntegrationInspection"
+                         displayName="Unknown service integration" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslEmptyList" implementationClass="io.github.saigyo.aslan.check.AslEmptyListInspection"
                          displayName="Empty list where one entry is needed" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslUnknownPredefinedError" implementationClass="io.github.saigyo.aslan.check.AslUnknownPredefinedErrorInspection"

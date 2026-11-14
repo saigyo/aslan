@@ -1,6 +1,7 @@
 package io.github.saigyo.aslan.check
 
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
+import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
 import io.github.saigyo.aslan.check.AslProblem.MISPLACED_JSONATA_DELIMITER
@@ -32,6 +33,33 @@ class StructureChecksTest : CheckTestCase() {
 
     fun `test missing Resource`() =
         assertEquals(listOf(MISSING_REQUIRED_FIELD to "Inspect"), found(edit("    Resource: arn:aws:states:::lambda:invoke\n" to "")))
+
+    private fun withResource(value: String) = found(edit("Resource: arn:aws:states:::lambda:invoke" to "Resource: $value"))
+
+    fun `test a Task resource that is not an ARN`() {
+        for (value in listOf("arn:aws:states", "lambda", "arn:aws:lambda:us-east-1:123456789012", "arn::states:::lambda:invoke", "'arn:aws:states:::'")) {
+            assertEquals(value, listOf(INVALID_RESOURCE_ARN to value), withResource(value))
+        }
+    }
+
+    fun `test Task resources that are ARNs`() {
+        val arns = listOf(
+            "arn:aws:lambda:us-east-1:123456789012:function:Inspect",
+            "arn:aws:lambda:us-east-1:123456789012:function:Inspect:live",
+            "arn:aws:states:us-east-1:123456789012:activity:Review",
+            "arn:aws-us-gov:states:::lambda:invoke",
+        )
+        for (arn in arns) assertEquals(arn, emptyList<Any>(), withResource(arn))
+    }
+
+    fun `test a Task resource with a placeholder is not judged`() {
+        for (value in listOf("${'$'}{InspectFnArn}", "arn:${'$'}{AWS::Partition}:states", "${'$'}{Prefix}:invoke")) {
+            assertEquals(value, emptyList<Any>(), withResource(value))
+        }
+    }
+
+    fun `test a resource that is not a string is reported as that only`() =
+        assertEquals(listOf(WRONG_VALUE_KIND to "[a]"), withResource("[a]"))
 
     fun `test empty Choices`() = assertEquals(
         listOf(EMPTY_CHOICES to "Choices"),
@@ -136,7 +164,7 @@ class StructureChecksTest : CheckTestCase() {
         listOf(WRONG_VALUE_KIND to "many"),
         found(edit(
             "      - ErrorEquals: [States.ALL]\n        MaxAttempts: 2" to "      - &r\n        ErrorEquals: [States.ALL]\n        MaxAttempts: many",
-            "  Accepted:\n    Type: Succeed" to "  Accepted:\n    Type: Task\n    Resource: x\n    Retry: [*r]\n    End: true",
+            "  Accepted:\n    Type: Succeed" to "  Accepted:\n    Type: Task\n    Resource: arn:aws:states:::sns:publish\n    Retry: [*r]\n    End: true",
         )),
     )
 

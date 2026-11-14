@@ -88,7 +88,7 @@ class AslCompletionContributor : CompletionContributor() {
             ValueKind.ErrorNames -> return addNamed(AslSpec.errorNames, parameters, result, anywhere = false)
             // The service integration ARNs are those of Task states; ItemReader and ResultWriter take others.
             ValueKind.ResourceArn ->
-                return context.field.owner.structure.id == StructureId.TASK && addNamed(AslSpec.resourceArns, parameters, result, anywhere = true)
+                return context.field.owner.structure.id == StructureId.TASK && addNamed(AslSpec.taskResourceArns, parameters, result, anywhere = true)
             else -> Unit
         }
         val quoted = parent is JsonStringLiteral || parent is YAMLQuotedText

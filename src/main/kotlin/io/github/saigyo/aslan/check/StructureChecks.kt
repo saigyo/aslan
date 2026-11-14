@@ -11,6 +11,7 @@ import io.github.saigyo.aslan.check.AslProblem.ROOT_NOT_MAPPING
 import io.github.saigyo.aslan.check.AslProblem.UNCLOSED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_STATE_TYPE
 import io.github.saigyo.aslan.check.AslProblem.WRONG_QUERY_LANGUAGE_FIELD
+import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
 import io.github.saigyo.aslan.check.AslProblem.WRONG_VALUE_KIND
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslState
@@ -96,6 +97,12 @@ internal object StructureChecks {
                 }
                 if (field.lenient) continue
                 value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o, optional = !field.required && field.kind != ValueKind.StateName)
+                if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
+                    val resource = ResourceChecks.certainText(entry.value, ctx)
+                    if (resource != null && !ResourceChecks.isArn(resource)) {
+                        report(INVALID_RESOURCE_ARN, entry.value.psi, "Not an ARN; a Task needs the ARN of a service integration, a Lambda function or an activity")
+                    }
+                }
             }
         }
 

@@ -51,6 +51,8 @@ class AslJsonataInStaticFieldInspection : AslProblemInspection(AslProblem.JSONAT
 class AslStatesAllPlacementInspection : AslProblemInspection(AslProblem.STATES_ALL_PLACEMENT)
 class AslHeartbeatNotBelowTimeoutInspection : AslProblemInspection(AslProblem.HEARTBEAT_NOT_BELOW_TIMEOUT)
 class AslUnreachableStateInspection : AslProblemInspection(AslProblem.UNREACHABLE_STATE)
+class AslInvalidResourceArnInspection : AslProblemInspection(AslProblem.INVALID_RESOURCE_ARN)
+class AslUnknownServiceIntegrationInspection : AslProblemInspection(AslProblem.UNKNOWN_SERVICE_INTEGRATION)
 class AslEmptyListInspection : AslProblemInspection(AslProblem.EMPTY_LIST)
 class AslUnknownPredefinedErrorInspection : AslProblemInspection(AslProblem.UNKNOWN_PREDEFINED_ERROR)
 class AslMalformedChoiceRuleInspection : AslProblemInspection(AslProblem.MALFORMED_CHOICE_RULE)
@@ -89,6 +91,8 @@ object AslInspections {
         AslStatesAllPlacementInspection(),
         AslHeartbeatNotBelowTimeoutInspection(),
         AslUnreachableStateInspection(),
+        AslInvalidResourceArnInspection(),
+        AslUnknownServiceIntegrationInspection(),
         AslEmptyListInspection(),
         AslUnknownPredefinedErrorInspection(),
         AslMalformedChoiceRuleInspection(),
