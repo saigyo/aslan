@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan
 
+import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
@@ -17,5 +18,14 @@ abstract class AslTestCase : BasePlatformTestCase() {
         myFixture.configureByText(name, text.trimIndent())
         myFixture.completeBasic()
         return myFixture.lookupElementStrings.orEmpty()
+    }
+
+    /** The text of every range highlighted by Highlight Usages at `<caret>`, sorted by start offset. */
+    protected fun highlightedUsages(): List<String> {
+        HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)
+        val text = myFixture.editor.document.charsSequence
+        return myFixture.editor.markupModel.allHighlighters
+            .sortedBy { it.startOffset }
+            .map { text.subSequence(it.startOffset, it.endOffset).toString() }
     }
 }
