@@ -39,11 +39,18 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun isLineCommented(line: Int, offset: Int, document: Document, data: CommenterDataHolder): Boolean {
         val range = content(line, document)
         val text = range.substring(document.text)
-        return text.length >= OPEN.length + CLOSE.length && text.startsWith(OPEN) && text.endsWith(CLOSE)
+        return isOneComment(text)
     }
+
+    // One comment from end to end: the first closing delimiter is the one at the end.
+    private fun isOneComment(text: String): Boolean =
+        text.length >= OPEN.length + CLOSE.length && text.startsWith(OPEN) && text.endsWith(CLOSE) &&
+            text.indexOf(CLOSE, OPEN.length) == text.length - CLOSE.length
 
     override fun commentLine(line: Int, offset: Int, document: Document, data: CommenterDataHolder) {
         val range = content(line, document)
+        // JSONata comments do not nest: a line that holds a comment delimiter is left as it is.
+        range.substring(document.text).let { if (it.contains(OPEN) || it.contains(CLOSE)) return }
         document.insertString(range.endOffset, " $CLOSE")
         document.insertString(range.startOffset, "$OPEN ")
     }
@@ -51,7 +58,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun uncommentLine(line: Int, offset: Int, document: Document, data: CommenterDataHolder) {
         val range = content(line, document)
         val text = range.substring(document.text)
-        if (!(text.startsWith(OPEN) && text.endsWith(CLOSE) && text.length >= OPEN.length + CLOSE.length)) return
+        if (!isOneComment(text)) return
         var closeLength = CLOSE.length
         if (text.length >= OPEN.length + CLOSE.length + 1 && text[text.length - CLOSE.length - 1] == ' ') closeLength++
         var openLength = OPEN.length

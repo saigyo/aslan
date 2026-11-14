@@ -68,8 +68,11 @@ class JsonataCompletionTest : JsonataTestCase() {
     fun `test nothing in a string or a comment`() {
         assertEquals(emptyList<String>(), inOutput("'\$st$caret'"))
         assertEquals(emptyList<String>(), inOutput("/* \$st$caret */ 1"))
-        // an unterminated comment is a token of its own (BAD_COMMENT)
-        assertEquals(emptyList<String>(), complete(machineText("Type: Task\nResource: arn:aws:states:::lambda:invoke\nOutput: '{% /* \$st$caret'\nEnd: true")))
+        // an unterminated comment is a token of its own (BAD_COMMENT): the `%}` lies outside the injected range
+        val unterminated = complete(machineText("Type: Task\nResource: arn:aws:states:::lambda:invoke\nOutput: '{% /* \$st$caret %}'\nEnd: true"))
+        assertEquals(emptyList<String>(), unterminated)
+        assertTrue(myFixture.file.language == io.github.saigyo.aslan.jsonata.JsonataLanguage)
+        assertTrue(myFixture.file.findElementAt(myFixture.caretOffset - 1)!!.node.elementType == io.github.saigyo.aslan.jsonata.parser.JsonataTokens.BAD_COMMENT)
     }
 
     fun `test a local variable named states has no states fields`() {

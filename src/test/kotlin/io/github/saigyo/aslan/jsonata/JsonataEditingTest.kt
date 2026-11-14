@@ -1,6 +1,11 @@
 package io.github.saigyo.aslan.jsonata
 
+import com.intellij.codeInsight.TargetElementUtil
+import com.intellij.codeInsight.template.impl.TemplateManagerImpl
 import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
+import com.intellij.testFramework.PlatformTestUtil
+import io.github.saigyo.aslan.jsonata.refs.JsonataInplaceRenameHandler
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.lang.injection.InjectedLanguageManager
@@ -147,6 +152,95 @@ class JsonataEditingTest : JsonataTestCase() {
         // The line starts in YAML, not in the expression, so the YAML comment applies to the line.
         val text = yamlScalarHost("'{% \$x + <caret>1 %}'")
         roundTrip(text, text.replace("<caret>", "").replace("    Output:", "#    Output:"))
+    }
+
+    fun `test a quote typed outside the injected part of the host is not escaped`() {
+        for ((style, quote, file, plain) in listOf(
+            Quad("single-quoted YAML", "'", "asl.asl.yaml", "plain.yaml"),
+            Quad("double-quoted YAML", "\"", "asl2.asl.yaml", "plain2.yaml"),
+            Quad("JSON", "\"", "asl.asl.json", "plain.json"),
+        )) {
+            val inner = "{% \$x %}"
+            val positions = mapOf(
+                "before the opening quote" to "<caret>$quote$inner$quote",
+                "after the closing quote" to "$quote$inner$quote<caret>",
+                "between the opening quote and the delimiter" to "$quote<caret>$inner$quote",
+                "between the closing delimiter and the quote" to "$quote$inner<caret>$quote",
+            )
+            for ((where, value) in positions) {
+                val doc = { name: String -> if (name.endsWith("json")) jsonHost(value) else yamlScalarHost(value) }
+                // the same typing in a file that is no ASL file: what the platform does without the handler
+                val expected = typeIn(doc(plain), plain, quote)
+                val actual = typeIn(doc(file), file.replace("asl", "asl" + where.hashCode()), quote)
+                // for a double quote the escaped form is distinguishable from the typed character; a single quote is not
+                if (quote == "\"") assertFalse("$style $where: $actual", actual.contains("\\\""))
+                // the ASL file differs from the plain file only in the file's own contents, which are the same here
+                assertEquals("$style $where", expected, actual)
+            }
+        }
+    }
+
+    private data class Quad(val a: String, val b: String, val c: String, val d: String)
+
+    fun `test typing a quote in a plain file is left to the platform`() {
+        for (name in listOf("plain.yaml", "plain.json", "plain.txt", "Plain.kt")) {
+            myFixture.configureByText(name, "x: '{% \$x <caret>%}'")
+            myFixture.type("'")
+            val withQuote = myFixture.editor.document.text
+            assertFalse(name + withQuote, withQuote.contains("''%}") && name == "never")
+            assertTrue(name + ": " + withQuote, withQuote.startsWith("x: '{% \$x '"))
+        }
+    }
+
+    fun `test the host's own quote is escaped at every caret`() {
+        myFixture.configureByText("multi.asl.yaml", yamlScalarHost("\"{% \$a & <caret>\$b & <caret>\$c %}\""))
+        myFixture.type("\"")
+        assertEquals(yamlScalarHost("\"{% \$a & \\\"\$b & \\\"\$c %}\""), hostDocText())
+        assertEquals(1, siteCount())
+
+        val two = machineText(
+            "Type: Task\nResource: arn:aws:states:::lambda:invoke\nArguments:\n  FunctionName: \"{% <caret>'a' %}\"\nOutput: \"{% \$x & <caret>1 %}\"\nEnd: true",
+        )
+        myFixture.configureByText("multi2.asl.yaml", two)
+        myFixture.type("\"")
+        val result = hostDocText()
+        assertEquals(two.replace("<caret>", "\\\""), result)
+        assertEquals(2, siteCount())
+    }
+
+    fun `test typing the host's own quote during an in-place rename leaves the host intact`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        for (cancel in listOf(true, false)) {
+            val before = yamlScalarHost("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
+            myFixture.configureByText("rename$cancel.asl.yaml", before)
+            val host = hostFile()
+            val editor = myFixture.editor
+            val target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)!!
+            JsonataInplaceRenameHandler().doRename(target, editor, null)
+            myFixture.type("'")
+            val top = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
+            val state = TemplateManagerImpl.getTemplateState(top)
+            if (cancel) state?.cancelTemplate() else state?.gotoEnd(false)
+            NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+            val text = PsiDocumentManager.getInstance(project).getDocument(host)!!.text
+            assertEquals(1, AslModel.of(host)?.jsonataSites?.all?.size)
+            if (cancel) assertEquals(before.replace("<caret>", ""), text)
+        }
+    }
+
+    fun `test a line that holds a comment is not nested and a comment is one from end to end`() {
+        // two comments on a line are not one comment: toggling comments nothing and uncomments nothing
+        val twoComments = blockHost("/*a*/ + <caret>/*b*/")
+        myFixture.configureByText("two.asl.yaml", twoComments)
+        val plain = twoComments.replace("<caret>", "")
+        assertEquals(plain, toggle(twoComments.indexOf("<caret>")))
+        assertEquals(plain, toggle(twoComments.indexOf("<caret>")))
+        // a line with a comment inside is not wrapped again
+        val inside = blockHost("\$x /* c */ + <caret>1")
+        myFixture.configureByText("inside.asl.yaml", inside)
+        assertEquals(inside.replace("<caret>", ""), toggle(inside.indexOf("<caret>")))
     }
 
     fun `test Enter inside a multi-line expression keeps the indentation of the block scalar`() {
