@@ -269,7 +269,7 @@ internal object WarningChecks {
 
         /** Returns what an ItemReader misses, and reports a `Transformation` where nothing is listed. */
         private fun itemReader(o: AslObject): String? {
-            val readsObject = certain(o, "Resource") == S3_GET_OBJECT
+            val readsObject = certain(o, "Resource")?.let { ResourceChecks.isIntegration(it, S3_GET_OBJECT) } == true
             val transformation = (o["ReaderConfig"]?.value as? AslObject)?.get("Transformation")?.takeIf { !it.viaMerge }
             if (readsObject && transformation != null) {
                 report(INAPPLICABLE_FIELD, transformation.keyPsi, "'Transformation' only applies to a listing with arn:aws:states:::s3:listObjectsV2")
@@ -404,7 +404,7 @@ internal object WarningChecks {
         .filter { it.mode == Mode.JSONPATH && it.name != "Variable" && it.name !in COMBINATIONS }.map { it.name }.toSet()
     private val TIMESTAMP_FIELDS = setOf("Timestamp", "TimestampEquals", "TimestampLessThan", "TimestampGreaterThan",
         "TimestampLessThanEquals", "TimestampGreaterThanEquals")
-    private const val S3_GET_OBJECT = "arn:aws:states:::s3:getObject"
+    private const val S3_GET_OBJECT = "s3:getObject"
     private val PAYLOAD_FIELDS = listOf("Parameters", "Arguments")
     private val BATCH_LIMITS = listOf("MaxItemsPerBatch", "MaxItemsPerBatchPath", "MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath")
     private val READER_FIELD_INPUT_TYPES = mapOf(

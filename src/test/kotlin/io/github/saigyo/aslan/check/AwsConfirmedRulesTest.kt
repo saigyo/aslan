@@ -48,6 +48,36 @@ class AwsConfirmedRulesTest : CheckTestCase() {
         assertEquals("A service integration needs 'Arguments', even when the call takes no parameters", message)
     }
 
+    fun `test a service integration with region, account or another partition`() {
+        val regional = "arn:aws:states:us-east-1:123456789012"
+        for (resource in listOf("$regional:lambda:invoke", "arn:aws:states:us-east-1::lambda:invoke", "arn:aws:states::123456789012:lambda:invoke",
+            "arn:aws-cn:states:::lambda:invoke", "$regional:aws-sdk:s3:listBuckets")) {
+            assertEquals(resource, listOf(MISSING_REQUIRED_FIELD to "A"), found(task(resource = resource)))
+            nothing(task("Parameters: {}", resource = resource))
+        }
+        for (resource in listOf("$regional:aws-sdk:s3:listBuckets.sync", "$regional:aws-sdk:s3", "arn:aws-cn:states:::aws-sdk:s3:listBuckets.sync")) {
+            assertEquals(resource, listOf(INVALID_RESOURCE_ARN to resource), found(task("Parameters: {}", resource = resource)))
+        }
+    }
+
+    fun `test the resource of a reader or writer in another partition or with region and account`() {
+        fun reader(resource: String, vararg lines: String) = map("ItemReader:", "  Resource: $resource", "  Parameters:", "    Bucket: b", "    Key: k", *lines)
+        fun writer(resource: String) = map("ResultWriter:", "  Resource: $resource", "  Parameters:", "    Bucket: b", "    Prefix: p")
+        for (partition in listOf("aws-cn", "aws-us-gov", "foo")) {
+            val get = "arn:$partition:states:::s3:getObject"
+            nothing(reader(get, "  ReaderConfig:", "    InputType: JSON"))
+            assertEquals(get, listOf(INCOMPLETE_CONFIGURATION to "ItemReader"), found(reader(get)))
+            assertEquals(get, listOf(INAPPLICABLE_FIELD to "Transformation"), found(reader(get, "  ReaderConfig:", "    InputType: JSON", "    Transformation: NONE")))
+            nothing(reader("arn:$partition:states:::s3:listObjectsV2", "  ReaderConfig:", "    Transformation: NONE"))
+            nothing(writer("arn:$partition:states:::s3:putObject"))
+        }
+        val regional = "arn:aws:states:us-east-1:123456789012"
+        assertEquals(listOf(INVALID_RESOURCE_ARN to "$regional:s3:getObject"), found(reader("$regional:s3:getObject", "  ReaderConfig:", "    InputType: JSON")))
+        assertEquals(listOf(INVALID_RESOURCE_ARN to "$regional:s3:putObject"), found(writer("$regional:s3:putObject")))
+        nothing(reader("$dollar{ReaderResource}"))
+        nothing(writer("!Sub arn:aws:states:$dollar{AWS::Region}:$dollar{AWS::AccountId}:s3:putObject"))
+    }
+
     fun `test resources that need no Parameters`() {
         nothing(task())
         nothing(task(resource = "arn:aws:states:us-east-1:123456789012:activity:Review"))

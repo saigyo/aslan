@@ -37,6 +37,7 @@ class AwsVerdictsTest : CheckTestCase() {
         "r2-G-lambda-sync" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
         "r3-W-state-machine" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
         "r3-W-states-other-kind" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
+        "r8-t-region-account-unknown-integration" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
         "r3-AC-parameters-unknown-intrinsic" to "the name of an intrinsic function is not checked, so that a new one is never a false error",
         "r3-AC-parameters-dollar-word" to "variables are checked in a later stage",
         "r3-AI-dollar-word-InputPath" to "variables are checked in a later stage",

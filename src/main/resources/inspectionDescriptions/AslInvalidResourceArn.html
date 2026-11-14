@@ -1,6 +1,7 @@
 <html>
 <body>
-<p>Reports the <code>Resource</code> of a Task state when it is none of the three things a Task can run: a service integration, a Lambda function or an activity. This covers a value that is not an ARN, the ARN of another service, a Lambda ARN without a function name, an activity ARN without a name, and an AWS SDK integration that is not written <code>aws-sdk:service:action</code> or uses <code>.sync</code>. A value that contains a placeholder is not checked.</p>
+<p>Reports the <code>Resource</code> of a Task state when it is none of the three things a Task can run: a service integration, a Lambda function or an activity. This covers a value that is not an ARN, the ARN of another service, a Lambda ARN without a function name, an activity ARN without a name, and an AWS SDK integration that is not written <code>aws-sdk:service:action</code> or uses <code>.sync</code>. A service integration may be written in any partition and also with a region and an account. A value that contains a placeholder is not checked.</p>
+<p>Also reports the <code>Resource</code> of an ItemReader or ResultWriter that names its S3 action with a region or an account: there AWS only takes the form <code>arn:partition:states:::s3:getObject</code>.</p>
 <p>The definition validation of Step Functions rejects such a value with "Value is not a valid resource ARN", so this is reported as an error. Whether a function or an activity exists is not judged.</p>
 </body>
 </html>
