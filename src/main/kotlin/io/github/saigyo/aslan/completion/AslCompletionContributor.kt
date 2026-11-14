@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.completion
 import com.intellij.application.options.CodeStyle
 import com.intellij.codeInsight.completion.CompletionContributor
 import com.intellij.codeInsight.completion.CompletionParameters
+import com.intellij.codeInsight.completion.CompletionUtil
 import com.intellij.codeInsight.completion.CompletionResultSet
 import com.intellij.codeInsight.completion.InsertHandler
 import com.intellij.codeInsight.completion.InsertionContext
@@ -11,10 +12,18 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.json.psi.JsonReferenceExpression
 import com.intellij.json.psi.JsonStringLiteral
+import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.codeInsight.completion.PrefixMatcher
+import com.intellij.psi.PsiDocumentManager
+import io.github.saigyo.aslan.model.AslModel
+import io.github.saigyo.aslan.spec.AslSpec
+import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.FieldSpec
 import io.github.saigyo.aslan.spec.NamedDoc
 import io.github.saigyo.aslan.spec.ValueKind
 import org.jetbrains.yaml.psi.YAMLFile
+import org.jetbrains.yaml.psi.YAMLKeyValue
+import org.jetbrains.yaml.psi.YAMLMapping
 import org.jetbrains.yaml.psi.YAMLQuotedText
 
 /**
@@ -27,8 +36,7 @@ class AslCompletionContributor : CompletionContributor() {
             is CompletionContext.Key -> addKeys(context, parameters, result)
             is CompletionContext.Value -> {
                 // Only fixed values are offered here; where none are, the IDE's own completion keeps working.
-                val kind = context.field.spec.kind
-                if (!addValues(kind, parameters, result)) return
+                if (!addValues(context, parameters, result)) return
             }
         }
         result.stopHere()
@@ -66,9 +74,17 @@ class AslCompletionContributor : CompletionContributor() {
         else -> 1.0
     }
 
-    /** Adds the fixed values of [kind] that fit the caret; false when there are none. */
-    private fun addValues(kind: ValueKind, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
+    /** Adds the values that fit the caret; false when there are none. */
+    private fun addValues(context: CompletionContext.Value, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
+        val kind = context.field.spec.kind
         val parent = parameters.position.parent
+        if (context.field.spec.name == "Type" && kind is ValueKind.OneOf) return addStateTypes(context, parameters, result)
+        when (kind) {
+            ValueKind.StateName -> return addStateNames(context, parameters, result)
+            ValueKind.ErrorNames -> return addNamed(AslSpec.errorNames, parameters, result, anywhere = false)
+            ValueKind.ResourceArn -> return addNamed(AslSpec.resourceArns, parameters, result, anywhere = true)
+            else -> Unit
+        }
         val quoted = parent is JsonStringLiteral || parent is YAMLQuotedText
         val names = when (kind) {
             is ValueKind.OneOf -> kind.values
@@ -82,6 +98,69 @@ class AslCompletionContributor : CompletionContributor() {
             result.addElement(if (quote) item.withInsertHandler(JsonQuoteInsertHandler) else item)
         }
         return names.isNotEmpty()
+    }
+
+    /** The state types in specification order; the type of a new, otherwise empty YAML state also brings its fields. */
+    private fun addStateTypes(context: CompletionContext.Value, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
+        val matcher = result.withPrefixMatcher(typedPrefix(parameters).let { StartOrAnywhere(it, false) })
+        val yaml = parameters.originalFile is YAMLFile
+        val types = AslSpec.stateTypes.filter { matcher.prefixMatcher.prefixMatches(it.name) }
+        types.forEach { type ->
+            val item = LookupElementBuilder.create(type.name).withTypeText(type.description.ifEmpty { null })
+            val handler: InsertHandler<LookupElement>? = when {
+                yaml -> StateTypeInsertHandler(context.field.owner.queryLanguage)
+                isBareJson(parameters) -> JsonQuoteInsertHandler
+                else -> null
+            }
+            val priority = (AslSpec.stateTypes.size - AslSpec.stateTypes.indexOf(type)).toDouble()
+            matcher.addElement(PrioritizedLookupElement.withPriority(if (handler != null) item.withInsertHandler(handler) else item, priority))
+        }
+        return types.isNotEmpty()
+    }
+
+    /** The state names of the machine the value belongs to; the state being edited comes last. */
+    private fun addStateNames(context: CompletionContext.Value, parameters: CompletionParameters, result: CompletionResultSet): Boolean {
+        val doc = AslModel.of(parameters.position.containingFile) ?: return false
+        val entry = context.field.entry.entryPsi
+        val machine = if (context.field.spec.name == "StartAt") {
+            doc.allMachines().firstOrNull { m -> m.obj.entries.any { it.entryPsi === entry } }
+        } else {
+            context.state?.machine
+        } ?: return false
+        val matcher = result.withPrefixMatcher(StartOrAnywhere(typedPrefix(parameters), false))
+        val own = context.state?.name.takeIf { context.field.spec.name != "StartAt" }
+        val quote = isBareJson(parameters)
+        var added = false
+        for (state in machine.states) {
+            val name = state.name
+            if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || !matcher.prefixMatcher.prefixMatches(name)) continue
+            val item = LookupElementBuilder.create(name).let { if (quote) it.withInsertHandler(JsonQuoteInsertHandler) else it }
+            matcher.addElement(PrioritizedLookupElement.withPriority(item, if (name == own) 0.0 else 1.0))
+            added = true
+        }
+        return added
+    }
+
+    private fun addNamed(values: List<NamedDoc>, parameters: CompletionParameters, result: CompletionResultSet, anywhere: Boolean): Boolean {
+        val matcher = result.withPrefixMatcher(StartOrAnywhere(typedPrefix(parameters), anywhere))
+        val quote = isBareJson(parameters)
+        var added = false
+        for (value in values) {
+            if (!matcher.prefixMatcher.prefixMatches(value.name)) continue
+            val item = LookupElementBuilder.create(value.name).withTypeText(value.description.ifEmpty { null })
+            matcher.addElement(if (quote) item.withInsertHandler(JsonQuoteInsertHandler) else item)
+            added = true
+        }
+        return added
+    }
+
+    private fun isBareJson(parameters: CompletionParameters) = parameters.position.parent is JsonReferenceExpression
+
+    /** The text of the value before the caret without an opening quote; unlike the platform's own prefix it may contain `:`. */
+    private fun typedPrefix(parameters: CompletionParameters): String {
+        val position = parameters.position
+        val length = (parameters.offset - position.textRange.startOffset).coerceIn(0, position.textLength)
+        return position.text.substring(0, length).trimStart('"', '\'')
     }
 
     private fun kindText(kind: ValueKind): String = when (kind) {
@@ -130,5 +209,39 @@ private object JsonQuoteInsertHandler : InsertHandler<LookupElement> {
         context.document.insertString(context.tailOffset, "\"")
         context.document.insertString(context.startOffset, "\"")
         context.editor.caretModel.moveToOffset(context.tailOffset)
+    }
+}
+
+/** Matches names that start with the prefix, or contain it anywhere, ignoring case. */
+private class StartOrAnywhere(prefix: String, private val anywhere: Boolean) : PrefixMatcher(prefix) {
+    override fun prefixMatches(name: String): Boolean = name.contains(prefix, ignoreCase = true) && (anywhere || name.startsWith(prefix, ignoreCase = true))
+    override fun cloneWithPrefix(prefix: String): PrefixMatcher = StartOrAnywhere(prefix, anywhere)
+}
+
+/**
+ * Inserts the fields a new state of the chosen type needs, below the `Type` line at its indentation, when `Type` is
+ * the only key of its state and nothing else follows the value on its line.
+ */
+private class StateTypeInsertHandler(private val queryLanguage: QueryLanguage) : InsertHandler<LookupElement> {
+    override fun handleInsert(context: InsertionContext, item: LookupElement) {
+        val document = context.document
+        PsiDocumentManager.getInstance(context.project).commitDocument(document)
+        val keyValue = PsiTreeUtil.getParentOfType(context.file.findElementAt(context.startOffset), YAMLKeyValue::class.java) ?: return
+        val mapping = keyValue.parent as? YAMLMapping ?: return
+        if (keyValue.keyText != "Type" || mapping.keyValues.size != 1) return
+        val text = document.charsSequence
+        val tail = context.tailOffset
+        val lineEnd = text.indexOf('\n', tail).let { if (it < 0) text.length else it }
+        if (text.subSequence(tail, lineEnd).isNotBlank()) return
+        val keyOffset = keyValue.textRange.startOffset
+        val lineStart = document.getLineStartOffset(document.getLineNumber(keyOffset))
+        if (text.subSequence(lineStart, keyOffset).isNotBlank()) return
+        val indent = " ".repeat(keyOffset - lineStart)
+        val body = StateTemplates.yamlBody(item.lookupString, queryLanguage)
+        if (body.isEmpty()) return
+        val insert = body.joinToString("") { "\n$indent$it" }
+        val caret = insert.indexOf(StateTemplates.CARET)
+        document.insertString(tail, insert.replace(StateTemplates.CARET, ""))
+        context.editor.caretModel.moveToOffset(if (caret >= 0) tail + caret else tail)
     }
 }
