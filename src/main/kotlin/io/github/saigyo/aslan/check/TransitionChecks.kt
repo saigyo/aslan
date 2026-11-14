@@ -35,7 +35,14 @@ internal object TransitionChecks {
     private fun startAt(machine: AslStateMachine, out: MutableList<AslFinding>) {
         val value = machine.startAt?.value as? AslScalar ?: return
         val name = certainName(value) ?: return
-        if (machine.state(name) == null) out += AslFinding(MISSING_TRANSITION_TARGET, value.psi, "No state named '$name' in this state machine")
+        out += AslFinding(MISSING_TRANSITION_TARGET, value.psi, missingTarget(machine, name) ?: return)
+    }
+
+    /** What is wrong with [name] as a transition target; AWS rejects an empty name even when a state has it. */
+    private fun missingTarget(machine: AslStateMachine, name: String): String? = when {
+        name.isEmpty() -> "The name of a state cannot be empty"
+        machine.state(name) == null -> "No state named '$name' in this state machine"
+        else -> null
     }
 
     private fun targets(machine: AslStateMachine, out: MutableList<AslFinding>) {
@@ -44,7 +51,7 @@ internal object TransitionChecks {
             for (transition in state.transitions) {
                 val target = transition.target ?: continue
                 val name = certainName(target) ?: continue
-                if (machine.state(name) == null) out += AslFinding(MISSING_TRANSITION_TARGET, target.psi, "No state named '$name' in this state machine")
+                missingTarget(machine, name)?.let { out += AslFinding(MISSING_TRANSITION_TARGET, target.psi, it) }
             }
         }
     }

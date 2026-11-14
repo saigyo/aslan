@@ -10,12 +10,15 @@ internal object ResourceChecks {
     private const val ARN_PARTS = 6
     private const val INTEGRATION_PREFIX = "arn:aws:states:::"
     private const val SDK_PREFIX = "aws-sdk:"
-    private const val ROLE_PREFIX = "role/"
+    private const val STATES = "states"
+    private const val ACTIVITY = "activity:"
 
     /** Each known optimised integration and the HTTP task, as the text after `arn:aws:states:::`. */
     private val known: Set<String> = AslSpec.taskResourceArns.map { it.name.removePrefix(INTEGRATION_PREFIX) }.toSet()
     private val sdkIntegration = Regex("""aws-sdk:[A-Za-z0-9-]+:[A-Za-z0-9]+(\.waitForTaskToken)?""")
     private val syncSuffix = Regex("""\.sync(:\d+)?$""")
+    private val namedResource = Regex("""[^:]+:.+""")
+    private val roleResource = Regex("""role/[\w+=,.@/-]*[\w+=,.@-]""")
 
     /**
      * The text of [node] when it is certainly the resource the file says: a string without a placeholder that is not
@@ -35,30 +38,64 @@ internal object ResourceChecks {
     }
 
     /**
-     * Whether [text] has the form `arn:partition:iam::account:role/name` of an IAM role ARN. Region and account are not
-     * judged: AWS does not publish the rule it applies to them.
+     * Whether [text] has the form `arn:partition:iam::account:role/name` of an IAM role ARN, as the definition validation
+     * of AWS applies it: no region, some account, and a role name or path of the characters IAM allows.
      */
     fun isRoleArn(text: String): Boolean {
         if (!isArn(text)) return false
         val parts = text.split(':', limit = ARN_PARTS)
-        return parts[2] == "iam" && parts[5].startsWith(ROLE_PREFIX) && parts[5].length > ROLE_PREFIX.length
+        return parts[2] == "iam" && parts[3].isEmpty() && parts[4].isNotEmpty() && roleResource.matches(parts[5])
+    }
+
+    /** `service:action` and its pattern suffix, when [text] is a service integration written without region and account. */
+    private fun integration(text: String): String? {
+        if (!isArn(text)) return null
+        val parts = text.split(':', limit = ARN_PARTS)
+        return parts[5].takeIf { parts[2] == STATES && parts[3].isEmpty() && parts[4].isEmpty() && !it.startsWith(ACTIVITY) }
     }
 
     /**
-     * What is wrong with [text] as a service integration, in any partition; null when it is a known one or no
-     * integration ARN at all, such as the ARN of a Lambda function or an activity. An AWS SDK integration is judged by
-     * its form only: the plugin has no list of the services and actions.
+     * Whether [text] is a service integration that needs `Parameters` or `Arguments`: AWS rejects each one without them,
+     * also those whose call has no required parameter.
      */
-    fun integrationProblem(text: String): String? {
+    fun needsParameters(text: String): Boolean {
+        val integration = integration(text) ?: return false
+        return integration in known || sdkIntegration.matches(integration)
+    }
+
+    /** Whether [text] is the ARN of an activity. */
+    fun isActivity(text: String): Boolean = isArn(text) && text.split(':', limit = ARN_PARTS).let { it[2] == STATES && it[5].startsWith(ACTIVITY) }
+
+    /**
+     * What makes [text] a resource that AWS rejects for a Task; null when nothing certain is wrong. A Task takes a service
+     * integration, the ARN of a Lambda resource or the ARN of an activity. Whether a function or an activity exists is not
+     * judged, and an integration name the plugin does not know is left to [unknownIntegration].
+     */
+    fun resourceProblem(text: String): String? {
+        if (!isArn(text)) return "Not an ARN; a Task needs the ARN of a service integration, a Lambda function or an activity"
+        val parts = text.split(':', limit = ARN_PARTS)
+        val resource = parts[5]
+        return when (parts[2]) {
+            "lambda" -> if (namedResource.matches(resource)) null else "The ARN of a Lambda function ends with function:name"
+            STATES -> when {
+                resource == "activity" || resource == ACTIVITY -> "The ARN of an activity ends with activity:name"
+                integration(text) == null || !resource.startsWith(SDK_PREFIX) || sdkIntegration.matches(resource) -> null
+                syncSuffix.containsMatchIn(resource) -> "An AWS SDK integration cannot use '.sync'"
+                else -> "An AWS SDK integration is written aws-sdk:service:action"
+            }
+            else -> "A Task cannot call '${parts[2]}' by an ARN; it needs a service integration, a Lambda function or an activity"
+        }
+    }
+
+    /**
+     * The text for a service integration, in any partition, whose name is not in the plugin's list; null for a known one,
+     * for an AWS SDK integration, which is judged by its form in [resourceProblem], and for any other resource.
+     */
+    fun unknownIntegration(text: String): String? {
         if (!isArn(text)) return null
         val parts = text.split(':', limit = ARN_PARTS)
-        if (parts[2] != "states" || parts[3].isNotEmpty() || parts[4].isNotEmpty()) return null
-        val integration = parts[5]
-        return when {
-            !integration.startsWith(SDK_PREFIX) -> if (integration in known) null else "'$integration' is not a service integration the plugin knows"
-            sdkIntegration.matches(integration) -> null
-            syncSuffix.containsMatchIn(integration) -> "An AWS SDK integration cannot use '.sync'"
-            else -> "An AWS SDK integration is written aws-sdk:service:action"
-        }
+        val name = parts[5]
+        if (parts[2] != STATES || name.startsWith(ACTIVITY) || name.startsWith(SDK_PREFIX) || name in known) return null
+        return "'$name' is not a service integration the plugin knows"
     }
 }

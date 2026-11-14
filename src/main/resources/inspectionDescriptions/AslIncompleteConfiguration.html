@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a Map setting that lacks a field it needs: an <code>ItemBatcher</code> without any of <code>MaxItemsPerBatch</code>, <code>MaxInputBytesPerBatch</code> and their <code>Path</code> forms; a <code>ResultWriter</code> with neither <code>Resource</code> nor <code>WriterConfig</code>; a <code>ProcessorConfig</code> in <code>DISTRIBUTED</code> mode without <code>ExecutionType</code>; a <code>ReaderConfig</code> with <code>Transformation: LOAD_AND_FLATTEN</code> but no <code>InputType</code>, or with <code>CSVHeaderLocation: GIVEN</code> but no <code>CSVHeaders</code>.</p>
-<p>It is only a warning: the specification or the developer guide states these requirements, but no AWS source documents that a definition breaking them is rejected.</p>
+<p>Reports a Map setting that lacks a field it needs: a <code>ProcessorConfig</code> in <code>DISTRIBUTED</code> mode without <code>ExecutionType</code>; an <code>ItemReader</code> or a <code>ResultWriter</code> with a <code>Resource</code> but without its <code>Parameters</code> or <code>Arguments</code>; an <code>ItemReader</code> that gets a single object without a <code>ReaderConfig</code>; a <code>ReaderConfig</code> with <code>InputType: CSV</code> but no <code>CSVHeaderLocation</code>, with <code>CSVHeaderLocation: GIVEN</code> but no <code>CSVHeaders</code>, with <code>ManifestType: ATHENA_DATA</code> or <code>Transformation: LOAD_AND_FLATTEN</code> but no <code>InputType</code>.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error.</p>
 </body>
 </html>

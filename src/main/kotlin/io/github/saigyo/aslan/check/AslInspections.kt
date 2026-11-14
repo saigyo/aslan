@@ -55,6 +55,8 @@ class AslInvalidResourceArnInspection : AslProblemInspection(AslProblem.INVALID_
 class AslInvalidRoleArnInspection : AslProblemInspection(AslProblem.INVALID_ROLE_ARN)
 class AslUnknownServiceIntegrationInspection : AslProblemInspection(AslProblem.UNKNOWN_SERVICE_INTEGRATION)
 class AslEndFalseWithoutNextInspection : AslProblemInspection(AslProblem.END_FALSE_WITHOUT_NEXT)
+class AslEmptyConfigurationInspection : AslProblemInspection(AslProblem.EMPTY_CONFIGURATION)
+class AslUnreferencedStateInspection : AslProblemInspection(AslProblem.UNREFERENCED_STATE)
 class AslEmptyListInspection : AslProblemInspection(AslProblem.EMPTY_LIST)
 class AslUnknownPredefinedErrorInspection : AslProblemInspection(AslProblem.UNKNOWN_PREDEFINED_ERROR)
 class AslMalformedChoiceRuleInspection : AslProblemInspection(AslProblem.MALFORMED_CHOICE_RULE)
@@ -97,6 +99,8 @@ object AslInspections {
         AslInvalidRoleArnInspection(),
         AslUnknownServiceIntegrationInspection(),
         AslEndFalseWithoutNextInspection(),
+        AslEmptyConfigurationInspection(),
+        AslUnreferencedStateInspection(),
         AslEmptyListInspection(),
         AslUnknownPredefinedErrorInspection(),
         AslMalformedChoiceRuleInspection(),

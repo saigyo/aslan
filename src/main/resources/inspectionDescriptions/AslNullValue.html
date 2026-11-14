@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports an optional field that is present but has no value: written with nothing after the colon, or as <code>null</code> or <code>~</code>. Such a field is probably unfinished, or left behind by a tool that writes every field.</p>
-<p>It is only a warning: no AWS source documents that a null optional field is rejected. A null in a required field or as a transition target such as <code>Next</code> is reported as a value of the wrong kind instead.</p>
+<p>Reports a field that is present but has no value where AWS does not accept that: written with nothing after the colon, or as <code>null</code> or <code>~</code>. This covers the optional fields with a fixed kind of value, such as <code>Comment</code>, <code>TimeoutSeconds</code> or <code>Retry</code>, and the free-form fields <code>Assign</code>, <code>Items</code>, <code>Credentials</code> and the <code>Parameters</code> or <code>Arguments</code> of a Task state.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error. A null is not reported where AWS accepts it: in <code>InputPath</code>, <code>OutputPath</code> and <code>ResultPath</code>, in the <code>Error</code> of a Fail state, and in free-form fields such as <code>Output</code>, <code>Result</code>, <code>ResultSelector</code> and <code>ItemSelector</code>. A null in a required field or as a transition target such as <code>Next</code> is reported as a value of the wrong kind instead.</p>
 </body>
 </html>

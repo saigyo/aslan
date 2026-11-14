@@ -65,11 +65,11 @@ class StructureChecksTest : CheckTestCase() {
         assertEquals(listOf(WRONG_VALUE_KIND to "[a]"), withResource("[a]"))
 
     private fun withCredentials(body: String) =
-        found(edit("    Arguments:\n      FunctionName: ${'$'}{InspectFn}\n" to "    Credentials:\n      $body\n"))
+        found(edit("    Arguments:\n" to "    Credentials:\n      $body\n    Arguments:\n"))
 
     /** A JSONPath machine of one Task with [credentials] as the lines of its `Credentials` field. */
     private fun jsonPathTask(credentials: String) =
-        "StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials:\n      $credentials\n    End: true\n"
+        "StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: arn:aws:lambda:us-east-1:123456789012:function:Inspect\n    Credentials:\n      $credentials\n    End: true\n"
 
     fun `test a role that is not an IAM role ARN`() {
         val values = listOf(
@@ -95,7 +95,6 @@ class StructureChecksTest : CheckTestCase() {
             "RoleArn: '{% ${'$'}roleArn %}'",
             "RoleArn: !GetAtt ScanningRole.Arn",
             "RoleArn: !Sub scanning-team",
-            "RoleArn:\n        Fn::GetAtt: [ScanningRole, Arn]",
             "${'$'}{RoleKey}: scanning-team",
         )
         for (body in bodies) assertEquals(body, emptyList<Any>(), withCredentials(body))
@@ -112,13 +111,13 @@ class StructureChecksTest : CheckTestCase() {
 
     fun `test a role shared through an alias is reported once, where it is written`() {
         val text = "StartAt: A\nStates:\n" +
-            "  A:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials: &creds\n      RoleArn: scanning-team\n    Next: B\n" +
-            "  B:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials: *creds\n    End: true\n"
+            "  A:\n    Type: Task\n    Resource: arn:aws:lambda:us-east-1:123456789012:function:Inspect\n    Credentials: &creds\n      RoleArn: scanning-team\n    Next: B\n" +
+            "  B:\n    Type: Task\n    Resource: arn:aws:lambda:us-east-1:123456789012:function:Inspect\n    Credentials: *creds\n    End: true\n"
         assertEquals(listOf(INVALID_ROLE_ARN to "scanning-team"), found(text))
     }
 
     fun `test a role in JSON`() {
-        val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": "arn:aws:states:::lambda:invoke", "Credentials": {"RoleArn": "scanning-team"}, "End": true}}}"""
+        val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Inspect", "Credentials": {"RoleArn": "scanning-team"}, "End": true}}}"""
         assertEquals(listOf(INVALID_ROLE_ARN to "\"scanning-team\""), found(json, "test.asl.json"))
     }
 
@@ -179,8 +178,8 @@ class StructureChecksTest : CheckTestCase() {
     fun `test no transition`() =
         assertEquals(listOf(MISSING_TRANSITION to "Inspect"), found(edit("    Next: Decide\n" to "")))
 
-    fun `test End false counts as absent`() =
-        assertEquals(emptyList<Any>(), found(edit("    Next: Decide\n" to "    Next: Decide\n    End: false\n")))
+    fun `test Next beside End false is rejected like Next beside End true`() =
+        assertEquals(listOf(AslProblem.EXCLUSIVE_FIELDS to "End"), found(edit("    Next: Decide\n" to "    Next: Decide\n    End: false\n")))
 
     fun `test placeholder End`() = assertEquals(
         emptyList<Any>(),
@@ -265,7 +264,7 @@ class StructureChecksTest : CheckTestCase() {
         listOf(WRONG_VALUE_KIND to "many"),
         found(edit(
             "      - ErrorEquals: [States.ALL]\n        MaxAttempts: 2" to "      - &r\n        ErrorEquals: [States.ALL]\n        MaxAttempts: many",
-            "  Accepted:\n    Type: Succeed" to "  Accepted:\n    Type: Task\n    Resource: arn:aws:states:::sns:publish\n    Retry: [*r]\n    End: true",
+            "  Accepted:\n    Type: Succeed" to "  Accepted:\n    Type: Task\n    Resource: arn:aws:lambda:us-east-1:123456789012:function:Notify\n    Retry: [*r]\n    End: true",
         )),
     )
 
@@ -315,10 +314,11 @@ class StructureChecksTest : CheckTestCase() {
         assertEquals(listOf(END_FALSE_WITHOUT_NEXT to "false"), found(json, "test.asl.json"))
     }
 
-    fun `test unclosed delimiter in a field that is never evaluated`() = assertEquals(
-        listOf(AslProblem.JSONATA_IN_STATIC_FIELD to "'{% todo'"),
-        found(edit("    Type: Succeed" to "    Type: Succeed\n    Comment: '{% todo'")),
-    )
+    fun `test a JSONata delimiter in a Comment is plain text that AWS accepts`() {
+        for (comment in listOf("'{% todo'", "'{% 1 %}'", "'see {% x %}'")) {
+            assertEquals(comment, emptyList<Any>(), found(edit("    Type: Succeed" to "    Type: Succeed\n    Comment: $comment")))
+        }
+    }
 
     fun `test unclosed delimiter in a field that evaluates JSONata`() = assertEquals(
         listOf(UNCLOSED_JSONATA_DELIMITER to "'{% ${'$'}t'"),

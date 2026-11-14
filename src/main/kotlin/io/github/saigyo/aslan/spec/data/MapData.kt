@@ -18,8 +18,8 @@ internal val mapStructures = listOf(
         FieldSpec("ItemProcessor", ValueKind.Struct(StructureId.ITEM_PROCESSOR),
             description = "The steps to run for each item, as a state machine with StartAt and States, and the processing mode.",
             docUrl = Doc.MAP_INLINE),
-        FieldSpec("Iterator", ValueKind.Struct(StructureId.ITEM_PROCESSOR), deprecated = true,
-            description = "Deprecated name of ItemProcessor: the steps to run for each item. Use ItemProcessor instead.",
+        FieldSpec("Iterator", ValueKind.Struct(StructureId.ITEM_PROCESSOR), Mode.JSONPATH, deprecated = true,
+            description = "JSONPath only. Deprecated name of ItemProcessor: the steps to run for each item. Use ItemProcessor instead.",
             docUrl = Doc.MAP_INLINE),
         FieldSpec("Items", ValueKind.FreeForm, Mode.JSONATA, jsonata = true,
             description = "JSONata only. Supplies the collection to iterate over, written out or computed by a {% %} expression.",
@@ -59,7 +59,8 @@ internal val mapStructures = listOf(
     )),
         oneOfRequired = listOf(setOf("ItemProcessor", "Iterator")),
         exclusive = listOf(nextOrEnd, setOf("ItemProcessor", "Iterator"), setOf("MaxConcurrency", "MaxConcurrencyPath"),
-            setOf("ToleratedFailurePercentage", "ToleratedFailurePercentagePath"), setOf("ToleratedFailureCount", "ToleratedFailureCountPath"))),
+            setOf("ToleratedFailurePercentage", "ToleratedFailurePercentagePath"), setOf("ToleratedFailureCount", "ToleratedFailureCountPath"),
+            setOf("Parameters", "ItemSelector"))),
 
     StructureSpec(StructureId.ITEM_PROCESSOR, listOf(
         startAtField(Doc.MAP_INLINE),
@@ -131,10 +132,10 @@ internal val mapStructures = listOf(
     ), exclusive = listOf(setOf("MaxItems", "MaxItemsPath"))),
 
     StructureSpec(StructureId.ITEM_BATCHER, listOf(
-        FieldSpec("MaxItemsPerBatch", ValueKind.Integer, jsonata = true, min = 1.0,
+        FieldSpec("MaxItemsPerBatch", ValueKind.Integer, jsonata = true, min = 0.0,
             description = "Upper limit on how many items go into one batch; a positive integer.", docUrl = Doc.ITEM_BATCHER),
         pathTwin("MaxItemsPerBatch", Doc.ITEM_BATCHER, "a positive integer"),
-        FieldSpec("MaxInputBytesPerBatch", ValueKind.Integer, jsonata = true, min = 1.0, max = 262_144.0,
+        FieldSpec("MaxInputBytesPerBatch", ValueKind.Integer, jsonata = true, min = 0.0, max = 262_144.0,
             description = "Upper limit on the size of one batch, counted in bytes; 262,144 (256 KiB) at most.", docUrl = Doc.ITEM_BATCHER),
         pathTwin("MaxInputBytesPerBatch", Doc.ITEM_BATCHER, "a positive integer"),
         FieldSpec("BatchInput", ValueKind.FreeForm, jsonata = true,

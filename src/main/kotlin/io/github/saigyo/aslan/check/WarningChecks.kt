@@ -3,7 +3,9 @@ package io.github.saigyo.aslan.check
 import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.check.AslProblem.CHOICE_WITHOUT_DEFAULT
 import io.github.saigyo.aslan.check.AslProblem.DUPLICATE_MAP_LABEL
+import io.github.saigyo.aslan.check.AslProblem.EMPTY_CONFIGURATION
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_LIST
+import io.github.saigyo.aslan.check.AslProblem.UNREFERENCED_STATE
 import io.github.saigyo.aslan.check.AslProblem.EXCLUSIVE_FIELDS
 import io.github.saigyo.aslan.check.AslProblem.HEARTBEAT_NOT_BELOW_TIMEOUT
 import io.github.saigyo.aslan.check.AslProblem.INAPPLICABLE_FIELD
@@ -42,7 +44,10 @@ import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
 import java.util.IdentityHashMap
 
-/** Checks for probable mistakes in definitions that deploy, or whose rejection no AWS source documents. */
+/**
+ * The checks beyond the basic structure: field names, value ranges, texts such as paths and timestamps, the settings of
+ * a Map state, and reachability. Most of what they find AWS rejects; the few findings that deploy are warnings.
+ */
 internal object WarningChecks {
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
         val root = doc.root ?: return
@@ -63,8 +68,7 @@ internal object WarningChecks {
         fun run() = obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(doc), root.obj.anchorPsi)
 
         /**
-         * A Map label must be unique in the definition; every use after the first is reported. AWS documents this as a
-         * rejection, so unlike the rest of this walk it is an error.
+         * A Map label must be unique in the definition; every use after the first is reported.
          */
         fun duplicateLabels() {
             for (group in labels.values.sortedBy { it.psi.textRange.startOffset }.groupBy { it.text }.values) {
@@ -90,14 +94,14 @@ internal object WarningChecks {
                 }
                 value(entry.value, field, field.kind, ctx, direct = true, owner = o, anchor = entry.keyPsi)
                 if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
-                    ResourceChecks.certainText(entry.value, ctx)?.let(ResourceChecks::integrationProblem)
-                        ?.let { report(UNKNOWN_SERVICE_INTEGRATION, entry.value.psi, it) }
+                    ResourceChecks.certainText(entry.value, ctx)?.takeIf { ResourceChecks.resourceProblem(it) == null }
+                        ?.let(ResourceChecks::unknownIntegration)?.let { report(UNKNOWN_SERVICE_INTEGRATION, entry.value.psi, it) }
                 }
             }
             when (structure.id) {
                 StructureId.TASK -> heartbeat(o)
                 StructureId.CHOICE_RULE -> choiceRule(o, ctx)
-                StructureId.ITEM_BATCHER, StructureId.RESULT_WRITER, StructureId.PROCESSOR_CONFIG, StructureId.READER_CONFIG ->
+                StructureId.ITEM_BATCHER, StructureId.RESULT_WRITER, StructureId.PROCESSOR_CONFIG, StructureId.READER_CONFIG, StructureId.ITEM_READER ->
                     configuration(o, structure.id, anchor)
                 else -> {}
             }
@@ -116,14 +120,14 @@ internal object WarningChecks {
         }
 
         /**
-         * Reports every field of an exclusive set after the first present one. `End` counts only when it is certainly
-         * true, and a field in the wrong query language not at all, since it is reported as such.
+         * Reports every field of an exclusive set after the first present one. `End` counts whatever its value, as AWS
+         * rejects `Next` beside `End: false` too; a field in the wrong query language does not count, since it is
+         * reported as such.
          */
         private fun exclusive(o: AslObject, structure: StructureSpec, ctx: Context) {
             for (set in structure.exclusive) {
                 val present = o.entries.filter {
-                    it.key in set && !(ctx.known && structure.field(it.key)?.mode?.allows(ctx.ql) == false) &&
-                        (it.key != "End" || certainlyTrue(it.value))
+                    it.key in set && !(ctx.known && structure.field(it.key)?.mode?.allows(ctx.ql) == false)
                 }.distinctBy { it.key }
                 if (present.size < 2) continue
                 for (entry in present.drop(1)) {
@@ -139,7 +143,7 @@ internal object WarningChecks {
         private fun value(node: AslNode, field: FieldSpec, kind: ValueKind, ctx: Context, direct: Boolean, owner: AslObject, anchor: PsiElement) {
             if (kind == ValueKind.FreeForm || StructureChecks.exemptFromKind(node)) return
             if (node is AslScalar && ctx.jsonataPossible && StructureChecks.isJsonata(node)) {
-                if (direct && isScalarKind(kind) && !field.jsonata && field.name != "Type" && ctx.known && ctx.ql == QueryLanguage.JSONATA) {
+                if (direct && isScalarKind(kind) && !field.jsonata && field.name != "Type" && field.name != "Comment" && ctx.known && ctx.ql == QueryLanguage.JSONATA) {
                     report(JSONATA_IN_STATIC_FIELD, node.psi, "'${field.name}' does not evaluate JSONata, so this is taken as plain text")
                 }
                 return
@@ -185,13 +189,15 @@ internal object WarningChecks {
                     })
                 }
                 field.name in TIMESTAMP_FIELDS ->
-                    if (!RFC_3339.matches(text)) report(INVALID_TIMESTAMP, scalar.psi, "Expected an RFC 3339 timestamp such as 2026-03-14T01:59:00Z")
+                    if (!isTimestamp(text)) report(INVALID_TIMESTAMP, scalar.psi, "Expected an RFC 3339 timestamp such as 2026-03-14T01:59:00Z")
                 field.name == "Label" -> {
                     labels.putIfAbsent(scalar.psi, scalar)
-                    if (text.codePointCount(0, text.length) > MAX_LABEL_LENGTH) {
+                    if (text.isEmpty()) {
+                        report(INVALID_MAP_LABEL, scalar.psi, "A Map label cannot be empty")
+                    } else if (text.codePointCount(0, text.length) > MAX_LABEL_LENGTH) {
                         report(INVALID_MAP_LABEL, scalar.psi, "A Map label has at most $MAX_LABEL_LENGTH characters")
                     } else if (text.any(::forbiddenInLabel)) {
-                        report(INVALID_MAP_LABEL, scalar.psi, "A Map label cannot contain whitespace, control characters or any of ?*<>{}[]:;,\\|^~$#%&`\"")
+                        report(INVALID_MAP_LABEL, scalar.psi, "A Map label cannot contain whitespace, control characters or any of ?*<>{}[]:;,\\|/^~$#%&`\"")
                     }
                 }
             }
@@ -220,8 +226,10 @@ internal object WarningChecks {
                     else -> emptyList()
                 }
                 for (child in nested) {
-                    val next = (child as? AslObject)?.get("Next")?.takeIf { !it.viaMerge } ?: continue
-                    report(MISPLACED_FIELD, next.keyPsi, "A rule nested in And, Or or Not cannot have 'Next'")
+                    for (name in TOP_RULE_ONLY) {
+                        val entry = (child as? AslObject)?.get(name)?.takeIf { !it.viaMerge } ?: continue
+                        report(MISPLACED_FIELD, entry.keyPsi, "A rule nested in And, Or or Not cannot have '$name'")
+                    }
                 }
             }
             // A rule written for JSONata is reported as such, not as a malformed JSONPath rule.
@@ -237,16 +245,37 @@ internal object WarningChecks {
 
         /** Fields that the specification or the developer guide requires or excludes in certain configurations. */
         private fun configuration(o: AslObject, id: StructureId, anchor: PsiElement) {
-            val missing = when (id) {
+            val empty = when (id) {
                 StructureId.ITEM_BATCHER ->
                     if (BATCH_LIMITS.none { o[it] != null }) "An ItemBatcher needs at least one of ${BATCH_LIMITS.joinToString()}" else null
                 StructureId.RESULT_WRITER ->
                     if (o["Resource"] == null && o["WriterConfig"] == null) "A ResultWriter needs 'Resource', 'WriterConfig' or both" else null
+                else -> null
+            }
+            if (empty != null && !StructureChecks.uncertain(o)) report(EMPTY_CONFIGURATION, anchor, empty)
+            val missing = when (id) {
+                StructureId.ITEM_BATCHER -> null
+                StructureId.ITEM_READER -> itemReader(o)
+                StructureId.RESULT_WRITER -> if (o["Resource"] != null && PAYLOAD_FIELDS.none { o[it] != null }) "A ResultWriter with a 'Resource' needs its parameters" else null
                 StructureId.PROCESSOR_CONFIG ->
                     if (certain(o, "Mode") == "DISTRIBUTED" && o["ExecutionType"] == null) "Distributed mode needs 'ExecutionType'" else null
                 else -> readerConfig(o)
             }
             if (missing != null && !StructureChecks.uncertain(o)) report(INCOMPLETE_CONFIGURATION, anchor, missing)
+        }
+
+        /** Returns what an ItemReader misses, and reports a `Transformation` where nothing is listed. */
+        private fun itemReader(o: AslObject): String? {
+            val readsObject = certain(o, "Resource") == S3_GET_OBJECT
+            val transformation = (o["ReaderConfig"]?.value as? AslObject)?.get("Transformation")?.takeIf { !it.viaMerge }
+            if (readsObject && transformation != null) {
+                report(INAPPLICABLE_FIELD, transformation.keyPsi, "'Transformation' only applies to a listing with arn:aws:states:::s3:listObjectsV2")
+            }
+            return when {
+                o["Resource"] != null && PAYLOAD_FIELDS.none { o[it] != null } -> "An ItemReader needs the parameters of its 'Resource'"
+                readsObject && o["ReaderConfig"] == null -> "Reading an object needs a 'ReaderConfig'"
+                else -> null
+            }
         }
 
         /** Returns what a ReaderConfig misses, and reports the fields that do not apply to its input type. */
@@ -263,6 +292,8 @@ internal object WarningChecks {
                 }
             }
             return when {
+                inputType == "CSV" && o["CSVHeaderLocation"] == null -> "InputType CSV needs 'CSVHeaderLocation'"
+                certain(o, "ManifestType") == "ATHENA_DATA" && o["InputType"] == null -> "An ATHENA_DATA manifest needs 'InputType'"
                 certain(o, "Transformation") == "LOAD_AND_FLATTEN" && o["InputType"] == null -> "LOAD_AND_FLATTEN needs 'InputType'"
                 certain(o, "CSVHeaderLocation") == "GIVEN" && o["CSVHeaders"] == null -> "CSVHeaderLocation GIVEN needs 'CSVHeaders'"
                 else -> null
@@ -322,7 +353,10 @@ internal object WarningChecks {
         }
     }
 
-    /** States of [machine] that no chain of transitions from `StartAt` reaches; only judged when the whole flow is known. */
+    /**
+     * States of [machine] that no chain of transitions from `StartAt` reaches; only judged when the whole flow is known.
+     * AWS rejects a state that no transition names. A state that only unreached states name deploys, so that is a warning.
+     */
     private fun unreachable(machine: AslStateMachine, out: MutableList<AslFinding>) {
         if (machine.hasUnknownFlow()) return
         val start = (machine.startAt?.value as? AslScalar)?.text ?: return
@@ -337,8 +371,11 @@ internal object WarningChecks {
         val targeted = machine.states.flatMapTo(HashSet()) { state -> state.transitions.mapNotNull { it.targetName } }
         for (state in machine.states) {
             if (state.name !in reached && !state.entry.viaMerge) {
-                val message = if (state.name in targeted) "Only unreachable states lead to '${state.name}'" else "No transition leads to '${state.name}'"
-                out += AslFinding(UNREACHABLE_STATE, state.entry.keyPsi, message)
+                out += if (state.name in targeted) {
+                    AslFinding(UNREACHABLE_STATE, state.entry.keyPsi, "Only unreachable states lead to '${state.name}'")
+                } else {
+                    AslFinding(UNREFERENCED_STATE, state.entry.keyPsi, "No transition leads to '${state.name}'")
+                }
             }
         }
     }
@@ -352,31 +389,45 @@ internal object WarningChecks {
     private fun forbiddenInLabel(c: Char) = c.isWhitespace() || c.code <= 0x1f || c.code in 0x7f..0x9f || c in LABEL_FORBIDDEN
 
     private const val MAX_LABEL_LENGTH = 40
-    private const val LABEL_FORBIDDEN = "?*<>{}[]:;,\\|^~$#%&`\""
-    private val NON_EMPTY_LISTS = setOf("ErrorEquals", "And", "Or")
+    private const val LABEL_FORBIDDEN = "?*<>{}[]:;,\\|/^~$#%&`\""
+    private val NON_EMPTY_LISTS = setOf("ErrorEquals", "And", "Or", "Branches", "CSVHeaders")
     private val COMBINATIONS = setOf("And", "Or", "Not")
+    private val TOP_RULE_ONLY = listOf("Next", "Assign")
     private val CHOICE_RULE = AslSpec.structure(StructureId.CHOICE_RULE)
     private val COMPARISONS: Set<String> = CHOICE_RULE.fields
         .filter { it.mode == Mode.JSONPATH && it.name != "Variable" && it.name !in COMBINATIONS }.map { it.name }.toSet()
     private val TIMESTAMP_FIELDS = setOf("Timestamp", "TimestampEquals", "TimestampLessThan", "TimestampGreaterThan",
         "TimestampLessThanEquals", "TimestampGreaterThanEquals")
+    private const val S3_GET_OBJECT = "arn:aws:states:::s3:getObject"
+    private val PAYLOAD_FIELDS = listOf("Parameters", "Arguments")
     private val BATCH_LIMITS = listOf("MaxItemsPerBatch", "MaxItemsPerBatchPath", "MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath")
     private val READER_FIELD_INPUT_TYPES = mapOf(
         "CSVDelimiter" to listOf("CSV", "MANIFEST"),
         "CSVHeaderLocation" to listOf("CSV", "MANIFEST"),
+        "CSVHeaders" to listOf("CSV", "MANIFEST"),
         "ItemsPointer" to listOf("JSON"),
     )
 
-    /** RFC 3339 date and time with upper-case T and Z, as the specification requires. */
-    private val RFC_3339 = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})""")
+    /**
+     * The timestamps that the definition validation of AWS accepts: an RFC 3339 date and time that exists, where `T` and
+     * `Z` may be lower case and the seconds may be left out.
+     */
+    private val TIMESTAMP = Regex("""(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2})(?::(\d{2})(?:\.\d*)?)?(?:[Zz]|[+-](\d{2}):(\d{2}))""")
+    private const val MAX_HOUR = 23
+    private const val MAX_MINUTE_OR_SECOND = 59
+
+    internal fun isTimestamp(text: String): Boolean {
+        val parts = TIMESTAMP.matchEntire(text)?.groupValues?.drop(1)?.map { it.toIntOrNull() } ?: return false
+        val (year, month, day) = parts.take(3).map { it ?: return false }
+        val existingDate = runCatching { java.time.LocalDate.of(year, month, day) }.isSuccess
+        val times = listOf(parts[3] to MAX_HOUR, parts[4] to MAX_MINUTE_OR_SECOND, parts[5] to MAX_MINUTE_OR_SECOND, parts[6] to MAX_HOUR, parts[7] to MAX_MINUTE_OR_SECOND)
+        return existingDate && times.all { (value, max) -> value == null || value <= max }
+    }
 
     private fun isScalarKind(kind: ValueKind) = when (kind) {
         ValueKind.Text, ValueKind.Integer, ValueKind.Number, ValueKind.Bool, ValueKind.StateName, ValueKind.ResourceArn, is ValueKind.OneOf -> true
         else -> false
     }
-
-    private fun certainlyTrue(node: AslNode) =
-        node is AslScalar && node.type == ScalarType.BOOLEAN && !node.ambiguous && node.text.equals("true", ignoreCase = true)
 
     private fun format(n: Double) = if (n == Math.floor(n)) n.toLong().toString() else n.toString()
 }

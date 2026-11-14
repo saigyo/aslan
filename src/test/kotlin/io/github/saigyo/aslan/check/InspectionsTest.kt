@@ -45,7 +45,7 @@ class InspectionsTest : CheckTestCase() {
     }
 
     fun `test a warning finding surfaces as a warning`() =
-        assertEquals(listOf(HighlightSeverity.WARNING to "Retries"), highlights(edit("    Next: Decide\n" to "    Next: Decide\n    Retries: 3\n")))
+        assertEquals(listOf(HighlightSeverity.WARNING to "States.Timout"), highlights(edit("ErrorEquals: [States.ALL]\n        MaxAttempts" to "ErrorEquals: [States.Timout]\n        MaxAttempts")))
 
     fun `test a Choice without Default surfaces as a weak warning`() =
         assertEquals(listOf(HighlightSeverity.WEAK_WARNING to "Decide"), highlights(edit("    Default: Rejected\n" to "")))

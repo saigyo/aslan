@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a <code>{% ... %}</code> string in a JSONata state as the value of a field that AWS does not document as evaluating JSONata, such as <code>MaxAttempts</code>.</p>
-<p>It is only a warning: AWS does not document that it rejects such a definition.</p>
+<p>Reports a <code>{% ... %}</code> string in a JSONata state as the value of a field that does not evaluate JSONata, such as <code>MaxAttempts</code>, <code>End</code> or <code>Label</code>.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error. A <code>Comment</code> is not reported: there the string is plain text that AWS accepts.</p>
 </body>
 </html>

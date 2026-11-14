@@ -14,7 +14,7 @@ private fun errorEqualsField(what: String) = FieldSpec("ErrorEquals", ValueKind.
 internal val errorHandlingStructures = listOf(
     StructureSpec(StructureId.RETRIER, listOf(
         errorEqualsField("retry rule"),
-        FieldSpec("IntervalSeconds", ValueKind.Integer, min = 1.0, max = 99_999_999.0,
+        FieldSpec("IntervalSeconds", ValueKind.Integer, min = 0.0, max = 99_999_999.0,
             description = "The delay in seconds before retrying the first time, which BackoffRate then stretches; a positive integer, 1 by default.", docUrl = Doc.ERRORS),
         FieldSpec("MaxAttempts", ValueKind.Integer, min = 0.0, max = 99_999_999.0,
             description = "The retry budget for the listed errors: 3 by default, and 0 turns retrying off for them.",

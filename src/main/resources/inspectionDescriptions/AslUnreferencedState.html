@@ -1,0 +1,6 @@
+<html>
+<body>
+<p>Reports a state that is neither the <code>StartAt</code> state nor the target of any <code>Next</code>, <code>Default</code>, choice rule or catcher in its state machine.</p>
+<p>The definition validation of Step Functions rejects such a state with "State is not reachable", so this is reported as an error. A state that is named only by states which are themselves never reached deploys, and is reported by the inspection "Unreachable state" as a warning.</p>
+</body>
+</html>

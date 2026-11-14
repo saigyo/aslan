@@ -7,6 +7,9 @@ import io.github.saigyo.aslan.check.AslProblem.INCOMPLETE_CONFIGURATION
 import io.github.saigyo.aslan.check.AslProblem.INVALID_MAP_LABEL
 import io.github.saigyo.aslan.check.AslProblem.INVALID_PATH
 import io.github.saigyo.aslan.check.AslProblem.INVALID_TIMESTAMP
+import io.github.saigyo.aslan.check.AslProblem.EMPTY_CONFIGURATION
+import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
+import io.github.saigyo.aslan.check.AslProblem.UNREFERENCED_STATE
 import io.github.saigyo.aslan.check.AslProblem.MALFORMED_CHOICE_RULE
 import io.github.saigyo.aslan.check.AslProblem.EXCLUSIVE_FIELDS
 import io.github.saigyo.aslan.check.AslProblem.HEARTBEAT_NOT_BELOW_TIMEOUT
@@ -89,19 +92,19 @@ class WarningChecksTest : CheckTestCase() {
     }
 
     fun `test AWS SDK integrations with a wrong form`() {
-        assertEquals(listOf(UNKNOWN_SERVICE_INTEGRATION to "An AWS SDK integration cannot use '.sync'"),
+        assertEquals(listOf(INVALID_RESOURCE_ARN to "An AWS SDK integration cannot use '.sync'"),
             resourceMessages("arn:aws:states:::aws-sdk:codebuild:startBuild.sync"))
-        assertEquals(listOf(UNKNOWN_SERVICE_INTEGRATION to "An AWS SDK integration is written aws-sdk:service:action"),
+        assertEquals(listOf(INVALID_RESOURCE_ARN to "An AWS SDK integration is written aws-sdk:service:action"),
             resourceMessages("arn:aws:states:::aws-sdk:s3"))
     }
 
     fun `test a resource of an ItemReader is not judged`() {
-        val map = "  Rejected:\n    Type: Map\n    ItemReader:\n      Resource: nonsense\n    ItemProcessor:\n      StartAt: P\n      States:\n        P:\n          Type: Succeed\n    End: true\n"
+        val map = "  Rejected:\n    Type: Map\n    ItemReader:\n      Resource: nonsense\n      Arguments: {}\n    ItemProcessor:\n      StartAt: P\n      States:\n        P:\n          Type: Succeed\n    End: true\n"
         assertEquals(emptyList<Any>(), found(edit("  Rejected:\n    Type: Fail\n" to map)))
     }
 
     fun `test unreachable state`() =
-        assertEquals(listOf(UNREACHABLE_STATE to "Orphan"), found(BASE + "  Orphan:\n    Type: Succeed\n"))
+        assertEquals(listOf(UNREFERENCED_STATE to "Orphan"), found(BASE + "  Orphan:\n    Type: Succeed\n"))
 
     fun `test a reachable state whose name needs quotes`() =
         assertEquals(emptyList<Any>(), found(edit("Default: Rejected" to "Default: \"Needs: review\"") + "  \"Needs: review\":\n    Type: Succeed\n"))
@@ -109,7 +112,7 @@ class WarningChecksTest : CheckTestCase() {
     fun `test a state that only unreachable states lead to says so`() {
         val text = BASE + "  Orphan:\n    Type: Pass\n    Next: Behind\n  Behind:\n    Type: Succeed\n"
         val messages = AslChecker.findings(myFixture.configureByText("test.asl.yaml", text)).map { it.problem to it.message }
-        assertEquals(listOf(UNREACHABLE_STATE to "No transition leads to 'Orphan'", UNREACHABLE_STATE to "Only unreachable states lead to 'Behind'"), messages)
+        assertEquals(listOf(UNREFERENCED_STATE to "No transition leads to 'Orphan'", UNREACHABLE_STATE to "Only unreachable states lead to 'Behind'"), messages)
     }
 
     fun `test no reachability verdict with a placeholder target`() =
@@ -157,6 +160,9 @@ class WarningChecksTest : CheckTestCase() {
                   End: true
             ItemReader:
               Resource: arn:aws:states:::s3:getObject
+              Parameters:
+                Bucket: reel-lists
+                Key: reels.csv
               ReaderConfig:
                 InputType: CSV
                 CSVHeaderLocation: FIRST_ROW
@@ -164,6 +170,9 @@ class WarningChecksTest : CheckTestCase() {
               MaxItemsPerBatch: 10
             ResultWriter:
               Resource: arn:aws:states:::s3:putObject
+              Parameters:
+                Bucket: reel-results
+                Prefix: scans
             Label: Reels
             ItemsPath: ${'$'}.reels
             ResultPath: ${'$'}.scan
@@ -233,11 +242,11 @@ class WarningChecksTest : CheckTestCase() {
     }
 
     fun `test ItemBatcher without a limit`() =
-        assertEquals(listOf(INCOMPLETE_CONFIGURATION to "ItemBatcher"), found(paths("MaxItemsPerBatch: 10" to "BatchInput: {}")))
+        assertEquals(listOf(EMPTY_CONFIGURATION to "ItemBatcher"), found(paths("MaxItemsPerBatch: 10" to "BatchInput: {}")))
 
     fun `test ResultWriter with neither Resource nor WriterConfig`() =
-        assertEquals(listOf(INCOMPLETE_CONFIGURATION to "ResultWriter"),
-            found(paths("    ResultWriter:\n      Resource: arn:aws:states:::s3:putObject\n" to "    ResultWriter: {}\n")))
+        assertEquals(listOf(EMPTY_CONFIGURATION to "ResultWriter"),
+            found(paths("    ResultWriter:\n      Resource: arn:aws:states:::s3:putObject\n      Parameters:\n        Bucket: reel-results\n        Prefix: scans\n" to "    ResultWriter: {}\n")))
 
     fun `test Distributed mode without ExecutionType`() =
         assertEquals(listOf(INCOMPLETE_CONFIGURATION to "ProcessorConfig"), found(paths("        ExecutionType: STANDARD\n" to "")))
