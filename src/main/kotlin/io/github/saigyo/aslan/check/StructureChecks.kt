@@ -55,6 +55,7 @@ internal object StructureChecks {
 
     /** The structures whose `Parameters` or `Arguments` AWS does not accept as `null`; on a Pass or Map state it does. */
     private val NEEDS_PAYLOAD = setOf(StructureId.TASK, StructureId.ITEM_READER, StructureId.RESULT_WRITER)
+    private val DATA_RESOURCES = setOf(StructureId.ITEM_READER, StructureId.RESULT_WRITER)
 
     /** JSONPath fields whose keys that end in `.$` are evaluated. */
     private val PAYLOAD_TEMPLATES = setOf("Parameters", "ResultSelector", "ItemSelector")
@@ -122,6 +123,9 @@ internal object StructureChecks {
                 value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o, optional = !field.required && field.kind != ValueKind.StateName)
                 if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
                     ResourceChecks.certainText(entry.value, ctx)?.let(ResourceChecks::resourceProblem)?.let { report(INVALID_RESOURCE_ARN, entry.value.psi, it) }
+                }
+                if (structure.id in DATA_RESOURCES && field.kind == ValueKind.ResourceArn) {
+                    ResourceChecks.certainText(entry.value, ctx)?.let(ResourceChecks::dataResourceProblem)?.let { report(INVALID_RESOURCE_ARN, entry.value.psi, it) }
                 }
             }
             if (structure.id == StructureId.TASK) task(o, ctx, anchor)

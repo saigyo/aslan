@@ -265,6 +265,7 @@ The rule that follows from the anti-goals:
 | A Map setting that lacks a field it needs, such as distributed mode without `ExecutionType` or a CSV reader without `CSVHeaderLocation` | validation |
 | A field that does not apply where it is used, such as `CSVDelimiter` for a JSON input, or `Credentials` with an activity | validation |
 | The `Resource` of a Task state is not a service integration, a Lambda ARN or an activity ARN, or is an AWS SDK integration of the wrong form | validation |
+| The `Resource` of an ItemReader or ResultWriter names its S3 action with a region or an account; a Task may do so, a reader or writer may not | validation |
 | The `RoleArn` in the `Credentials` of a Task state is not an IAM role ARN, `arn:partition:iam::account:role/name` | validation |
 | A string in a JSONata state that holds `{%` or `%}` but is not wrapped in them as a whole, where JSONata is evaluated | validation |
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
@@ -295,7 +296,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - Placeholders in any position.
 - YAML anchors, aliases and merge keys.
 - Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax and keys that end in `.$`. AWS checks the parameter names of a service call; the plugin does not, because it has no list of them.
-- The `Resource` of an ItemReader or ResultWriter, beyond being a string. In the `Resource` of a Task state and in a `RoleArn`, whether the function, activity, role, region or account exists cannot be known from the file. The services and actions of an AWS SDK integration are not checked either.
+- Which actions the `Resource` of an ItemReader or ResultWriter may name. In the `Resource` of a Task state and in a `RoleArn`, whether the function, activity, role, region or account exists cannot be known from the file. The services and actions of an AWS SDK integration are not checked either.
 
 ## 8. Testing and verification
 
