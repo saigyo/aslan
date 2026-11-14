@@ -1,0 +1,152 @@
+# Reel digitising
+#
+# The archive scans whole vaults at a time. A vault's inventory is a semicolon-separated file
+# without a header row; a second file lists the reels whose catalogue entries need checking after
+# the scan. Each list is worked through by a Distributed Map whose child executions handle the
+# reels in batches. The scanner itself is booked through the scanning team's own account.
+#
+# Deployment replaces the ${...} placeholders with bucket, role and function names.
+Comment: Scans every reel of a vault and checks the catalogue entries of the scanned reels
+QueryLanguage: JSONata
+Version: "1.0"
+# One day is enough for the largest vault.
+TimeoutSeconds: 86400
+StartAt: PrepareRun
+States:
+
+  # The vault ID and the inventory key are read once; every later state uses the variables.
+  PrepareRun:
+    Type: Pass
+    Assign:
+      vault: '{% $states.input.vault %}'
+      inventoryKey: '{% "inventories/" & $states.input.vault & "/reels.csv" %}'
+      checklistKey: '{% "inventories/" & $states.input.vault & "/catalogue-checks.json" %}'
+      scanResults: null
+    Next: BookScanner
+
+  # The scanner booking runs in the scanning team's account, so the call assumes its role. The
+  # booking service answers through the task token once a scanner is free.
+  BookScanner:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+    Credentials:
+      RoleArn: ${ScanningTeamRoleArn}
+    Arguments:
+      FunctionName: ${BookScannerFn}
+      Payload:
+        vault: '{% $vault %}'
+        taskToken: '{% $states.context.Task.Token %}'
+    TimeoutSeconds: 7200
+    HeartbeatSeconds: 600
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Next: ScanFailed
+    Next: ScanReels
+
+  # Every reel of the inventory is scanned. Twenty reels go into one child execution; a few
+  # failed scans are tolerated, because a damaged reel is rescanned by hand later.
+  ScanReels:
+    Type: Map
+    Label: ReelScans
+    ItemReader:
+      Resource: arn:aws:states:::s3:getObject
+      Arguments:
+        Bucket: ${InventoryBucket}
+        Key: '{% $inventoryKey %}'
+      ReaderConfig:
+        InputType: CSV
+        CSVHeaderLocation: GIVEN
+        CSVHeaders: [reelId, title, gauge, lengthMetres]
+        CSVDelimiter: SEMICOLON
+        MaxItems: 5000
+    ItemSelector:
+      reel: '{% $states.context.Map.Item.Value %}'
+      position: '{% $states.context.Map.Item.Index %}'
+    ItemBatcher:
+      MaxItemsPerBatch: 20
+      MaxInputBytesPerBatch: 65536
+      BatchInput:
+        vault: '{% $vault %}'
+    MaxConcurrency: 50
+    ToleratedFailurePercentage: 5
+    ToleratedFailureCount: 25
+    ItemProcessor:
+      ProcessorConfig:
+        Mode: DISTRIBUTED
+        ExecutionType: EXPRESS
+      StartAt: ScanBatch
+      States:
+        ScanBatch:
+          Type: Task
+          Resource: arn:aws:states:::lambda:invoke
+          Arguments:
+            FunctionName: ${ScanBatchFn}
+            Payload: '{% $states.input %}'
+          Output: '{% $states.result.Payload %}'
+          End: true
+    ResultWriter:
+      Resource: arn:aws:states:::s3:putObject
+      Arguments:
+        Bucket: ${ScanResultsBucket}
+        Prefix: '{% "scans/" & $vault %}'
+      WriterConfig:
+        Transformation: COMPACT
+        OutputType: JSONL
+    Assign:
+      scanResults: '{% $states.result.ResultWriterDetails %}'
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Next: ScanFailed
+    Next: AnythingScanned
+
+  # The writer details are missing when the map stored nothing.
+  AnythingScanned:
+    Type: Choice
+    Choices:
+      - Condition: '{% $exists($scanResults) %}'
+        Next: CheckCatalogue
+    Default: NothingScanned
+
+  # The checklist is a JSON document whose reels sit under "reels".
+  CheckCatalogue:
+    Type: Map
+    Label: CatalogueChecks
+    ItemReader:
+      Resource: arn:aws:states:::s3:getObject
+      Arguments:
+        Bucket: ${InventoryBucket}
+        Key: '{% $checklistKey %}'
+      ReaderConfig:
+        InputType: JSON
+        ItemsPointer: /reels
+    MaxConcurrency: 10
+    ItemProcessor:
+      ProcessorConfig:
+        Mode: DISTRIBUTED
+        ExecutionType: STANDARD
+      StartAt: CheckEntry
+      States:
+        CheckEntry:
+          Type: Task
+          Resource: arn:aws:states:::lambda:invoke
+          Arguments:
+            FunctionName: ${CheckEntryFn}
+            Payload: '{% $states.input %}'
+          Output: '{% $states.result.Payload %}'
+          End: true
+    Output:
+      vault: '{% $vault %}'
+      scans: '{% $scanResults %}'
+      checked: '{% $count($states.result) %}'
+    Next: Digitised
+
+  Digitised:
+    Type: Succeed
+
+  NothingScanned:
+    Type: Succeed
+
+  ScanFailed:
+    Type: Fail
+    Error: Scan.Failed
+    Cause: '{% "The vault " & $vault & " could not be scanned" %}'
