@@ -1,0 +1,18 @@
+<idea-plugin>
+    <id>io.github.saigyo.aslan</id>
+    <name>Aslan</name>
+    <vendor url="https://github.com/saigyo/aslan">saigyo</vendor>
+
+    <description><![CDATA[
+        Editor support for Amazon States Language definitions, the format of AWS Step Functions state machines.
+        Works with definitions written in YAML and in JSON.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.yaml</depends>
+    <depends>com.intellij.modules.json</depends>
+    <depends>intellij.structureView.plugin</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+    </extensions>
+</idea-plugin>
