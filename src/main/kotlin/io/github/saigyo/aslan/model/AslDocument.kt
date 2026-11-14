@@ -39,7 +39,7 @@ class AslDocument(
      * The state machine variables: their assignments, their reads and the variable of each. Made on first use, which
      * must come after [AslModel.of] returned, since the reads need the injected JSONata files.
      */
-    val variables: AslVariables by lazy { AslVariables(this) }
+    val variables: AslVariables by lazy { AslVariables.of(this) }
 
     /** The root machine first, then the nested ones, depth first in file order. */
     fun allMachines(): List<AslStateMachine> = machines
