@@ -72,6 +72,8 @@
                          displayName="Map label used twice" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslInvalidResourceArn" implementationClass="io.github.saigyo.aslan.check.AslInvalidResourceArnInspection"
                          displayName="Task resource that is not an ARN" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslInvalidRoleArn" implementationClass="io.github.saigyo.aslan.check.AslInvalidRoleArnInspection"
+                         displayName="Task role that is not an IAM role ARN" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslUnknownField" implementationClass="io.github.saigyo.aslan.check.AslUnknownFieldInspection"
                          displayName="Unknown field" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslMisplacedField" implementationClass="io.github.saigyo.aslan.check.AslMisplacedFieldInspection"
