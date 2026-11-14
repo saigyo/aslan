@@ -229,7 +229,7 @@ The rule that follows from the anti-goals:
 
 - A problem is an **error** only if AWS documents that it rejects the definition at deployment, or if the text is not valid JSONata and so cannot be evaluated at all.
 - Anything that deploys but is probably a mistake, and anything whose rejection at deployment could not be confirmed, is a **warning** at most.
-- Every check can be switched off or changed in severity in the IDE's inspection settings.
+- Every check has its own entry in the IDE's inspection settings, so it can be switched off or changed in severity without affecting the others.
 - When later evidence shows that AWS rejects something currently reported as a warning, it is promoted.
 
 **(my call)** The tables below are the minimum, not the complete set. Stage 1 includes going through the ASL specification and the Step Functions guide rule by rule and classifying every rule that can be checked from the file with the rule above. A rule that the specification states as mandatory, but for which no AWS source documents a rejection, is a warning.
@@ -241,7 +241,7 @@ The rule that follows from the anti-goals:
 | File is not a mapping, or `StartAt` or `States` is missing | schema validation |
 | State without `Type`, or with an unknown type | schema validation |
 | Required field missing: `Resource` on Task, `Choices` on Choice (or empty), `Branches` on Parallel, `ItemProcessor` on Map, `ErrorEquals` in a Retrier or Catcher, `Next` in a Catcher or Choice rule, `Condition` in a JSONata Choice rule, a time field on Wait | schema validation |
-| A state that needs a transition has neither `Next` nor `End: true`, or has both | missing end state, schema validation |
+| A state that needs a transition has neither `Next` nor `End: true` | missing end state, schema validation |
 | `StartAt`, `Next` or `Default` names a state that does not exist in the same `States` object | missing transition target |
 | No terminal state in a `States` object | missing end state |
 | Duplicate state name anywhere in the machine; name longer than 80 characters | duplicate / invalid state name |
@@ -252,7 +252,7 @@ The rule that follows from the anti-goals:
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
 
-A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error.
+A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply.
 
 ### Warnings
 
@@ -261,7 +261,8 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 | Field name that ASL does not define, outside free-form data | rejection unconfirmed, and AWS adds fields over time |
 | Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | rejection unconfirmed |
 | Value outside its documented range, such as a negative `MaxAttempts` or a `BackoffRate` below 1 | rejection unconfirmed |
-| Two fields together that exclude each other, such as two time fields on a Wait state | rejection unconfirmed |
+| Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End: true` | rejection unconfirmed |
+| A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts` | rejection unconfirmed |
 | State that no transition reaches | deploys |
 | `States.ALL` combined with other names, or not in the last Retrier or Catcher | rejection unconfirmed |
 | `HeartbeatSeconds` not smaller than `TimeoutSeconds` | rejection unconfirmed |

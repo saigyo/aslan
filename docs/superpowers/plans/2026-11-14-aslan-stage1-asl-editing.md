@@ -14,7 +14,7 @@
 
 - Plugin name `Aslan`; plugin ID and base package `io.github.saigyo.aslan`; licence Apache-2.0.
 - Minimum IDE version 2026.2 (`since-build` 262), no upper bound. Build with Java 25.
-- Required plugin dependencies in this stage: `org.jetbrains.plugins.yaml`, `com.intellij.modules.json`, `com.intellij.structureView`.
+- Required plugin dependencies in this stage: `org.jetbrains.plugins.yaml`, `com.intellij.modules.json`, `intellij.structureView.plugin`.
 - A file is an ASL file when its name ends in `.asl.yaml`, `.asl.yml` or `.asl.json`, or matches a pattern added in settings. Files keep their YAML and JSON file types. The plugin contributes nothing to any other file.
 - No JSON Schema, no Symbol API, no network requests.
 - A problem is an **error** only if AWS documents that it rejects the definition at deployment. Everything else is a **warning** at most. Placeholders (`${name}`), YAML anchors, aliases and merge keys, and anything inside free-form data are never reported.
@@ -57,7 +57,7 @@ All paths are under `src/main/kotlin/io/github/saigyo/aslan/` unless they start 
 | `check/AslProblem.kt`, `check/AslFinding.kt` | Catalogue of problems, finding type |
 | `check/AslChecker.kt` | Runs all checks, cached per file |
 | `check/StructureChecks.kt`, `check/TransitionChecks.kt`, `check/WarningChecks.kt` | The checks |
-| `check/AslInspections.kt` | Six thin inspections over the checker |
+| `check/AslInspections.kt` | One thin inspection per problem, so each check has its own switch and severity |
 | `completion/AslCompletionContributor.kt`, `completion/CompletionContext.kt`, `completion/StateTemplates.kt` | Completion |
 | `docs/AslDocumentation.kt`, `docs/AslDocumentationProvider.kt` | Quick documentation |
 | `refs/AslStateReference.kt`, `refs/AslReferenceContributor.kt`, `refs/AslReferencesSearcher.kt` | State-name references and search |
@@ -87,13 +87,13 @@ Clone `https://github.com/JetBrains/intellij-platform-plugin-template` (branch `
 
 - `settings.gradle.kts`: `rootProject.name = "aslan"`; `org.jetbrains.intellij.platform.settings` version `2.20.1`; remove the changelog plugin.
 - `gradle.properties`: `group = io.github.saigyo.aslan`, `version = 0.1.0`; remove `pluginRepositoryUrl`.
-- `build.gradle.kts`: remove the changelog plugin; `kotlin { jvmToolchain(25) }`; in `dependencies { intellijPlatform { ... } }` use `intellijIdea("2026.2.3")`, `bundledPlugins("org.jetbrains.plugins.yaml", "com.intellij.modules.json", "com.intellij.structureView")`, `testFramework(TestFrameworkType.Platform)`, `pluginVerifier()`; remove `testBundledPlugins(...)`. In `intellijPlatform { pluginConfiguration { ideaVersion { ... } } }` set `sinceBuild = "262"` and no `untilBuild`. In `intellijPlatform { pluginVerification { ides { ... } } }` list IntelliJ IDEA `2026.2.3` and `2026.3`. In `tasks.test` pass the Gradle property `aslan.privateFixtures` through as a system property of the same name (empty string when unset).
-- Where the DSL of Gradle plugin 2.20.1 differs from these names, follow https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html. If `com.intellij.structureView` is not a valid bundled plugin ID in 2026.2.3, look it up in https://plugins.jetbrains.com/docs/intellij/api-changes-list-2026.html and use the ID given there.
+- `build.gradle.kts`: the template's file is short and has none of the following blocks, so add them. Remove the changelog plugin. Add `kotlin { jvmToolchain(25) }`. In `dependencies { intellijPlatform { ... } }` use `intellijIdea("2026.2.3")`, `bundledPlugins("org.jetbrains.plugins.yaml", "com.intellij.modules.json", "intellij.structureView.plugin")`, `testFramework(TestFrameworkType.Platform)`, `pluginVerifier()`; remove `testBundledPlugins(...)`. Add `intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "262" } } }` without an `untilBuild`. Add `intellijPlatform { pluginVerification { ides { ... } } }` listing IntelliJ IDEA `2026.2.3` and `2026.3`. In `tasks.test` pass the Gradle property `aslan.privateFixtures` through as a system property of the same name (empty string when unset).
+- The structure view plugin ID is `intellij.structureView.plugin` in 2026.2; 2026.3 renames it to `com.intellij.structureView` and keeps the old ID as an alias, so the 2026.2 ID works on both. If Gradle cannot resolve a bundled plugin ID, run `./gradlew printBundledPlugins` and use the ID it lists. For DSL details follow https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html.
 - `.gitignore`: add `.gradle/`, `build/`, `.intellijPlatform/`, `.kotlin/`, `.idea/`, `/private-fixtures/`. Keep the existing `.superpowers/` line.
 
 - [ ] **Step 3: Write `plugin.xml`**
 
-`<id>io.github.saigyo.aslan</id>`, `<name>Aslan</name>`, `<vendor url="https://github.com/saigyo/aslan">saigyo</vendor>`, a two-sentence description saying it supports Amazon States Language definitions for AWS Step Functions in YAML and JSON, and `<depends>` on `com.intellij.modules.platform`, `org.jetbrains.plugins.yaml`, `com.intellij.modules.json`, `com.intellij.structureView`. An empty `<extensions defaultExtensionNs="com.intellij">` block that later tasks fill.
+`<id>io.github.saigyo.aslan</id>`, `<name>Aslan</name>`, `<vendor url="https://github.com/saigyo/aslan">saigyo</vendor>`, a two-sentence description saying it supports Amazon States Language definitions for AWS Step Functions in YAML and JSON, and `<depends>` on `com.intellij.modules.platform`, `org.jetbrains.plugins.yaml`, `com.intellij.modules.json`, `intellij.structureView.plugin`. An empty `<extensions defaultExtensionNs="com.intellij">` block that later tasks fill.
 
 - [ ] **Step 4: Write the test base class and the failing smoke test**
 
@@ -290,9 +290,11 @@ class AslObject(override val psi: PsiElement, override val usePsi: PsiElement, v
     operator fun get(key: String): AslEntry?          // first entry with that key
     val anchorPsi: PsiElement                         // first entry's keyPsi, or psi when there are no entries
 }
-class AslEntry(val key: String, val keyPsi: PsiElement, val entryPsi: PsiElement, val value: AslNode?, val viaMerge: Boolean)
+class AslEntry(val key: String, val keyPsi: PsiElement, val entryPsi: PsiElement, val value: AslNode, val viaMerge: Boolean)
 class AslArray(override val psi: PsiElement, override val usePsi: PsiElement, val items: List<AslNode>) : AslNode
-class AslScalar(override val psi: PsiElement, override val usePsi: PsiElement, val type: ScalarType, val text: String) : AslNode
+class AslScalar(override val psi: PsiElement, override val usePsi: PsiElement, val type: ScalarType, val text: String,
+                val ambiguous: Boolean = false) : AslNode   // ambiguous: YAML 1.1 and YAML 1.2 type this plain scalar differently
+class AslUnresolved(override val psi: PsiElement, override val usePsi: PsiElement) : AslNode   // an alias that does not resolve, or resolves into itself
 enum class ScalarType { STRING, NUMBER, BOOLEAN, NULL }
 
 object AslTree { fun root(file: PsiFile): AslNode? }   // null for an empty file or an unsupported language
@@ -304,7 +306,10 @@ object Placeholders {
 ```
 
 - `entryPsi` is the `YAMLKeyValue` or `JsonProperty`; `keyPsi` is its key element. `AslScalar.text` is the decoded value (`YAMLScalar.getTextValue()`, unescaped JSON string, raw text for JSON numbers and literals).
-- YAML scalar typing: a quoted or block scalar is always `STRING`. A plain scalar is `NULL` for empty, `~`, `null`, `Null`, `NULL`; `BOOLEAN` for `true`/`false` in the three YAML 1.2 capitalisations; `NUMBER` if it matches a YAML 1.2 core integer or float (including `0x`, `0o`, `.inf`, `.nan` forms); else `STRING`. `yes`, `no`, `on`, `off` are strings.
+- An entry always has a value. A key with nothing after it (`Next:` in YAML, an unfinished JSON property) gets a `NULL` scalar whose `psi` and `usePsi` are the `keyPsi`. This is why a problem with an empty value ends up reported on the key.
+- YAML scalar typing: a quoted or block scalar is always `STRING`. A plain scalar is `NULL` for empty, `~`, `null`, `Null`, `NULL`; `BOOLEAN` for `true`/`false` in the three YAML 1.2 capitalisations; `NUMBER` if it matches a YAML 1.2 core integer or float (including `0x`, `0o`, `.inf`, `.nan` forms); else `STRING`.
+- `ambiguous` is true for a plain scalar that YAML 1.1 and YAML 1.2 type differently. It is not known which YAML version the tools in front of AWS apply, so no check may judge the kind of such a value. That covers the YAML 1.1 booleans (`y`, `n`, `yes`, `no`, `on`, `off` in their capitalisations), numbers with `_` separators, sexagesimal numbers such as `1:30`, octal with a leading `0` such as `010`, binary `0b...`, and the YAML 1.2 octal form `0o...`.
+- A block scalar with clip chomping (`>` or `|` without `-` or `+`) that ends at the end of the file with no final line break has no trailing line break in real YAML, but `getTextValue()` appends one. Remove it in that case.
 - A placeholder is `${` + one or more of letters, digits, `_`, `-`, `.`, `:`, `,` + `}`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -341,6 +346,7 @@ class AslTreeTest : AslTestCase() {
               + 1 %}
             B: >
               {% 1 %}
+            C: 1
         """)
         assertEquals("{% \$x + 1 %}", r["A"]!!.value.scalar().text)
         assertEquals("{% 1 %}\n", r["B"]!!.value.scalar().text)
@@ -378,6 +384,22 @@ class AslTreeTest : AslTestCase() {
               Inner: *loop
         """)
         assertNotNull(r["Loop"])   // reaching this line is the assertion
+        assertTrue((r["Loop"]!!.value as AslObject)["Inner"]!!.value is AslUnresolved)
+    }
+    fun `test alias without an anchor is unresolved not null`() =
+        assertTrue(root("Retry: *missing")["Retry"]!!.value is AslUnresolved)
+    fun `test empty value is a null scalar at the key`() {
+        val e = root("Next:\nEnd: true")["Next"]!!
+        assertEquals(ScalarType.NULL, e.value.scalar().type)
+        assertSame(e.keyPsi, e.value.psi)
+    }
+    fun `test scalars typed differently by yaml 1_1 and 1_2 are ambiguous`() {
+        val r = root("A: yes\nB: Off\nC: 1_000\nD: 010\nE: 0o14\nF: 1:30\nG: true\nH: 12\nI: 'yes'\nJ: text")
+        assertEquals(listOf("A", "B", "C", "D", "E", "F"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
+    }
+    fun `test clipped block scalar at end of file without line break`() {
+        val r = AslTree.root(myFixture.configureByText("test.asl.yaml", "A: >\n  {% 1 %}")) as AslObject
+        assertEquals("{% 1 %}", r["A"]!!.value.scalar().text)
     }
     fun `test incomplete and odd files do not throw`() {
         assertNull(AslTree.root(yaml("")))
@@ -418,12 +440,12 @@ Expected: compilation fails, `AslTree` unresolved.
 
 - [ ] **Step 3: Implement the tree types, `YamlTree`, `JsonTree`, `AslTree` and `Placeholders`**
 
-YAML: the root is the top-level value of the first `YAMLDocument`. An alias resolves through `alias.reference.resolve()` (a `YAMLAnchor`) and that anchor's `markedValue`. A `<<` entry whose value is an alias to a mapping, or a list of such aliases, is replaced by that mapping's entries with `viaMerge = true`; an explicit key in the mapping wins over a merged one. Guard alias and merge resolution with a set of anchors currently being resolved; on re-entry yield a `NULL` scalar at the alias. An unresolved alias is a `NULL` scalar. JSON: `JsonObject`, `JsonArray`, `JsonStringLiteral`, `JsonNumberLiteral`, `JsonBooleanLiteral`, `JsonNullLiteral`; anything else is a `STRING` scalar of its text.
+YAML: the root is the top-level value of the first `YAMLDocument`. An alias resolves through `alias.reference.resolve()` (a `YAMLAnchor`) and that anchor's `markedValue`. A `<<` entry whose value is an alias to a mapping, or a list of such aliases, is replaced by that mapping's entries with `viaMerge = true`; an explicit key in the mapping wins over a merged one. Guard alias and merge resolution with a set of anchors currently being resolved; on re-entry yield an `AslUnresolved` at the alias. An alias that resolves to nothing is an `AslUnresolved` too. JSON: `JsonObject`, `JsonArray`, `JsonStringLiteral`, `JsonNumberLiteral`, `JsonBooleanLiteral`, `JsonNullLiteral`; anything else is a `STRING` scalar of its text.
 
 - [ ] **Step 4: Run the tests**
 
 Run: `./gradlew test --tests "io.github.saigyo.aslan.tree.*"`
-Expected: 9 tests passed.
+Expected: 13 tests passed.
 
 - [ ] **Step 5: Commit**
 
@@ -445,7 +467,9 @@ git add src && git commit -m "feat: format-independent value tree over YAML and 
 ```kotlin
 enum class QueryLanguage(val text: String) { JSONPATH("JSONPath"), JSONATA("JSONata") }
 enum class Mode { BOTH, JSONATA, JSONPATH }   // fun allows(ql: QueryLanguage): Boolean
-enum class StructureId { STATE_MACHINE, TASK, PASS, CHOICE, WAIT, SUCCEED, FAIL, PARALLEL, MAP,
+enum class StructureId { STATE_MACHINE,
+    STATE,   // a state whose type is missing, unknown or a placeholder: only the fields every state has
+    TASK, PASS, CHOICE, WAIT, SUCCEED, FAIL, PARALLEL, MAP,
     CHOICE_RULE, RETRIER, CATCHER, BRANCH, ITEM_PROCESSOR, PROCESSOR_CONFIG,
     ITEM_READER, READER_CONFIG, ITEM_BATCHER, RESULT_WRITER, WRITER_CONFIG }
 
@@ -462,7 +486,7 @@ sealed interface ValueKind {
 }
 data class NamedDoc(val name: String, val description: String, val docUrl: String? = null)
 data class FieldSpec(val name: String, val kind: ValueKind, val mode: Mode = Mode.BOTH, val required: Boolean = false,
-    val jsonata: Boolean = false,          // a `{% %}` string may stand in for the value in a JSONata state
+    val jsonata: Boolean = false,          // AWS documents that this field accepts a `{% %}` string in a JSONata state
     val nullable: Boolean = false, val min: Double? = null, val max: Double? = null,
     val deprecated: Boolean = false, val description: String, val docUrl: String)
 data class StructureSpec(val id: StructureId, val fields: List<FieldSpec>,
@@ -484,12 +508,12 @@ object AslSpec {
 }
 ```
 
-**The data.** Sources to work from, in this order: the ASL specification https://states-language.net/spec.html, then the Step Functions developer guide pages under https://docs.aws.amazon.com/step-functions/latest/dg/ (`statemachine-structure`, `state-task`, `state-pass`, `state-choice`, `state-wait`, `state-succeed`, `state-fail`, `state-parallel`, `state-map-inline`, `state-map-distributed`, `input-output-itemreader`, `input-output-resultwriter`, `concepts-error-handling`, `workflow-variables`, `transforming-data`, `integrate-optimized`). Where the two disagree on a field's query language, follow the specification. Every `docUrl` points at the developer guide page for that structure. Field modes (`P` = JSONPath only, `A` = JSONata only, none = both); `*` = required; `j` = `jsonata = true`; `n` = nullable:
+**The data.** Sources to work from, in this order: the ASL specification https://states-language.net/spec.html, then the Step Functions developer guide pages under https://docs.aws.amazon.com/step-functions/latest/dg/ (`statemachine-structure`, `state-task`, `state-pass`, `state-choice`, `state-wait`, `state-succeed`, `state-fail`, `state-parallel`, `state-map-inline`, `state-map-distributed`, `input-output-itemreader`, `input-output-resultwriter`, `concepts-error-handling`, `workflow-variables`, `transforming-data`, `integrate-optimized`). Where the sources disagree on whether a field is allowed, required or bound to one query language, take the more permissive reading: a wrongly strict entry produces a false error, a wrongly lenient one only a missed finding. Known cases: the specification requires `Resource` in a ResultWriter but the guide documents a ResultWriter with only `WriterConfig`, so it is optional; the guide labels `Assign` on Pass "JSONata only" and `ItemSelector` on a Distributed Map "JSONPath only", and both are allowed in both. Every `docUrl` points at the developer guide page for that structure. Field modes (`P` = JSONPath only, `A` = JSONata only, none = both); `*` = required; `j` = `jsonata = true`; `n` = nullable:
 
 | Structure | Fields |
 |---|---|
 | STATE_MACHINE | `StartAt*` StateName, `States*` StatesMap, `Comment` Text, `Version` Text, `TimeoutSeconds` Integer min 1, `QueryLanguage` OneOf(JSONPath, JSONata) |
-| every state | `Type*` OneOf(the eight types), `Comment` Text, `QueryLanguage` |
+| every state, and STATE | `Type*` OneOf(the eight types), `Comment` Text, `QueryLanguage`. The STATE structure has exactly these three. |
 | Task, Parallel, Map, Pass, Wait | `Next` StateName, `End` Bool; exclusive {Next, End} |
 | every state except Succeed, Fail | `Assign` FreeForm |
 | every state except Fail | `Output` FreeForm A, `InputPath` Text P n, `OutputPath` Text P n |
@@ -585,6 +609,13 @@ class AslSpecTest : TestCase() {
             "arn:aws:states:::dynamodb:putItem", "arn:aws:states:::sns:publish", "arn:aws:states:::events:putEvents",
             "arn:aws:states:::states:startExecution.sync:2")))
     }
+    fun `test permissive readings where the sources disagree`() {
+        assertFalse(field(RESULT_WRITER, "Resource").required)
+        assertEquals(Mode.BOTH, field(PASS, "Assign").mode)
+        assertEquals(Mode.BOTH, field(MAP, "ItemSelector").mode)
+    }
+    fun `test generic state structure`() =
+        assertEquals(setOf("Type", "Comment", "QueryLanguage"), AslSpec.structure(STATE).fields.map { it.name }.toSet())
     fun `test definesFieldAnywhere`() {
         assertTrue(AslSpec.definesFieldAnywhere("Next"))
         assertTrue(AslSpec.definesFieldAnywhere("WriterConfig"))
@@ -605,7 +636,7 @@ Enter the table above, then read the listed sources page by page and add or corr
 - [ ] **Step 4: Run the tests**
 
 Run: `./gradlew test --tests "io.github.saigyo.aslan.spec.AslSpecTest"`
-Expected: 9 tests passed.
+Expected: 11 tests passed.
 
 - [ ] **Step 5: Commit**
 
@@ -633,9 +664,10 @@ class AslDocument(val file: PsiFile, val rootNode: AslNode?, val root: AslStateM
 }
 class AslStateMachine(val obj: AslObject, val owner: AslState?, val startAt: AslEntry?, val statesEntry: AslEntry?, val states: List<AslState>) {
     fun state(name: String): AslState?              // first with that name
+    val open: Boolean                               // see the rules below
 }
 class AslState(val name: String, val entry: AslEntry, val obj: AslObject?, val machine: AslStateMachine,
-               val typeName: String?, val type: StateTypeSpec?, val queryLanguage: QueryLanguage,
+               val typeName: String?, val type: StateTypeSpec?, val queryLanguage: QueryLanguage, val queryLanguageKnown: Boolean,
                val children: List<AslStateMachine>, val transitions: List<AslTransition>)
 enum class TransitionKind { NEXT, CHOICE, DEFAULT, CATCH }
 class AslTransition(val kind: TransitionKind, val from: AslState, val target: AslScalar?, val owner: AslObject, val index: Int) {
@@ -653,7 +685,8 @@ data class FieldInfo(val spec: FieldSpec, val owner: ObjectInfo, val entry: AslE
 object AslModel { fun of(file: PsiFile): AslDocument? }   // null when the file is not an ASL file
 ```
 
-- Rules: the effective query language of a state is its own `QueryLanguage` if that is `JSONPath` or `JSONata`, otherwise the top-level `QueryLanguage` of the file, otherwise `JSONPATH`. Nested states never inherit from the enclosing Map or Parallel state. A Map's child machine is the value of `ItemProcessor`, or of `Iterator` if `ItemProcessor` is absent. A Parallel's child machines are the items of `Branches`. Transition order: the state's `Next`, then each Choice rule's `Next` (index = rule position, owner = the rule), then `Default`, then each Catcher's `Next` (index = catcher position, owner = the catcher). Nested `And`/`Or`/`Not` rules produce no transitions. A state whose value is not a mapping has `obj == null`.
+- Rules: the effective query language of a state is its own `QueryLanguage` if that is `JSONPath` or `JSONata`, otherwise the top-level `QueryLanguage` of the file, otherwise `JSONPATH`. Nested states never inherit from the enclosing Map or Parallel state. A Map's child machine is the value of `ItemProcessor`, or of `Iterator` if `ItemProcessor` is absent. A Parallel's child machines are the items of `Branches`. Transition order: the state's `Next`, then each Choice rule's `Next` (index = rule position, owner = the rule), then `Default`, then each Catcher's `Next` (index = catcher position, owner = the catcher). Nested `And`/`Or`/`Not` rules produce no transitions. Transitions are read whatever the state's type is, known or not. A top-level Choice rule or a Catcher without `Next` still yields a transition, with `target == null`. A state whose value is not a mapping has `obj == null`.
+- `AslState.queryLanguageKnown` is false when the state's own `QueryLanguage`, or the top-level one it would inherit, contains a placeholder; `queryLanguage` then still holds the fallback value. `AslStateMachine.open` is true when the machine cannot be fully read: its `States` value or any state name key contains a placeholder. Checks use both to stay silent where the file does not say enough.
 - `AslModel.of` is cached with `CachedValuesManager.getCachedValue(file)` depending on `PsiModificationTracker.MODIFICATION_COUNT` and `AslSettings.getInstance()`. `root` is null when the file's root is not a mapping; `rootNode` still holds what was read.
 
 - [ ] **Step 1: Write the failing tests**
@@ -761,6 +794,19 @@ class AslModelTest : AslTestCase() {
         assertNull(partial.root!!.state("A")!!.obj)
         assertNull(partial.root!!.state("C")!!.type)
         assertEquals("Bogus", partial.root!!.state("C")!!.typeName)
+        assertEquals(StructureId.STATE, partial.schema.info(partial.root!!.state("C")!!.obj!!.psi)!!.structure.id)
+    }
+    fun `test placeholders make the model say what it cannot know`() {
+        val d = doc("QueryLanguage: \${Language}\nStartAt: A\nStates:\n  A:\n    Type: Succeed\n  \${Extra}:\n    Type: Succeed")
+        assertFalse(d.root!!.state("A")!!.queryLanguageKnown)
+        assertTrue(d.root!!.open)
+        val plain = doc("StartAt: A\nStates:\n  A:\n    Type: Succeed")
+        assertTrue(plain.root!!.state("A")!!.queryLanguageKnown)
+        assertFalse(plain.root!!.open)
+    }
+    fun `test a rule or catcher without Next yields a transition without target`() {
+        val d = doc("StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: x\n    Catch:\n      - ErrorEquals: [States.ALL]\n    End: true")
+        assertNull(d.root!!.state("A")!!.transitions.single().target)
     }
     fun `test model is cached until the file changes`() {
         val file = yaml("StartAt: A\nStates:\n  A:\n    Type: Succeed")
@@ -776,12 +822,12 @@ Expected: compilation fails, `AslModel` unresolved.
 
 - [ ] **Step 3: Implement the model, the schema index and the cache**
 
-The schema index is filled in one walk that follows the specification data: start at the root object with `STATE_MACHINE`; for each entry look up its `FieldSpec` among the fields of the structure (regardless of query language, so that wrong-language fields are still known fields); descend into `Struct`, `ListOf(Struct)` and `StatesMap` values; mark the value of a `FreeForm` field as free-form and do not descend. A state object gets the structure of its type; a state with an unknown or missing type gets no `ObjectInfo`.
+The schema index is filled in one walk that follows the specification data: start at the root object with `STATE_MACHINE`; for each entry look up its `FieldSpec` among the fields of the structure (regardless of query language, so that wrong-language fields are still known fields); descend into `Struct`, `ListOf(Struct)` and `StatesMap` values; mark the value of a `FreeForm` field as free-form and do not descend. A state object gets the structure of its type; a state whose type is missing, unknown or a placeholder gets the generic `STATE` structure, so that completion and documentation still work there.
 
 - [ ] **Step 4: Run the tests**
 
 Run: `./gradlew test --tests "io.github.saigyo.aslan.model.AslModelTest"`
-Expected: 8 tests passed.
+Expected: 10 tests passed.
 
 - [ ] **Step 5: Commit**
 
@@ -874,14 +920,15 @@ Expected: 3 tests passed.
 
 - [ ] **Step 5: Cross-check with an independent validator**
 
-Convert the two YAML files to JSON and run the community validator, which also parses the JSONata:
+Run the community validator on each definition. It checks the structure independently of this plugin and, according to its documentation, also parses the JSONata expressions:
 
 ```bash
-python3 -c 'import sys,yaml,json; json.dump(yaml.safe_load(open(sys.argv[1])), open(sys.argv[2],"w"))' src/test/testData/clean/film-archive-intake.asl.yaml build/intake.json
-npx --yes asl-validator@4 --no-arn-check --json-path build/intake.json
+npx --yes asl-validator@4 --no-arn-check --yaml-path src/test/testData/clean/film-archive-intake.asl.yaml
+npx --yes asl-validator@4 --no-arn-check --yaml-path src/test/testData/clean/legacy-loan.asl.yaml
+npx --yes asl-validator@4 --no-arn-check --json-path src/test/testData/clean/reel-check.asl.json
 ```
 
-Expected: the validator reports the definition as valid. Repeat for the other two files. Fix the definitions until all three pass. If Python with PyYAML or Node is unavailable, say so in the task report and continue; do not skip silently.
+Expected: the validator reports each definition as valid. Fix the definitions until all three pass. If the validator rejects a placeholder used as a mapping key or stumbles over a YAML feature, record exactly what it said in the task report and judge that point by the ASL specification instead. If Node is unavailable, say so in the task report and continue; do not skip silently.
 
 - [ ] **Step 6: Commit**
 
@@ -894,7 +941,7 @@ git add src/test && git commit -m "test: synthetic film archive definitions as m
 ### Task 7: Problem catalogue, structure errors and inspections
 
 **Files:**
-- Create: `check/AslProblem.kt`, `check/AslFinding.kt`, `check/AslChecker.kt`, `check/StructureChecks.kt`, `check/AslInspections.kt`, `src/main/resources/inspectionDescriptions/AslStructure.html`, `AslTransitions.html`, `AslUnknownField.html`, `AslValueRules.html`, `AslUnreachableState.html`, `AslChoiceWithoutDefault.html`
+- Create: `check/AslProblem.kt`, `check/AslFinding.kt`, `check/AslChecker.kt`, `check/StructureChecks.kt`, `check/AslInspections.kt`, and one description file `src/main/resources/inspectionDescriptions/<shortName>.html` for every `AslProblem`
 - Modify: `src/main/resources/META-INF/plugin.xml`
 - Test: `src/test/kotlin/io/github/saigyo/aslan/check/CheckTestCase.kt`, `StructureChecksTest.kt`, `InspectionsTest.kt`
 
@@ -903,28 +950,31 @@ git add src/test && git commit -m "test: synthetic film archive definitions as m
 - Produces:
 
 ```kotlin
-enum class ProblemGroup(val shortName: String, val level: HighlightDisplayLevel) {
-    STRUCTURE("AslStructure", ERROR), TRANSITIONS("AslTransitions", ERROR),
-    UNKNOWN_FIELD("AslUnknownField", WARNING), VALUE_RULES("AslValueRules", WARNING),
-    UNREACHABLE_STATE("AslUnreachableState", WARNING), CHOICE_WITHOUT_DEFAULT("AslChoiceWithoutDefault", WEAK_WARNING)
-}
-enum class AslProblem(val group: ProblemGroup) {
-    ROOT_NOT_MAPPING(STRUCTURE), MISSING_REQUIRED_FIELD(STRUCTURE), EMPTY_CHOICES(STRUCTURE), UNKNOWN_STATE_TYPE(STRUCTURE),
-    MISSING_TRANSITION(STRUCTURE), NEXT_AND_END(STRUCTURE), WRONG_QUERY_LANGUAGE_FIELD(STRUCTURE),
-    JSONPATH_STATE_IN_JSONATA_MACHINE(STRUCTURE), WRONG_VALUE_KIND(STRUCTURE), UNCLOSED_JSONATA_DELIMITER(STRUCTURE),
-    MISSING_TRANSITION_TARGET(TRANSITIONS), NO_TERMINAL_STATE(TRANSITIONS), DUPLICATE_STATE_NAME(TRANSITIONS), STATE_NAME_TOO_LONG(TRANSITIONS),
-    UNKNOWN_FIELD(ProblemGroup.UNKNOWN_FIELD), MISPLACED_FIELD(ProblemGroup.UNKNOWN_FIELD),
-    VALUE_OUT_OF_RANGE(VALUE_RULES), UNKNOWN_ENUM_VALUE(VALUE_RULES), EXCLUSIVE_FIELDS(VALUE_RULES),
-    STATES_ALL_PLACEMENT(VALUE_RULES), HEARTBEAT_NOT_BELOW_TIMEOUT(VALUE_RULES),
-    UNREACHABLE_STATE(ProblemGroup.UNREACHABLE_STATE), CHOICE_WITHOUT_DEFAULT(ProblemGroup.CHOICE_WITHOUT_DEFAULT)
+enum class AslProblem(val level: HighlightDisplayLevel) {
+    // errors: an AWS source documents that the definition is rejected
+    ROOT_NOT_MAPPING(ERROR), MISSING_REQUIRED_FIELD(ERROR), EMPTY_CHOICES(ERROR), UNKNOWN_STATE_TYPE(ERROR),
+    MISSING_TRANSITION(ERROR), WRONG_QUERY_LANGUAGE_FIELD(ERROR), JSONPATH_STATE_IN_JSONATA_MACHINE(ERROR),
+    WRONG_VALUE_KIND(ERROR), UNCLOSED_JSONATA_DELIMITER(ERROR),
+    MISSING_TRANSITION_TARGET(ERROR), NO_TERMINAL_STATE(ERROR), DUPLICATE_STATE_NAME(ERROR), STATE_NAME_TOO_LONG(ERROR),
+    // warnings: deploys, or rejection not confirmed
+    UNKNOWN_FIELD(WARNING), MISPLACED_FIELD(WARNING), VALUE_OUT_OF_RANGE(WARNING), UNKNOWN_ENUM_VALUE(WARNING),
+    EXCLUSIVE_FIELDS(WARNING), JSONATA_IN_STATIC_FIELD(WARNING), STATES_ALL_PLACEMENT(WARNING),
+    HEARTBEAT_NOT_BELOW_TIMEOUT(WARNING), UNREACHABLE_STATE(WARNING),
+    CHOICE_WITHOUT_DEFAULT(WEAK_WARNING);
+
+    val shortName: String    // "Asl" + the name in upper camel case, for example "AslUnknownStateType"
 }
 data class AslFinding(val problem: AslProblem, val element: PsiElement, val message: String)
 object AslChecker { fun findings(file: PsiFile): List<AslFinding> }   // empty for non-ASL files; cached like AslModel; no two findings with the same problem and element
+
+open class AslProblemInspection(val problem: AslProblem) : LocalInspectionTool()   // getShortName() returns problem.shortName
+object AslInspections { fun all(): List<AslProblemInspection> }                    // exactly one per AslProblem
 ```
 
-- Test base: `abstract class CheckTestCase : AslTestCase()` with `val BASE: String` (below), `fun found(text: String): List<Pair<AslProblem, String>>` returning `problem to element.text` for `AslChecker.findings(yaml(text))`, and `fun edit(vararg replacements: Pair<String, String>): String` applying literal replacements to `BASE` and failing if a search string is absent.
+- **One inspection per problem.** The design requires that every check can be switched off or changed in severity on its own, so that a single wrong finding can be silenced without losing the others. Each problem therefore has its own inspection: a one-line subclass `class <shortName>Inspection : AslProblemInspection(AslProblem.X)`, all in `AslInspections.kt`.
+- Test base: `abstract class CheckTestCase : AslTestCase()` with `val BASE: String` (below), `fun found(text: String, name: String = "test.asl.yaml"): List<Pair<AslProblem, String>>` returning `problem to element.text` for `AslChecker.findings(myFixture.configureByText(name, text))`, and `fun edit(vararg replacements: Pair<String, String>): String` applying literal replacements to `BASE` and failing if a search string is absent.
 
-`BASE`, which must produce no findings in this and all later tasks (escape each `$` when embedding it in a Kotlin string):
+`BASE`, which must produce no findings in this and all later tasks (escape each `$` when embedding it or a table row below in a Kotlin string):
 
 ```yaml
 QueryLanguage: JSONata
@@ -954,30 +1004,40 @@ States:
     Type: Fail
 ```
 
-**Where a finding is reported.** A missing field or a state-level problem is reported on the key of the entry whose value is the object concerned; for the root and for list items (rules, retriers, catchers, branches) on `AslObject.anchorPsi`. A problem with a field is reported on its key. A problem with a value is reported on the value, or on the key when the value is empty. Findings inside an aliased object are reported at its definition.
+**Where a finding is reported.** A missing field or a state-level problem is reported on the key of the entry whose value is the object concerned; for the root and for list items (rules, retriers, catchers, branches) on `AslObject.anchorPsi`. A problem with a field is reported on its key. A problem with a value is reported on the value's `psi`, which is the key when the value is empty. Findings inside an aliased object are reported at its definition. `AslChecker.findings` returns findings sorted by the start offset of their element, then by the order of `AslProblem`.
 
 **Rules of this task** (all in `StructureChecks.kt`):
 
 | Problem | Condition |
 |---|---|
 | ROOT_NOT_MAPPING | the file has content and its root is not a mapping; reported on the root |
-| MISSING_REQUIRED_FIELD | a `required` field of the object's structure is absent, or no field of a `oneOfRequired` set is present; also a JSONata Choice rule without `Condition`, and a top-level Choice rule without `Next`; a state without `Type` |
+| MISSING_REQUIRED_FIELD | a `required` field of the object's structure is absent (this covers a state without `Type` through the `STATE` structure), or no field of a `oneOfRequired` set is present; also a JSONata Choice rule without `Condition`, and a top-level Choice rule without `Next` |
 | EMPTY_CHOICES | `Choices` is an empty list; reported on the key |
 | UNKNOWN_STATE_TYPE | `Type` is a string that names no state type; reported on the value |
 | MISSING_TRANSITION | a state whose type needs a transition has neither `Next` nor `End: true` |
-| NEXT_AND_END | a state has `Next` and `End: true` |
 | WRONG_QUERY_LANGUAGE_FIELD | a field of the structure whose mode excludes the state's effective query language |
 | JSONPATH_STATE_IN_JSONATA_MACHINE | top-level `QueryLanguage` is `JSONata` and a state sets `QueryLanguage: JSONPath`; reported on that value |
-| WRONG_VALUE_KIND | the value's basic kind does not fit the field: a mapping where `Struct`, `StatesMap` is not expected or the reverse; a list where `ListOf`, `ErrorNames` is not expected or the reverse; for scalar kinds, `Text`, `StateName`, `ResourceArn`, `OneOf` need a `STRING`, `Integer` and `Number` need a `NUMBER`, `Bool` needs a `BOOLEAN`; a `NULL` only fits a `nullable` field. Integer versus fractional numbers are not distinguished. |
+| WRONG_VALUE_KIND | the value's basic kind does not fit the field: a mapping where `Struct`, `StatesMap` is not expected or the reverse; a list where `ListOf`, `ErrorNames` is not expected or the reverse; for scalar kinds, `Text`, `StateName`, `ResourceArn`, `OneOf` need a `STRING`, `Integer` and `Number` need a `NUMBER`, `Bool` needs a `BOOLEAN`; a `NULL` only fits a `nullable` field. Integer versus fractional numbers are not distinguished. A state whose value is not a mapping is also this problem, reported on the value's `psi`. |
 | UNCLOSED_JSONATA_DELIMITER | in a JSONata state, any string scalar, including inside free-form data, whose text starts with `{%` and does not end with `%}` |
 
-A state whose value is not a mapping is also `WRONG_VALUE_KIND`, reported on the value, or on the state key when the value is empty.
+A state having both `Next` and `End: true` is not an error: no AWS source documents its rejection, so Task 9 reports it as a warning.
 
-Exemptions that apply to every rule: a value whose text contains a placeholder is never checked for kind; in a JSONata state, a string that starts with `{%` satisfies any scalar kind when the field has `jsonata = true` (if it is not closed, the only finding is `UNCLOSED_JSONATA_DELIMITER`); `FreeForm` values are never checked for kind; a state whose `Type` is a placeholder, or whose whole value is a placeholder, is skipped entirely; entries with `viaMerge` are checked at their definition only. A key that is present counts as present even when its value is empty. `End: false` counts as absent.
+**Exemptions.** They apply to every rule in Tasks 7 to 9 and exist to keep deployable files free of errors:
+
+- A value whose text contains a placeholder is never checked for kind, range or membership in a fixed list.
+- A scalar with `ambiguous == true` and an `AslUnresolved` node are never checked for kind, range or membership.
+- In a JSONata state, and in a state with `queryLanguageKnown == false`, a string that starts with `{%` is never `WRONG_VALUE_KIND`, whatever the field. If it is not closed, the only finding is `UNCLOSED_JSONATA_DELIMITER`.
+- `FreeForm` values are never checked for kind.
+- A field reported as `WRONG_QUERY_LANGUAGE_FIELD` gets no further checks on its value.
+- A state whose `Type` contains a placeholder, or whose whole value is a placeholder, is skipped entirely.
+- A state with `queryLanguageKnown == false` gets no `WRONG_QUERY_LANGUAGE_FIELD`, no `JSONPATH_STATE_IN_JSONATA_MACHINE` and no `UNCLOSED_JSONATA_DELIMITER`.
+- `End` whose value contains a placeholder or is ambiguous counts as possibly true: no `MISSING_TRANSITION`.
+- Entries with `viaMerge` are checked at their definition only.
+- A key that is present counts as present even when its value is empty. `End: false` counts as absent.
 
 - [ ] **Step 1: Write the failing check tests**
 
-`fun test BASE is clean` asserts `found(BASE)` is empty. Then one test per row; each asserts the complete result list:
+`fun test BASE is clean` asserts `found(BASE)` is empty. Then one test per row. Each asserts the complete result list, and each must still hold when the checks of Tasks 8 and 9 exist:
 
 | Test name | Change to `BASE` | Expected `found(...)` |
 |---|---|---|
@@ -986,31 +1046,35 @@ Exemptions that apply to every rule: a value whose text contains a placeholder i
 | missing Type | remove `    Type: Task\n` | `[MISSING_REQUIRED_FIELD to "Inspect"]` |
 | unknown type | `Type: Task` → `Type: Tsak` | `[UNKNOWN_STATE_TYPE to "Tsak"]` |
 | missing Resource | remove the `Resource` line | `[MISSING_REQUIRED_FIELD to "Inspect"]` |
-| empty Choices | replace the `Choices` block with `Choices: []` | `[EMPTY_CHOICES to "Choices"]` |
+| empty Choices | replace the `Choices` block with `Choices: []`, and `Default: Rejected` → `Default: Accepted` | `[EMPTY_CHOICES to "Choices"]` |
 | rule without Condition | remove the `Condition` line, write `- Next: Accepted` | `[MISSING_REQUIRED_FIELD to "Next"]` |
 | catcher without Next | remove `        Next: Rejected\n` under `Catch` | `[MISSING_REQUIRED_FIELD to "ErrorEquals"]` |
 | no transition | remove `    Next: Decide\n` | `[MISSING_TRANSITION to "Inspect"]` |
-| Next and End | add `    End: true` to `Inspect` | `[NEXT_AND_END to "Inspect"]` |
 | End false counts as absent | add `    End: false` to `Inspect` | `[]` |
+| placeholder End | `Accepted` becomes `Type: Pass` with `End: ${Last}` | `[]` |
+| ambiguous End | `Accepted` becomes `Type: Pass` with `End: yes` | `[]` |
 | JSONPath field in JSONata state | `Arguments:` → `Parameters:` | `[WRONG_QUERY_LANGUAGE_FIELD to "Parameters"]` |
-| JSONata field in JSONPath machine | remove the `QueryLanguage` line | `[WRONG_QUERY_LANGUAGE_FIELD to "Arguments", WRONG_QUERY_LANGUAGE_FIELD to "Condition"]`; a JSONPath rule is not checked for `Variable` or an operator |
+| JSONata fields in a JSONPath machine | remove the `QueryLanguage` line | `[WRONG_QUERY_LANGUAGE_FIELD to "Arguments", WRONG_QUERY_LANGUAGE_FIELD to "Condition"]` (a JSONPath rule is not checked for `Variable` or an operator) |
+| placeholder query language | `QueryLanguage: JSONata` → `QueryLanguage: ${Language}` | `[]` |
 | JSONPath state in JSONata machine | add `    QueryLanguage: JSONPath` to `Accepted` | `[JSONPATH_STATE_IN_JSONATA_MACHINE to "JSONPath"]` |
 | text for a number | `MaxAttempts: 2` → `MaxAttempts: many` | `[WRONG_VALUE_KIND to "many"]` |
 | quoted number | `MaxAttempts: 2` → `MaxAttempts: '2'` | `[WRONG_VALUE_KIND to "'2'"]` |
 | mapping for a list | `Retry:` block → `Retry: {MaxAttempts: 2}` | `[WRONG_VALUE_KIND to "{MaxAttempts: 2}"]` |
 | empty value | `Next: Decide` → `Next:` | `[WRONG_VALUE_KIND to "Next"]` |
 | placeholder for a number | `MaxAttempts: 2` → `MaxAttempts: ${Attempts}` | `[]` |
+| number written the YAML 1.1 way | `MaxAttempts: 2` → `MaxAttempts: 1_0` | `[]` |
+| unresolved alias | `Retry:` block → `Retry: *missing` | `[]` |
 | JSONata where allowed | add `    TimeoutSeconds: '{% $t %}'` to `Inspect` | `[]` |
-| JSONata where not allowed | `MaxAttempts: 2` → `MaxAttempts: '{% 2 %}'` | `[WRONG_VALUE_KIND to "'{% 2 %}'"]` |
 | unclosed delimiter | `'{% $states.input.ok %}'` → `'{% $states.input.ok'` | `[UNCLOSED_JSONATA_DELIMITER to "'{% \$states.input.ok'"]` |
 | folded scalar that keeps its line break | `Condition: '{% $states.input.ok %}'` → `Condition: >\n          {% $states.input.ok %}` | one finding, `UNCLOSED_JSONATA_DELIMITER` |
 | unclosed delimiter inside free-form data | `FunctionName: ${InspectFn}` → `FunctionName: '{% $x'` | one finding, `UNCLOSED_JSONATA_DELIMITER` |
 | placeholder as Type | `Type: Succeed` → `Type: ${Kind}` | `[]` |
 | placeholder as whole state | `Accepted:\n    Type: Succeed` → `Accepted: ${AcceptedState}` | `[]` |
 | unknown keys in free-form data | add `      Next: 5\n      Whatever: [1]` under `Arguments:` | `[]` |
-| wrong kind in an aliased retrier is reported once | replace both `Retry`/`Catch` so that a retrier `&r` with `MaxAttempts: many` is defined in `Inspect` and reused as `Retry: [*r]` in a second Task | exactly one `WRONG_VALUE_KIND to "many"` |
-| JSON file | the JSON form of `BASE` with `"Type": "Tsak"` | `[UNKNOWN_STATE_TYPE to "\"Tsak\""]` |
-| not an ASL file | `BASE` with `Type: Tsak` in `plain.yaml` | `[]` |
+| wrong kind in an aliased retrier is reported once | in `Inspect`, the retrier becomes `- &r` with `ErrorEquals: [States.ALL]` and `MaxAttempts: many`; `Accepted` becomes `Type: Task` with `Resource: x`, `Retry: [*r]`, `End: true` | `[WRONG_VALUE_KIND to "many"]` |
+| JSON file | `found(json, "test.asl.json")` with the JSON form of `BASE` and `"Type": "Tsak"` | `[UNKNOWN_STATE_TYPE to "\"Tsak\""]` |
+| not an ASL file | `found(edit("Type: Task" to "Type: Tsak"), "plain.yaml")` | `[]` |
+| half-typed file | `found("StartAt:\nStates:\n  A:\n    Type")` and `found("States:\n  A:\n  - x")` | no exception; the result is not asserted |
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1019,7 +1083,7 @@ Expected: compilation fails, `AslChecker` unresolved.
 
 - [ ] **Step 3: Implement the catalogue, the checker and the structure checks**
 
-`AslChecker.findings` runs each check file's `fun check(doc: AslDocument, out: MutableList<AslFinding>)` and removes duplicates by problem and element. The transition and warning checks are added in Tasks 8 and 9.
+`AslChecker.findings` runs each check file's `fun check(doc: AslDocument, out: MutableList<AslFinding>)`, removes duplicates by problem and element, and sorts. The transition and warning checks are added in Tasks 8 and 9.
 
 - [ ] **Step 4: Run the check tests**
 
@@ -1030,15 +1094,37 @@ Expected: all passed.
 
 ```kotlin
 class InspectionsTest : CheckTestCase() {
-    private fun highlights(text: String, name: String = "test.asl.yaml"): List<Pair<HighlightSeverity, String>> {
-        yaml(text, name)
-        myFixture.enableInspections(*AslInspections.all().toTypedArray())
+    private fun highlights(text: String, name: String = "test.asl.yaml",
+                           tools: List<LocalInspectionTool> = AslInspections.all()): List<Pair<HighlightSeverity, String>> {
+        myFixture.configureByText(name, text)
+        myFixture.enableInspections(*tools.toTypedArray())
         return myFixture.doHighlighting(HighlightSeverity.WEAK_WARNING).map { it.severity to it.text }
     }
     fun `test an error finding surfaces as an error on its element`() =
         assertEquals(listOf(HighlightSeverity.ERROR to "Tsak"), highlights(edit("Type: Task" to "Type: Tsak")))
-    fun `test six inspections with the catalogue names`() =
-        assertEquals(ProblemGroup.entries.map { it.shortName }.toSet(), AslInspections.all().map { it.shortName }.toSet())
+    fun `test a finding in a json file surfaces too`() =
+        assertEquals(listOf(HighlightSeverity.ERROR to "\"Tsak\""),
+            highlights("""{"StartAt": "A", "States": {"A": {"Type": "Tsak"}}}""", "test.asl.json"))
+    fun `test one inspection per problem with its level and a description`() {
+        val ours = LocalInspectionEP.LOCAL_INSPECTION.extensionList.filter { it.pluginDescriptor.pluginId.idString == "io.github.saigyo.aslan" }
+        val names = AslProblem.entries.map { it.shortName }.toSet()
+        assertEquals(AslProblem.entries.size, names.size)
+        assertEquals(names, ours.map { it.shortName }.toSet())
+        assertEquals(names, AslInspections.all().map { it.shortName }.toSet())
+        for (p in AslProblem.entries) {
+            val ep = ours.single { it.shortName == p.shortName }
+            assertEquals(p.name, p.level, ep.defaultLevel)
+            assertNull(p.name, ep.language)
+            assertEquals(p.name, "Amazon States Language", ep.groupDisplayName)
+            assertNotNull(p.name, javaClass.getResource("/inspectionDescriptions/${p.shortName}.html"))
+        }
+    }
+    fun `test switching one inspection off silences only its problem`() {
+        val text = edit("Type: Succeed" to "Type: Sucked", "MaxAttempts: 2" to "MaxAttempts: many")
+        assertEquals(listOf("many", "Sucked"), highlights(text).map { it.second })
+        val withoutType = AslInspections.all().filter { it.problem != AslProblem.UNKNOWN_STATE_TYPE }
+        assertEquals(listOf("many"), highlights(text, tools = withoutType).map { it.second })
+    }
     fun `test nothing in other files`() =
         assertEquals(emptyList<Any>(), highlights(edit("Type: Task" to "Type: Tsak"), "plain.yaml"))
     fun `test clean definitions show nothing`() {
@@ -1051,9 +1137,11 @@ class InspectionsTest : CheckTestCase() {
 }
 ```
 
+Call `myFixture.disableInspections(...)` or use a fresh fixture state as needed so that the second `highlights` call in the switching test really runs without the removed inspection.
+
 - [ ] **Step 6: Implement the inspections**
 
-`object AslInspections { fun all(): List<LocalInspectionTool> }`. One class per `ProblemGroup`, each extending a common base that overrides `checkFile`, takes `AslChecker.findings(file)`, keeps the findings of its group and registers each on its element with the generic problem highlight type. Register each in `plugin.xml` as `<localInspection>` with `shortName` from the group, `groupName="Amazon States Language"`, `enabledByDefault="true"`, `level` matching the group, and a display name. Write one description HTML file per inspection: what it reports and why it has that severity.
+`AslProblemInspection.checkFile` takes `AslChecker.findings(file)`, keeps the findings of its problem and registers each on its element with the generic problem highlight type. Register every subclass in `plugin.xml` as a `<localInspection>` with `shortName`, `implementationClass`, a display name, `groupName="Amazon States Language"`, `enabledByDefault="true"` and `level` (`ERROR`, `WARNING` or `WEAK WARNING`, the last one with a space). Do not set a `language` attribute: the inspections must run on YAML and on JSON files. Write one description HTML file per problem: what it reports, and why it is an error or only a warning.
 
 - [ ] **Step 7: Run all tests so far**
 
@@ -1076,23 +1164,27 @@ git add src && git commit -m "feat: structure checks reported as errors" -m "Co-
 - Test: `src/test/kotlin/io/github/saigyo/aslan/check/TransitionChecksTest.kt`
 
 **Interfaces:**
-- Consumes: `AslDocument`, `AslStateMachine`, `AslState`, `AslTransition`, `CheckTestCase`.
-- Produces: `internal fun AslStateMachine.hasUnknownTargets(): Boolean` in `TransitionChecks.kt`: true when `StartAt` or any transition target is absent, a placeholder, or names no state of this machine. Task 9 uses it.
+- Consumes: `AslDocument`, `AslStateMachine` (including `open`), `AslState`, `AslTransition`, `CheckTestCase`.
+- Produces: `internal fun AslStateMachine.hasUnknownFlow(): Boolean` in `TransitionChecks.kt`, used by Task 9. It is true when the file does not say enough to judge which states can be reached:
+  - the machine is `open`;
+  - `StartAt` is absent, contains a placeholder, or names no state of this machine;
+  - any transition has no target, a target with a placeholder, or a target that names no state of this machine;
+  - any state whose type needs a transition has neither `Next` nor `End: true`, or has an `End` that contains a placeholder or is ambiguous.
 
 **Rules:**
 
 | Problem | Condition | Reported on |
 |---|---|---|
-| MISSING_TRANSITION_TARGET | `StartAt` of a machine, or a transition target, is a string without a placeholder that names no state in the same machine | the value |
-| NO_TERMINAL_STATE | a machine has at least one state and none is of a terminal type or has `End: true`; skipped when any state has an unknown or placeholder type | the `States` key |
+| MISSING_TRANSITION_TARGET | `StartAt` of a machine, or a transition target, is a string without a placeholder that names no state in the same machine; skipped when the machine is `open` | the value |
+| NO_TERMINAL_STATE | a machine has at least one state and none is of a terminal type or has `End: true`; skipped when the machine is `open`, when any state's type is missing, unknown or a placeholder, and when any state has an `End` that contains a placeholder or is ambiguous | the `States` key |
 | DUPLICATE_STATE_NAME | a state name occurs more than once in the whole file, at any nesting level | every state key with that name |
-| STATE_NAME_TOO_LONG | a state name has more than 80 characters | the state key |
+| STATE_NAME_TOO_LONG | a state name has more than 80 Unicode code points | the state key |
 
 A state name key that contains a placeholder is exempt from the last two rules.
 
 - [ ] **Step 1: Write the failing tests**
 
-One test per row, asserting the complete result of `found(...)`:
+One test per row, asserting the complete result of `found(...)`. Each must still hold when the checks of Task 9 exist:
 
 | Test name | Change to `BASE` | Expected |
 |---|---|---|
@@ -1102,10 +1194,12 @@ One test per row, asserting the complete result of `found(...)`:
 | catcher Next to a missing state | catcher `Next: Rejected` → `Next: Nowhere` | `[MISSING_TRANSITION_TARGET to "Nowhere"]` |
 | target in another machine | `Accepted` becomes `Type: Map` with `End: true` and an `ItemProcessor` with `StartAt: Inner` and two states: `Inner` (`Type: Pass`, `Next: Rejected`) and `InnerDone` (`Type: Succeed`) | `[MISSING_TRANSITION_TARGET to "Rejected"]` |
 | placeholder target | `Next: Decide` → `Next: ${NextState}` | `[]` |
+| placeholder state name | add a state `${Extra}:` of type Succeed, and `Default: Rejected` → `Default: Elsewhere` | `[]` |
 | no terminal state | `Accepted` and `Rejected` become `Type: Pass` with `Next: Inspect` | `[NO_TERMINAL_STATE to "States"]` |
 | duplicate across nesting levels | `Accepted` becomes `Type: Map` with `End: true` and an `ItemProcessor` with `StartAt: Rejected` and one state `Rejected` of type Succeed | `[DUPLICATE_STATE_NAME to "Rejected", DUPLICATE_STATE_NAME to "Rejected"]` |
 | name of 81 characters | rename `Accepted` to `A` repeated 81 times, in the key and in `Next` | `[STATE_NAME_TOO_LONG to <the name>]` |
 | name of 80 characters | the same with 80 | `[]` |
+| name of 80 code points outside the basic plane | the same with `𝔸` (U+1D538) repeated 80 times | `[]` |
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1135,20 +1229,21 @@ git add src && git commit -m "feat: transition and state name checks" -m "Co-Aut
 - Test: `src/test/kotlin/io/github/saigyo/aslan/check/WarningChecksTest.kt`
 
 **Interfaces:**
-- Consumes: `hasUnknownTargets()`, `SchemaIndex`, `AslSpec.definesFieldAnywhere`, `CheckTestCase`.
+- Consumes: `hasUnknownFlow()`, `SchemaIndex`, `AslSpec.definesFieldAnywhere`, `CheckTestCase`. The exemptions of Task 7 apply.
 
 **Rules:**
 
 | Problem | Condition | Reported on |
 |---|---|---|
-| UNKNOWN_FIELD | a key in an object with an `ObjectInfo`, not in its structure, with `definesFieldAnywhere(key)` false, and not containing a placeholder | the key |
+| UNKNOWN_FIELD | a key in an object with an `ObjectInfo` whose structure is not `STATE`, not in that structure, with `definesFieldAnywhere(key)` false, and not containing a placeholder | the key |
 | MISPLACED_FIELD | the same, with `definesFieldAnywhere(key)` true | the key |
 | VALUE_OUT_OF_RANGE | a `NUMBER` value below the field's `min` or above its `max` | the value |
-| UNKNOWN_ENUM_VALUE | a `STRING` value of a `OneOf` field other than `Type` that is not in the list and has no placeholder | the value |
-| EXCLUSIVE_FIELDS | more than one field of an `exclusive` set is present, other than `Next` with `End` (that is `NEXT_AND_END`) | each of those keys after the first |
+| UNKNOWN_ENUM_VALUE | a `STRING` value of a `OneOf` field other than `Type` that is not in the list | the value |
+| EXCLUSIVE_FIELDS | more than one field of an `exclusive` set is present; this includes `Next` with `End: true`, while `End: false` counts as absent | each of those keys after the first |
+| JSONATA_IN_STATIC_FIELD | in a JSONata state, a string that starts with `{%` as the value of a field with a scalar kind and `jsonata == false`, so it is not evaluated there | the value |
 | STATES_ALL_PLACEMENT | `States.ALL` shares an `ErrorEquals` list with other names, or is in a retrier or catcher that is not the last of its list | the `States.ALL` scalar |
 | HEARTBEAT_NOT_BELOW_TIMEOUT | a Task has numeric `HeartbeatSeconds` and `TimeoutSeconds` with heartbeat ≥ timeout | the `HeartbeatSeconds` value |
-| UNREACHABLE_STATE | a state cannot be reached from `StartAt` through the transitions of its machine; skipped for a machine where `hasUnknownTargets()` is true | the state key |
+| UNREACHABLE_STATE | a state cannot be reached from `StartAt` through the transitions of its machine; skipped for a machine where `hasUnknownFlow()` is true | the state key |
 | CHOICE_WITHOUT_DEFAULT | a Choice state has no `Default` | the state key |
 
 - [ ] **Step 1: Write the failing tests**
@@ -1162,12 +1257,16 @@ git add src && git commit -m "feat: transition and state name checks" -m "Co-Aut
 | BackoffRate below one | add `        BackoffRate: 0.5` to the retrier | `[VALUE_OUT_OF_RANGE to "0.5"]` |
 | unknown JitterStrategy | add `        JitterStrategy: SOME` to the retrier | `[UNKNOWN_ENUM_VALUE to "SOME"]` |
 | two time fields on Wait | `Accepted` becomes `Type: Wait`, `Seconds: 5`, `Timestamp: '2030-01-01T00:00:00Z'`, `End: true` | `[EXCLUSIVE_FIELDS to "Timestamp"]` |
+| Next and End | add `    End: true` after `    Next: Decide` | `[EXCLUSIVE_FIELDS to "End"]` |
+| JSONata in a field that does not evaluate it | `MaxAttempts: 2` → `MaxAttempts: '{% 2 %}'` | `[JSONATA_IN_STATIC_FIELD to "'{% 2 %}'"]` |
 | States.ALL with another name | retrier `ErrorEquals: [States.ALL]` → `[States.ALL, States.Timeout]` | `[STATES_ALL_PLACEMENT to "States.ALL"]` |
 | States.ALL retrier not last | add a second retrier `- ErrorEquals: [States.Timeout]` after the first | `[STATES_ALL_PLACEMENT to "States.ALL"]` |
-| heartbeat not below timeout | add `    TimeoutSeconds: 30` and `    HeartbeatSeconds: 30` to `Inspect` | `[HEARTBEAT_NOT_BELOW_TIMEOUT to "30"]` |
+| heartbeat not below timeout | add `    TimeoutSeconds: 30` and `    HeartbeatSeconds: 30` to `Inspect`, in this order | `[HEARTBEAT_NOT_BELOW_TIMEOUT to "30"]` |
 | unreachable state | add a state `Orphan` of type Succeed | `[UNREACHABLE_STATE to "Orphan"]` |
 | no reachability verdict with a placeholder target | `Next: Decide` → `Next: ${NextState}` | `[]` |
 | no reachability verdict with a missing target | `Next: Decide` → `Next: Decid` | `[MISSING_TRANSITION_TARGET to "Decid"]` |
+| no reachability verdict with a missing transition | remove `    Next: Decide\n` | `[MISSING_TRANSITION to "Inspect"]` |
+| no unknown-field warnings while the type is unknown | `Type: Task` → `Type: Tsak` | `[UNKNOWN_STATE_TYPE to "Tsak"]` |
 | Choice without Default | remove `    Default: Rejected\n` (the catcher still reaches `Rejected`) | `[CHOICE_WITHOUT_DEFAULT to "Decide"]` |
 
 Add two tests to `InspectionsTest` that use its `highlights` helper: the unknown field change gives `[HighlightSeverity.WARNING to "Retries"]`, and the Choice without Default change gives `[HighlightSeverity.WEAK_WARNING to "Decide"]`.
@@ -1181,12 +1280,12 @@ Expected: FAIL, expected findings missing.
 
 - [ ] **Step 4: Go through the specification for further checkable rules**
 
-Read https://states-language.net/spec.html section by section and the developer guide pages listed in Task 4. For every rule that can be checked from the file and that no existing problem covers: if an AWS source documents that the definition is rejected at deployment, add it as an error in the fitting group; otherwise as a warning in `VALUE_RULES`. Add an `AslProblem` entry, the rule, and a test row for each. List the added rules, with their source, in the commit message.
+Read https://states-language.net/spec.html section by section and the developer guide pages listed in Task 4. For every rule that can be checked from the file and that no existing problem covers: if an AWS source documents that the definition is rejected at deployment, add it with level `ERROR`; otherwise with level `WARNING`. The same test applies to the existing warnings: promote one to `ERROR` only when you can cite the AWS page that documents the rejection. Each added rule needs an `AslProblem` entry, its inspection subclass, registration and description, the rule, and a test row. List the added and promoted rules, with their source, in the commit message.
 
 - [ ] **Step 5: Run the tests**
 
 Run: `./gradlew test`
-Expected: all passed, including the clean definitions.
+Expected: all passed, including the clean definitions and the test that every problem has exactly one registered inspection.
 
 - [ ] **Step 6: Commit**
 
@@ -1281,7 +1380,7 @@ For the caret shapes in the tests (new line among sibling keys, first line under
 
 - [ ] **Step 4: Implement `CompletionContexts.at` and the contributor**
 
-Build the model for the completion copy (`AslModel.of(parameters.position.containingFile)`; the name check uses the original file). Register one contributor for language `yaml` and one for `JSON`, both the same class. A key item shows the field's value kind as type text and is bold when required; required fields sort first, then alphabetical. In a state that has no valid `Type` yet, offer `Type`, `Comment` and `QueryLanguage` only. Insert handler for YAML: scalar kinds insert `Name: `; `Struct`, `StatesMap` and `FreeForm` insert `Name:` and a new line one level deeper; `ListOf` and `ErrorNames` insert `Name:`, a new line one level deeper and `- `. For JSON insert the name only. Values: `OneOf` gives its values with their descriptions; `Bool` gives `true` and `false`.
+Build the model for the completion copy (`AslModel.of(parameters.position.containingFile)`; the name check uses the original file). Register one contributor for language `yaml` and one for `JSON`, both the same class and both with `order="first"`. Whenever `CompletionContexts.at` returns a context, add the items and call `result.stopHere()`: the YAML plugin otherwise adds word completion and the keys of sibling list items, which do not belong in a structural position. When there is no context (free-form data, other files), add nothing and do not stop the other contributors. A key item shows the field's value kind as type text and is bold when required; required fields sort first, then alphabetical. In a state that has no valid `Type` yet, offer `Type`, `Comment` and `QueryLanguage` only. Insert handler for YAML: scalar kinds insert `Name: `; `Struct`, `StatesMap` and `FreeForm` insert `Name:` and a new line one level deeper; `ListOf` and `ErrorNames` insert `Name:`, a new line one level deeper and `- `. For JSON insert the name only. Values: `OneOf` gives its values with their descriptions; `Bool` gives `true` and `false`.
 
 - [ ] **Step 5: Run the tests**
 
@@ -1468,7 +1567,7 @@ git add src && git commit -m "feat: quick documentation for ASL fields, state ty
 
 **Files:**
 - Create: `refs/AslStateReference.kt`, `refs/AslReferenceContributor.kt`, `refs/AslReferencesSearcher.kt`
-- Modify: `src/main/resources/META-INF/plugin.xml`
+- Modify: `src/main/resources/META-INF/plugin.xml`, `src/test/kotlin/io/github/saigyo/aslan/AslTestCase.kt`
 - Test: `src/test/kotlin/io/github/saigyo/aslan/refs/StateReferenceTest.kt`
 
 **Interfaces:**
@@ -1478,6 +1577,8 @@ git add src && git commit -m "feat: quick documentation for ASL fields, state ty
   - `class AslReferencesSearcher : QueryExecutorBase<PsiReference, ReferencesSearch.SearchParameters>`: when the search target is the `entryPsi` of a state, it feeds the references of all transitions and `StartAt` values that name it, read from the model. Stage 3 extends this class for variables.
 
 - [ ] **Step 1: Write the failing tests**
+
+Add this helper to `AslTestCase`: `protected fun highlightedUsages(): List<String>`. It calls `HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)`, then returns the document text of every highlighter in `myFixture.editor.markupModel.allHighlighters`, sorted by start offset. Do not use `myFixture.testHighlightUsages()` without arguments: it reconfigures the fixture with an empty file list and fails.
 
 ```kotlin
 class StateReferenceTest : AslTestCase() {
@@ -1538,8 +1639,7 @@ class StateReferenceTest : AslTestCase() {
     }
     fun `test usages are highlighted from a reference`() {
         at("Default: Rejected", "Default: Rej<caret>ected")
-        val ranges = myFixture.testHighlightUsages().map { myFixture.editor.document.getText(TextRange(it.startOffset, it.endOffset)) }
-        assertEquals(listOf("Rejected", "Rejected", "Rejected"), ranges)
+        assertEquals(listOf("Rejected", "Rejected", "Rejected"), highlightedUsages())
     }
     fun `test rename from the declaration changes key and references`() {
         at("  Rejected:", "  Rej<caret>ected:")
@@ -1747,7 +1847,7 @@ git add src && git commit -m "feat: structure view of states by type" -m "Co-Aut
 - Test: `src/test/kotlin/io/github/saigyo/aslan/highlight/AslHighlightingTest.kt`
 
 **Interfaces:**
-- Consumes: `AslModel.of`, `SchemaIndex`, `Placeholders.ranges`.
+- Consumes: `AslModel.of`, `SchemaIndex`, `Placeholders.ranges`, and `AslTestCase.highlightedUsages()` from Task 13.
 - Produces:
 
 ```kotlin
@@ -1802,8 +1902,7 @@ class AslHighlightingTest : AslTestCase() {
         assertEquals(emptyList<Any>(), marks("Type: Task\nResource: ${'$'}{Fn}", "plain.yaml"))
     fun `test caret on a placeholder highlights its other occurrences`() {
         myFixture.configureByText("test.asl.yaml", "StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: \${F<caret>n}\n    Arguments:\n      a: \${Fn}\n      b: x-\${Fn}-y\n      c: \${Other}\n    End: true")
-        val ranges = myFixture.testHighlightUsages().map { myFixture.editor.document.getText(TextRange(it.startOffset, it.endOffset)) }
-        assertEquals(listOf("\${Fn}", "\${Fn}", "\${Fn}"), ranges)
+        assertEquals(listOf("\${Fn}", "\${Fn}", "\${Fn}"), highlightedUsages())
     }
     fun `test colour settings page lists the four keys`() {
         val page = AslColorSettingsPage()
@@ -1859,7 +1958,7 @@ class PrivateFilesTest : AslTestCase() {
         if (files.isEmpty()) { println("PrivateFilesTest: no private definitions present, nothing checked"); return }
         for (f in files) {
             val psi = myFixture.configureByText(f.name, f.readText())
-            val errors = AslChecker.findings(psi).filter { it.problem.group.level == HighlightDisplayLevel.ERROR }
+            val errors = AslChecker.findings(psi).filter { it.problem.level == HighlightDisplayLevel.ERROR }
             assertEquals(f.name, emptyList<String>(), errors.map { "${it.problem} at line ${psi.viewProvider.document!!.getLineNumber(it.element.textOffset) + 1}" })
         }
     }
