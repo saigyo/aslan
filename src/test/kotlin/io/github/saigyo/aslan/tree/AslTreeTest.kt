@@ -27,6 +27,35 @@ class AslTreeTest : AslTestCase() {
         assertEquals("Comment", r["Comment"]!!.keyPsi.text)
     }
 
+    fun `test quoted keys are decoded`() {
+        val r = root("""
+            'Director''s cut': 1
+            "say \"hi\"": 2
+            "back\\slash": 3
+            "tab\there": 4
+            "\u0041b": 5
+            "\x41c": 6
+            plain: 7
+            two words here: 8
+        """)
+        assertEquals(
+            listOf("Director's cut", "say \"hi\"", "back\\slash", "tab\there", "Ab", "Ac", "plain", "two words here"),
+            r.entries.map { it.key },
+        )
+        assertEquals("'Director''s cut'", r.entries[0].keyPsi.text)
+    }
+
+    fun `test quoted values are decoded`() {
+        val r = root("""
+            A: 'Director''s cut'
+            B: "Director's cut"
+            C: "say \"hi\""
+        """)
+        assertEquals("Director's cut", r["A"]!!.value.scalar().text)
+        assertEquals("Director's cut", r["B"]!!.value.scalar().text)
+        assertEquals("say \"hi\"", r["C"]!!.value.scalar().text)
+    }
+
     fun `test folded scalar text is the decoded value`() {
         val r = root("""
             A: >-

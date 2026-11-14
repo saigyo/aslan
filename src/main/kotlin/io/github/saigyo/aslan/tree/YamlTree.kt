@@ -54,11 +54,11 @@ internal object YamlTree {
 
         private fun entries(mapping: YAMLMapping): List<AslEntry> {
             val keyValues = mapping.keyValues.toList()
-            val explicitKeys = keyValues.map { it.keyText }.filter { it != MERGE_KEY }.toSet()
+            val explicitKeys = keyValues.map { keyText(it) }.filter { it != MERGE_KEY }.toSet()
             val result = ArrayList<AslEntry>()
             val mergedKeys = HashSet<String>()
             for (keyValue in keyValues) {
-                val merged = if (keyValue.keyText == MERGE_KEY) merge(keyValue) else null
+                val merged = if (keyText(keyValue) == MERGE_KEY) merge(keyValue) else null
                 if (merged == null) {
                     result += entry(keyValue)
                     continue
@@ -70,10 +70,58 @@ internal object YamlTree {
             return result
         }
 
+        /**
+         * The decoded value of a one-line quoted scalar, read from its own text: the platform's `textValue` has been
+         * seen to keep `''` undecoded after an incremental reparse. Multi-line scalars keep the platform's folding.
+         */
+        private fun quotedText(raw: String, platform: String): String = when {
+            raw.contains('\n') || raw.length < 2 -> platform
+            raw.startsWith("'") && raw.endsWith("'") -> raw.substring(1, raw.length - 1).replace("''", "'")
+            raw.startsWith("\"") && raw.endsWith("\"") -> unescapeDoubleQuoted(raw.substring(1, raw.length - 1))
+            else -> platform
+        }
+
+        /** The decoded text of a key: quotes removed and, for quoted keys, escapes resolved. */
+        private fun keyText(keyValue: YAMLKeyValue): String {
+            val raw = keyValue.key?.text?.trim() ?: return keyValue.keyText
+            if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) return raw.substring(1, raw.length - 1).replace("''", "'")
+            if (raw.length >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) return unescapeDoubleQuoted(raw.substring(1, raw.length - 1))
+            return keyValue.keyText
+        }
+
+        private fun unescapeDoubleQuoted(body: String): String {
+            val sb = StringBuilder()
+            var i = 0
+            while (i < body.length) {
+                val c = body[i++]
+                if (c != '\\' || i >= body.length) { sb.append(c); continue }
+                val e = body[i++]
+                val digits = when (e) { 'x' -> 2; 'u' -> 4; 'U' -> 8; else -> 0 }
+                if (digits > 0) {
+                    val code = body.substring(i, minOf(i + digits, body.length)).toIntOrNull(16)
+                    if (code != null && i + digits <= body.length && Character.isValidCodePoint(code)) {
+                        sb.appendCodePoint(code); i += digits
+                    } else {
+                        sb.append('\\').append(e)
+                    }
+                    continue
+                }
+                when (e) {
+                    '0' -> sb.append('\u0000'); 'a' -> sb.append('\u0007'); 'b' -> sb.append('\b'); 't', '\t' -> sb.append('\t')
+                    'n' -> sb.append('\n'); 'v' -> sb.append('\u000B'); 'f' -> sb.append('\u000C'); 'r' -> sb.append('\r')
+                    'e' -> sb.append('\u001B'); ' ' -> sb.append(' '); '"' -> sb.append('"'); '/' -> sb.append('/')
+                    '\\' -> sb.append('\\'); 'N' -> sb.append('\u0085'); '_' -> sb.append('\u00A0')
+                    'L' -> sb.append('\u2028'); 'P' -> sb.append('\u2029')
+                    else -> sb.append('\\').append(e)
+                }
+            }
+            return sb.toString()
+        }
+
         private fun entry(keyValue: YAMLKeyValue): AslEntry {
             val keyPsi = keyValue.key ?: keyValue
             val value = keyValue.value?.let { node(it, it) } ?: AslScalar(keyPsi, keyPsi, ScalarType.NULL, "")
-            return AslEntry(keyValue.keyText, keyPsi, keyValue, value, viaMerge = false)
+            return AslEntry(keyText(keyValue), keyPsi, keyValue, value, viaMerge = false)
         }
 
         /**
@@ -109,7 +157,7 @@ internal object YamlTree {
                 )
                 is YAMLScalarText, is YAMLScalarList ->
                     AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text))
-                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, text)
+                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar.text, text))
                 else -> AslScalar(scalar, usePsi, ScalarType.STRING, text)
             }
         }

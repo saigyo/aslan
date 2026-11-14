@@ -112,4 +112,66 @@ class TransitionChecksTest : CheckTestCase() {
         found("StartAt:\nStates:\n  A:\n  - x")
         found("States:\n  <<: *x\n  A: {Type: Pass}")
     }
+
+    private fun quotedName(next: String) = edit("  Accepted:" to "  'Director''s cut':", "Next: Accepted" to "Next: $next")
+
+    fun `test quoted state name is found by a double-quoted target`() =
+        assertEquals(emptyList<Any>(), found(quotedName("\"Director's cut\"")))
+
+    fun `test quoted state name is found by a single-quoted target`() =
+        assertEquals(emptyList<Any>(), found(quotedName("'Director''s cut'")))
+
+    fun `test a quoted target is decoded again after an edit in the same file`() {
+        assertEquals(emptyList<Any>(), found(quotedName("\"Director's cut\"")))
+        assertEquals(emptyList<Any>(), found(quotedName("'Director''s cut'")))
+    }
+
+    fun `test name length counts the decoded name`() {
+        // raw text has 2 extra characters per quote pair, decoded is 80 or 81 code points
+        val name80 = "'" .repeat(40) + "a".repeat(40)
+        val quoted80 = "'" + name80.replace("'", "''") + "'"
+        assertEquals(emptyList<Any>(), found(edit("  Accepted:" to "  $quoted80:", "Next: Accepted" to "Next: $quoted80")))
+        val name81 = name80 + "b"
+        val quoted81 = "'" + name81.replace("'", "''") + "'"
+        assertEquals(
+            listOf(STATE_NAME_TOO_LONG to quoted81),
+            found(edit("  Accepted:" to "  $quoted81:", "Next: Accepted" to "Next: $quoted81")),
+        )
+    }
+
+    fun `test json names are decoded like json values`() {
+        val json = """
+            {"StartAt": "A\u0042", "States": {
+              "AB": {"Type": "Pass", "Next": "Say \"hi\""},
+              "Say \"hi\"": {"Type": "Succeed"}}}
+        """.trimIndent()
+        assertEquals(emptyList<Any>(), found(json, "test.asl.json"))
+        assertEquals(emptyList<Any>(), found(json.replace("A\\u0042", "AB"), "test.asl.json"))
+    }
+
+    private fun flow(text: String): Boolean {
+        val file = myFixture.configureByText("test.asl.yaml", text)
+        return io.github.saigyo.aslan.model.AslModel.of(file)!!.root!!.hasUnknownFlow()
+    }
+
+    fun `test hasUnknownFlow is false for BASE`() = assertFalse(flow(BASE))
+
+    fun `test hasUnknownFlow cases`() {
+        val cases = mapOf(
+            "open machine" to edit("Next: Decide" to "Next: Decide") + "  ${dollar}{X}:\n    Type: Succeed\n",
+            "StartAt absent" to edit("StartAt: Inspect\n" to ""),
+            "StartAt placeholder" to edit("StartAt: Inspect" to "StartAt: ${dollar}{S}"),
+            "StartAt unknown" to edit("StartAt: Inspect" to "StartAt: Nowhere"),
+            "no target" to edit("        Next: Accepted\n" to "        Comment: x\n"),
+            "placeholder target" to edit("Next: Decide" to "Next: ${dollar}{N}"),
+            "unknown target" to edit("Next: Decide" to "Next: Nowhere"),
+            "no Next or End" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n"),
+            "End false" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    End: false\n"),
+            "End placeholder" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    End: ${dollar}{E}\n"),
+            "End ambiguous" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    End: yes\n"),
+            "state not a mapping" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted: ${dollar}{Whole}\n"),
+            "Catch not a list" to edit("    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: Rejected\n" to "    Catch: ${dollar}{C}\n"),
+        )
+        for ((name, text) in cases) assertTrue(name, flow(text))
+    }
 }
