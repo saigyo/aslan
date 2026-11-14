@@ -9,6 +9,7 @@ import io.github.saigyo.aslan.jsonata.parser.JsonataElements
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataPath
+import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.spec.AslSpec
@@ -41,7 +42,7 @@ class JsonataDocumentationProvider : AbstractDocumentationProvider() {
 
         private fun variableHtml(ref: JsonataVariableRef): String? {
             if (ref.node.elementType != JsonataElements.VARIABLE_REF || isLocal(ref)) return null
-            if (ref.text == STATES) {
+            if (ref.variableName == "states") {
                 return AslDocumentation.page(
                     AslDocumentation.esc(STATES), null,
                     "The reserved variable of Step Functions with the fields input, result, errorOutput and context. Which of them " +
@@ -68,12 +69,12 @@ class JsonataDocumentationProvider : AbstractDocumentationProvider() {
             val names = ArrayList<String>()
             var left = path.lhs
             while (left is JsonataPath) {
-                names += left.rhs?.text ?: return null
+                names += left.rhs?.let { JsonataPsi.decodedText(it) } ?: return null
                 left = left.lhs
             }
-            if (left !is JsonataVariableRef || left.node.elementType != JsonataElements.VARIABLE_REF || left.text != STATES || isLocal(left)) return null
+            if (left !is JsonataVariableRef || left.node.elementType != JsonataElements.VARIABLE_REF || left.variableName != "states" || isLocal(left)) return null
             names.reverse()
-            val name = field.text
+            val name = JsonataPsi.decodedText(field)
             if (names.isEmpty()) {
                 val states = StatesField.entries.firstOrNull { it.text == name } ?: return null
                 val doc = AslSpec.statesFieldDoc(states)

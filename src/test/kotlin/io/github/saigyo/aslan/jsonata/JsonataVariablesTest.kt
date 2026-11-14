@@ -393,6 +393,14 @@ class JsonataVariablesTest : JsonataTestCase() {
         return PsiDocumentManager.getInstance(project).getDocument(host)!!.text
     }
 
+    fun `test in-place rename keeps a dollar sign written with an escape`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        val dollar = "\\" + "u0024"
+        val json = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% (${'$'}s<caret>um := 1; """ + dollar + """sum) %}","End":true}}}"""
+        val expected = json.replace("<caret>", "").replace("${'$'}sum", "${'$'}total").replace(dollar + "sum", dollar + "total")
+        assertEquals(expected, inplaceRenameTo(json, "total", "test.asl.json"))
+    }
+
     fun `test in-place rename to a name with a quote leaves the host intact`() {
         TemplateManagerImpl.setTemplateTesting(testRootDisposable)
         val single = passText("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
