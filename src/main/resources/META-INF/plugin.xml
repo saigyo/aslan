@@ -69,6 +69,7 @@
         <lang.syntaxHighlighterFactory language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.highlight.JsonataSyntaxHighlighterFactory"/>
         <annotator language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.highlight.JsonataAnnotator"/>
         <colorSettingsPage implementation="io.github.saigyo.aslan.jsonata.highlight.JsonataColorSettingsPage"/>
+        <highlightUsagesHandlerFactory implementation="io.github.saigyo.aslan.highlight.VariableUsagesHandlerFactory"/>
         <highlightUsagesHandlerFactory implementation="io.github.saigyo.aslan.highlight.PlaceholderUsagesHandlerFactory"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>

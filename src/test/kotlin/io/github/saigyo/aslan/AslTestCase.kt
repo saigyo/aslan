@@ -3,6 +3,7 @@ package io.github.saigyo.aslan
 import com.intellij.codeInsight.highlighting.HighlightManager
 import com.intellij.codeInsight.highlighting.HighlightManagerImpl
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
+import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -28,12 +29,16 @@ abstract class AslTestCase : BasePlatformTestCase() {
      * the daemon do not count. With the caret in an injected file the fixture hands out the injected editor, so the
      * highlighters are read from the host editor.
      */
-    protected fun highlightedUsages(): List<String> {
+    protected fun highlightedUsages(): List<String> = highlightedAccesses().map { it.first }
+
+    /** Like [highlightedUsages], each text with `true` for a write highlight (the write colour of search results). */
+    protected fun highlightedAccesses(): List<Pair<String, Boolean>> {
         HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)
         val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
         val text = editor.document.charsSequence
         return (HighlightManager.getInstance(project) as HighlightManagerImpl).getHighlighters(editor)
             .sortedBy { it.startOffset }
-            .map { text.subSequence(it.startOffset, it.endOffset).toString() }
+            .map { text.subSequence(it.startOffset, it.endOffset).toString() to (it.textAttributesKey == EditorColors.WRITE_SEARCH_RESULT_ATTRIBUTES) }
     }
+
 }
