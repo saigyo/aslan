@@ -16,7 +16,7 @@ object AslChecker {
 
     /**
      * The findings of [file], sorted by the start offset of their element and then by problem, with no two of the
-     * same problem, element and message; empty for a file that is not an ASL file.
+     * same problem, element, message and range; empty for a file that is not an ASL file.
      */
     fun findings(file: PsiFile): List<AslFinding> {
         if (!AslFiles.isAslFile(file)) return emptyList()
@@ -32,12 +32,13 @@ object AslChecker {
             StructureChecks.check(doc, out)
             TransitionChecks.check(doc, out)
             WarningChecks.check(doc, out)
+            JsonataChecks.check(doc, out)
         } catch (e: Exception) {
             // The checks run on every keystroke over half-typed files: a bug in one must not break the editor.
             if (e is ControlFlowException) throw e
             log.error("ASL checks failed on ${file.name}", e)
         }
-        return out.distinctBy { Triple(it.problem, it.element, it.message) }
-            .sortedWith(compareBy<AslFinding> { it.element.textRange.startOffset }.thenBy { it.problem.ordinal })
+        return out.distinctBy { listOf(it.problem, it.element, it.message, it.range) }
+            .sortedWith(compareBy<AslFinding> { it.element.textRange.startOffset }.thenBy { it.problem.ordinal }.thenBy { it.range?.startOffset ?: 0 })
     }
 }

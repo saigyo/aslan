@@ -38,6 +38,7 @@
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <yaml.customStructureViewFactory implementation="io.github.saigyo.aslan.structure.AslYamlStructureViewFactory"/>
         <json.customStructureViewFactory order="first" implementation="io.github.saigyo.aslan.structure.AslJsonStructureViewFactory"/>
+        <highlightErrorFilter implementation="io.github.saigyo.aslan.jsonata.highlight.JsonataErrorFilter"/>
         <annotator language="yaml" implementationClass="io.github.saigyo.aslan.highlight.AslAnnotator"/>
         <annotator language="JSON" implementationClass="io.github.saigyo.aslan.highlight.AslAnnotator"/>
         <colorSettingsPage implementation="io.github.saigyo.aslan.highlight.AslColorSettingsPage"/>
@@ -123,6 +124,8 @@
                          displayName="Field without a value" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslMisplacedJsonataDelimiter" implementationClass="io.github.saigyo.aslan.check.AslMisplacedJsonataDelimiterInspection"
                          displayName="JSONata delimiters that do not wrap the whole value" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslJsonataSyntaxError" implementationClass="io.github.saigyo.aslan.check.AslJsonataSyntaxErrorInspection"
+                         displayName="JSONata syntax error" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>

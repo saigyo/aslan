@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.jsonata.parser
 import com.intellij.lang.ASTNode
 import com.intellij.lang.PsiBuilder
 import com.intellij.lang.PsiParser
+import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.tree.IElementType
 
 /**
@@ -64,6 +65,11 @@ class JsonataParser : PsiParser {
 
     companion object {
         /** The reference's error code is the message; the messages of the reference are not reproduced. */
-        fun message(code: String): String = "JSONata syntax error $code"
+        fun message(code: String): String = PREFIX + code
+
+        private const val PREFIX = "JSONata syntax error "
+
+        /** The reference's error code of an error element this parser placed, or null for any other error element. */
+        fun codeOf(error: PsiErrorElement): String? = error.errorDescription.removePrefix(PREFIX).takeIf { it.length < error.errorDescription.length }
     }
 }

@@ -23,7 +23,12 @@ open class AslProblemInspection(val problem: AslProblem) : LocalInspectionTool()
         val own = AslChecker.findings(file).filter { it.problem == problem }
         if (own.isEmpty()) return null
         return own.map {
-            manager.createProblemDescriptor(it.element, it.message, isOnTheFly, LocalQuickFix.EMPTY_ARRAY, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            val range = it.range
+            if (range == null) {
+                manager.createProblemDescriptor(it.element, it.message, isOnTheFly, LocalQuickFix.EMPTY_ARRAY, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            } else {
+                manager.createProblemDescriptor(it.element, range, it.message, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, isOnTheFly)
+            }
         }.toTypedArray()
     }
 }
@@ -67,6 +72,7 @@ class AslIncompleteConfigurationInspection : AslProblemInspection(AslProblem.INC
 class AslInapplicableFieldInspection : AslProblemInspection(AslProblem.INAPPLICABLE_FIELD)
 class AslNullValueInspection : AslProblemInspection(AslProblem.NULL_VALUE)
 class AslMisplacedJsonataDelimiterInspection : AslProblemInspection(AslProblem.MISPLACED_JSONATA_DELIMITER)
+class AslJsonataSyntaxErrorInspection : AslProblemInspection(AslProblem.JSONATA_SYNTAX_ERROR)
 class AslChoiceWithoutDefaultInspection : AslProblemInspection(AslProblem.CHOICE_WITHOUT_DEFAULT)
 
 object AslInspections {
@@ -111,6 +117,7 @@ object AslInspections {
         AslInapplicableFieldInspection(),
         AslNullValueInspection(),
         AslMisplacedJsonataDelimiterInspection(),
+        AslJsonataSyntaxErrorInspection(),
         AslChoiceWithoutDefaultInspection(),
     )
 }

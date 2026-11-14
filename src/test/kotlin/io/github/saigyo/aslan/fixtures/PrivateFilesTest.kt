@@ -26,7 +26,7 @@ class PrivateFilesTest : AslTestCase() {
             assertEquals(
                 "private definition",
                 emptyList<String>(),
-                errors.map { "${it.problem} at line ${document.getLineNumber(it.element.textOffset) + 1}" },
+                errors.map { "${it.problem} at line ${document.getLineNumber(it.element.textOffset + (it.range?.startOffset ?: 0)) + 1}" },
             )
         }
         println("PrivateFilesTest: checked ${files.size} private definition(s)")
