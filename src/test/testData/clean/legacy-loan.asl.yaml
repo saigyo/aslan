@@ -1,0 +1,111 @@
+# Reel loans to partner archives, written before the archive moved to JSONata. It stays in
+# JSONPath until the loan desk's tooling is rewritten, so it uses Parameters, paths and the
+# comparison operators of the older Choice rules.
+Comment: Books catalogued reels out on loan to a partner archive
+StartAt: ValidateLoanRequest
+States:
+
+  # The validator checks that the reels exist, are not in repair and are not already on loan.
+  ValidateLoanRequest:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    Parameters:
+      FunctionName: ${LoanValidatorArn}
+      Payload:
+        loan.$: $.loan
+        borrower.$: $.borrower
+        requestedAt.$: $$.Execution.StartTime
+    ResultSelector:
+      eligible.$: $.Payload.eligible
+      reasons.$: $.Payload.reasons
+    ResultPath: $.validation
+    Retry:
+      - ErrorEquals: [Lambda.ServiceException, Lambda.TooManyRequestsException]
+        IntervalSeconds: 2
+        MaxAttempts: 3
+        BackoffRate: 2
+    Catch:
+      - ErrorEquals: [States.ALL]
+        ResultPath: $.error
+        Next: LoanDeclined
+    Next: CheckLoanTerms
+
+  # Partners may borrow eligible reels for up to 90 days without asking the loan committee.
+  CheckLoanTerms:
+    Type: Choice
+    Choices:
+      - And:
+          - Variable: $.validation.eligible
+            BooleanEquals: true
+          - Variable: $.loan.durationDays
+            NumericLessThanEquals: 90
+          - Variable: $.borrower.tier
+            StringEquals: partner
+        Next: ReserveReels
+      - Variable: $.validation.eligible
+        BooleanEquals: false
+        Next: RecordDeclinedLoan
+    Default: ReferToLoanCommittee
+
+  # Only the loan part of the input is needed to reserve the reels.
+  ReserveReels:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:putItem
+    InputPath: $.loan
+    Parameters:
+      TableName: ${LoanTable}
+      Item:
+        pk:
+          S.$: States.Format('LOAN#{}', $.loanId)
+        reels:
+          SS.$: $.reelIds
+        returnBy:
+          S.$: $.returnBy
+      ConditionExpression: attribute_not_exists(pk)
+    ResultPath: null
+    Next: WaitForPickup
+
+  # The courier collects the cans at the agreed time; the dispatch notice goes out then.
+  WaitForPickup:
+    Type: Wait
+    TimestampPath: $.loan.pickupAt
+    Next: ConfirmDispatch
+
+  ConfirmDispatch:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      TopicArn: ${LoanDeskTopicArn}
+      Message.$: States.Format('Loan {} dispatched to {}, due back {}', $.loan.loanId, $.borrower.name, $.loan.returnBy)
+    ResultPath: $.dispatch
+    Next: LoanRecorded
+
+  LoanRecorded:
+    Type: Succeed
+    OutputPath: $.loan
+
+  # Longer loans and borrowers who are not partners go to the monthly loan committee.
+  ReferToLoanCommittee:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      TopicArn: ${LoanCommitteeTopicArn}
+      Subject: Loan request for the committee
+      Message.$: States.JsonToString($.loan)
+    ResultPath: $.referral
+    Next: LoanReferred
+
+  LoanReferred:
+    Type: Succeed
+
+  RecordDeclinedLoan:
+    Type: Pass
+    Result:
+      status: declined
+    ResultPath: $.decision
+    Next: LoanDeclined
+
+  LoanDeclined:
+    Type: Fail
+    Error: Loan.Declined
+    Cause: The loan request was declined or could not be validated
