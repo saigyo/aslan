@@ -8,7 +8,14 @@ import com.intellij.injected.editor.EditorWindow
 import com.intellij.lang.LanguageNamesValidation
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.lang.findUsages.LanguageFindUsages
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
+import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.util.IncorrectOperationException
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.rename.RenameUtil
@@ -20,6 +27,7 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.jsonata.refs.JsonataInplaceRenameHandler
+import io.github.saigyo.aslan.jsonata.refs.JsonataVariableRenameProcessor
 import io.github.saigyo.aslan.model.AslModel
 
 class JsonataVariablesTest : JsonataTestCase() {
@@ -179,6 +187,7 @@ class JsonataVariablesTest : JsonataTestCase() {
         assertTrue(editor is EditorWindow)
         val target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)!!
         CodeInsightTestUtil.doInlineRename(JsonataInplaceRenameHandler(), "sum2", editor, target)
+        finishTemplate()
         assertResult(host, after, sites)
     }
 
@@ -238,7 +247,10 @@ class JsonataVariablesTest : JsonataTestCase() {
         val variables = variables(jsonata("(\$a := 1; \$c := 2; function(\$b){ (\$d := \$a; \$d) })"))
         val inner = variables.last()
         assertEquals(listOf("d", "b", "a", "c"), JsonataScopes.visibleNames(inner))
-        assertEquals(listOf("a", "c"), JsonataScopes.visibleNames(variables[0]))
+        // at the first assignment nothing is assigned yet
+        assertEquals(emptyList<String>(), JsonataScopes.visibleNames(variables[0]))
+        // the right side of an assignment does not see the name it assigns
+        assertEquals(listOf("b", "a", "c"), JsonataScopes.visibleNames(variables[variables.size - 2]))
     }
 
     fun `test an expression used through an anchor is one file`() {
@@ -269,15 +281,152 @@ class JsonataVariablesTest : JsonataTestCase() {
     fun `test the scope rule`() {
         // a block variable used after the block is not local there
         assertEquals(listOf(-1, null), resolution("((\$a := 1); \$a)"))
-        // a use before the assignment in the same block refers to it
-        assertEquals(listOf(1, -1), resolution("(\$b; \$b := 1)"))
+        // a use before the assignment in the same block does not refer to it
+        assertEquals(listOf(null, -1), resolution("(\$b; \$b := 1)"))
         // a variable assigned in a block that is a lambda body is local to that block
         assertEquals(listOf(-1, 0, null), resolution("(function(){ (\$c := 1; \$c) }; \$c)"))
-        // an assignment directly in a lambda body declares nothing; the lambda declares only its parameters
-        assertEquals(listOf(null), resolution("function(){ \$d := 1 }"))
-        // focus and index variables belong to the enclosing block: visible in later steps and after the path
+        // focus and index variables are visible after their binding in the enclosing block, also after the path
         assertEquals(listOf(-1, -1, 0, 1, 0), resolution("(items@\$v#\$i.{\"n\": \$v.name, \"i\": \$i}; \$v)"))
-        // an assignment at the top level is declared by the file, also for its own right side
-        assertEquals(listOf(-1, 0), resolution("\$e := \$e + 1"))
+        // ... but not before it
+        assertEquals(listOf(null, -1), resolution("\$w.(items@\$w)"))
+        // an assignment at the top level is declared by the file, but not for its own right side
+        assertEquals(listOf(-1, null), resolution("\$e := \$e + 1"))
+        // a right side reads the outer variable of the same name
+        assertEquals(listOf(-1, -1, 0, -1, 0), resolution("(\$a := 1; (\$b := \$a; \$a := 2); \$a)"))
+    }
+
+    fun `test an inner assignment reading the outer variable`() {
+        val text = "(\$x := 1; (\$x := \$x + 1; \$x) + \$x)"
+        val variables = variables(jsonata(text))
+        assertEquals(listOf(0, 2, 4), JsonataScopes.occurrences(variables[0]).map { variables.indexOf(it) })
+        assertEquals(listOf(1, 3), JsonataScopes.occurrences(variables[1]).map { variables.indexOf(it) })
+        assertEquals(listOf(variables[1]), JsonataScopes.declarations(variables[3]))
+        assertEquals(listOf(variables[0]), JsonataScopes.declarations(variables[2]))
+    }
+
+    fun `test rename of an outer and an inner variable of the same name`() {
+        val text = "(\$x := 1; (\$x := \$x + 1; \$x) + \$x)"
+        // caret on the outer one, on the right side of the inner assignment
+        jsonata(text.replace("(\$x := \$x + 1", "(\$x := \$<caret>x + 1"))
+        myFixture.renameElementAtCaret("y")
+        myFixture.checkResult("(\$y := 1; (\$x := \$y + 1; \$x) + \$y)")
+        // caret on the inner one
+        jsonata(text.replace("; \$x) +", "; \$<caret>x) +"))
+        myFixture.renameElementAtCaret("y")
+        myFixture.checkResult("(\$x := 1; (\$y := \$x + 1; \$y) + \$x)")
+        // the same in a host
+        assertRename(
+            hostText("(\$sum := 1; (\$sum := \$s<caret>um + 1; \$sum) + \$sum)"),
+            hostText("(\$sum2 := 1; (\$sum := \$sum2 + 1; \$sum) + \$sum2)"),
+        )
+    }
+
+    fun `test a lambda refers to an assignment after it`() {
+        // $f, $x in the lambda, the target $x, the call of $f
+        assertEquals(listOf(-1, 2, -1, 0), resolution("(\$f := function(){ \$x }; \$x := 1; \$f())"))
+    }
+
+    fun `test assignments and bindings directly in a lambda body`() {
+        val body = "function(\$i){ \$i.reels@\$r.{\"t\": \$r.title} }"
+        val alone = variables(jsonata("\$map(items, $body)"))
+        val r = alone.filter { it.name == "r" }
+        assertEquals(r.first(), r.last().reference!!.resolve())
+        val wrapped = variables(jsonata("(\$r := 1; \$map(items, $body); \$r)"))
+        val inner = wrapped.filter { it.name == "r" }
+        assertEquals(inner[1], inner[2].reference!!.resolve())
+        assertEquals(inner[0], inner[3].reference!!.resolve())
+        assertEquals(listOf(inner[0], inner[3]), JsonataScopes.occurrences(inner[0]))
+        // `:=` directly in a lambda body declares the name in the lambda; a block body sees it
+        val assigned = variables(jsonata("function(\$a){ \$d := \$a }"))
+        assertTrue(JsonataScopes.isDeclaration(assigned[1]))
+        assertEquals(listOf(assigned[1]), JsonataScopes.declarations(assigned[1]))
+        assertEquals(assigned[0], assigned[2].reference!!.resolve())
+        val block = variables(jsonata("function(\$a){ (\$d := \$a; \$d) }"))
+        assertEquals(block[1], block[3].reference!!.resolve())
+    }
+
+    fun `test a use before the assignment has no reference`() {
+        jsonata("(\$<caret>a; \$a := 1)")
+        assertNull(resolvedOffset())
+    }
+
+    fun `test find usages from the host editor`() {
+        hosted("(\$n := 1; \$n := \$<caret>n + 1; \$n)")
+        val target = myFixture.elementAtCaret as JsonataVariableRef
+        assertEquals(target, JsonataScopes.occurrences(target).first())
+        val usages = myFixture.findUsages(target)
+        assertEquals(3, usages.size)
+        assertEquals(JsonataScopes.occurrences(target).drop(1).map { it.textRange }, usages.map { it.element!!.textRange }.sortedBy { it.startOffset })
+    }
+
+    fun `test undo after a rename restores the host`() {
+        val before = passText("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
+        assertRename(before, passText("'{% (\$sum2 := ''a''; ''b'' & \$sum2) %}'"))
+        val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+        UndoManager.getInstance(project).undo(TextEditorProvider.getInstance().getTextEditor(editor))
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        assertEquals(before.replace("<caret>", ""), editor.document.text)
+        assertEquals(AslModel.of(hostFile())!!.jsonataSites.all.size, 1)
+    }
+
+    /** Runs what the in-place renamer leaves to the event queue after the template ends: the name check and the rename. */
+    private fun finishTemplate() {
+        NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+    }
+
+    /** In-place rename at the caret of [before] to [newName]; returns the host text after the template ended. */
+    private fun inplaceRenameTo(before: String, newName: String, name: String): String {
+        myFixture.configureByText(name, before)
+        val host = hostFile()
+        val sites = AslModel.of(host)!!.jsonataSites.all.size
+        val editor = myFixture.editor
+        val target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)!!
+        CodeInsightTestUtil.doInlineRename(JsonataInplaceRenameHandler(), newName, editor, target)
+        finishTemplate()
+        assertEquals(sites, AslModel.of(host)?.jsonataSites?.all?.size)
+        return PsiDocumentManager.getInstance(project).getDocument(host)!!.text
+    }
+
+    fun `test in-place rename to a name with a quote leaves the host intact`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        val single = passText("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
+        assertEquals(single.replace("<caret>", ""), inplaceRenameTo(single, "su'm", "test.asl.yaml"))
+        val json = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% (${'$'}sum := \"a\"; ${'$'}s<caret>um) %}","End":true}}}"""
+        assertEquals(json.replace("<caret>", ""), inplaceRenameTo(json, "su\"m", "test.asl.json"))
+    }
+
+    fun `test cancelling an in-place rename with a quote restores the host`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        val before = passText("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
+        myFixture.configureByText("test.asl.yaml", before)
+        val host = hostFile()
+        val editor = myFixture.editor
+        val target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)!!
+        JsonataInplaceRenameHandler().doRename(target, editor, null)
+        val top = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
+        val range = TemplateManagerImpl.getTemplateState(top)!!.currentVariableRange!!
+        WriteCommandAction.runWriteCommandAction(project) { top.document.replaceString(range.startOffset, range.endOffset, "su'm") }
+        // while the template runs, the host holds what was typed, in every occurrence
+        assertEquals(before.replace("<caret>", "").replace("\$sum", "\$su'm"), top.document.text)
+        TemplateManagerImpl.getTemplateState(top)!!.cancelTemplate()
+        finishTemplate()
+        assertEquals(before.replace("<caret>", ""), PsiDocumentManager.getInstance(project).getDocument(host)!!.text)
+        assertEquals(1, AslModel.of(host)!!.jsonataSites.all.size)
+    }
+
+    fun `test the rename processor refuses what the validator refuses`() {
+        val variable = variables(jsonata("(\$sum := 1; \$sum)")).first()
+        for (name in listOf("states", "1a", "a b", "a'b", "")) {
+            assertThrows(IncorrectOperationException::class.java) {
+                WriteCommandAction.runWriteCommandAction(project) {
+                    JsonataVariableRenameProcessor().renameElement(variable, name, emptyArray(), null)
+                }
+            }
+        }
+        assertEquals("(\$sum := 1; \$sum)", myFixture.editor.document.text)
     }
 }
