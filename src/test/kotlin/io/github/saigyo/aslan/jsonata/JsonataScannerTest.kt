@@ -138,6 +138,51 @@ class JsonataScannerTest : AslTestCase() {
         assertEquals(listOf("PATH", "PATH", "CONTEXT_REF", "LITERAL", "FIELD"), nodes("\$.7.a").map { it.toString() })
     }
 
+    fun `test a placeholder is accepted where the reference requires a variable`() {
+        for (text in listOf("a@\${a:b}", "a#\${i:j}", "\${Var} := 1", "function(\${P}){1}")) assertNull(text, JsonataScanner.scan(text).error)
+        assertEquals(listOf("LAMBDA", "PARAMETER", "LITERAL"), nodes("function(\${P}){1}").map { it.toString() })
+    }
+
+    fun `test the shapes where the reference accepts more than a plain variable`() {
+        assertEquals(listOf("ASSIGNMENT", "FILTER", "VARIABLE_REF", "LITERAL"), nodes("\$x[] := 1").map { it.toString() })
+        assertEquals(listOf("ASSIGNMENT", "CONTEXT_REF", "LITERAL"), nodes("\$ := 1").map { it.toString() })
+        assertEquals(listOf("FOCUS_BINDING", "FIELD", "CONTEXT_REF"), nodes("a@\$").map { it.toString() })
+        val lambda = JsonataScanner.scan("function(\$x[]){1}")
+        assertNull(lambda.error)
+        assertEquals(listOf("PARAMETER", "LITERAL"), lambda.root!!.children.map { it.type.toString() })
+        assertEquals(listOf(9, 11), lambda.root.children[0].let { listOf(it.start, it.end) })
+    }
+
+    fun `test a signature has no operators of JSONata 2_1`() {
+        val text = "function(\$a, \$b)<s?:s>{\$a}"
+        assertFalse(ELVIS in kinds(text) || COALESCE in kinds(text))
+        assertNull(JsonataScanner.scan(text).error)
+        assertNull(JsonataScanner.scan("function(\$a)<s??>{\$a} ?? 1").error)
+        assertTrue(ELVIS in kinds("\$a ?: \$b"))
+        assertTrue(COALESCE in kinds("function(\$a)<s??>{\$a} ?? 1"))
+    }
+
+    fun `test deep nesting on a small stack never throws and is covered`() {
+        for (text in listOf("(".repeat(20_000), "a" + ".a".repeat(20_000), "[".repeat(5_000) + "1" + "]".repeat(5_000))) {
+            var failure: Throwable? = null
+            var scan: JsonataScan? = null
+            val thread = Thread(null, { try { scan = JsonataScanner.scan(text) } catch (t: Throwable) { failure = t } }, "scan", 256 * 1024)
+            thread.start()
+            thread.join()
+            assertNull(text.take(20), failure)
+            assertCovers(text, scan!!)
+        }
+        assertNull(JsonataScanner.scan("a" + ".a".repeat(20_000)).error)
+        // just inside the limits, the parse and the checks complete on such a stack: the error is found
+        for ((text, code) in listOf("function(\$x){".repeat(55) + "1 +" to "S0207", "\$" + ".a".repeat(110) + ".7" to "S0213")) {
+            var found: String? = null
+            val thread = Thread(null, { found = JsonataScanner.scan(text).error?.code }, "scan", 256 * 1024)
+            thread.start()
+            thread.join()
+            assertEquals(code, found)
+        }
+    }
+
     fun `test the shape of a tree`() {
         val text = "(\$t := 1; \$f(\$t, ?).a[0])"
         val dump = StringBuilder()

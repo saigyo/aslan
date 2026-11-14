@@ -20,12 +20,22 @@ internal object JsonataTreeChecks {
             null
         } catch (found: Found) {
             found.error
-        } catch (_: StackOverflowError) {
+        } catch (_: TooDeepTree) {
             null // nested too deeply to follow; not reported
+        } catch (_: StackOverflowError) {
+            null // a last resort, should the stack be smaller still
         }
 }
 
 private class Found(val error: ScanError) : RuntimeException(null, null, false, false)
+
+private class TooDeepTree : RuntimeException(null, null, false, false)
+
+/**
+ * The deepest tree the checks follow. A long path such as `a.b.c…` nests one level per step. On a 256 KB stack,
+ * a path overflowed at 256 steps when measured; this limit is about half of that. Beyond it the checks report no error.
+ */
+private const val MAX_DEPTH = 120
 
 private enum class Kind { NUMBER, VALUE, SORT, OTHER }
 
@@ -39,6 +49,9 @@ private class Step(val kind: Kind, val start: Int, val end: Int) {
 /** A result of type 'path'. */
 private class Path(val steps: MutableList<Step>) {
     var group = false
+
+    /** The number of leading steps already checked for S0213. A step never changes its kind, so they stay clean. */
+    var checked = 0
 }
 
 private class Checks(private val text: CharSequence) {
@@ -70,8 +83,19 @@ private class Checks(private val text: CharSequence) {
         return Step(kind, node.start, node.end)
     }
 
+    private var depth = 0
+
     /** parser.js: var processAST. Returns a [Path] or a [Step]. */
     fun process(node: ScanNode): Any {
+        if (++depth > MAX_DEPTH) throw TooDeepTree()
+        try {
+            return processNode(node)
+        } finally {
+            depth--
+        }
+    }
+
+    private fun processNode(node: ScanNode): Any {
         val children = node.children
         return when (node.type) {
             E.PATH -> {
@@ -89,7 +113,13 @@ private class Checks(private val text: CharSequence) {
                 }
                 // any steps within a path that are string literals, should be changed to 'name'
                 // don't allow steps to be numbers or the values true/false/null
-                for (step in result.steps) if (step.kind == Kind.NUMBER || step.kind == Kind.VALUE) found("S0213", step.start, step.end)
+                // the steps before result.checked passed this check already and keep their kind; so the first
+                // number or value among the others is the first one of all the steps, as in the reference
+                for (i in result.checked until result.steps.size) {
+                    val step = result.steps[i]
+                    if (step.kind == Kind.NUMBER || step.kind == Kind.VALUE) found("S0213", step.start, step.end)
+                }
+                result.checked = result.steps.size
                 result
             }
             E.FILTER -> {

@@ -16,10 +16,10 @@ class JsonataReferenceTest : AslTestCase() {
 
     /** Reference error codes the scanner does not report, each with the reason. */
     private val gaps = mapOf(
-        "S0217" to "the parent operator is not resolved", "S0401" to "function signatures are not validated",
+        "S0217" to "the parent operator is not resolved", "S0401" to JsonataConformanceTest.SIGNATURES,
         // S0402 is missed only where nothing but the signature is wrong; the suite's single S0402 case also fails after
         // its signature, so JsonataConformanceTest finds it and does not list S0402 as a gap
-        "S0402" to "function signatures are not validated",
+        "S0402" to JsonataConformanceTest.SIGNATURES,
         "EXCEPTION" to "the syntax of a regular expression is JavaScript's and is not checked",
     )
 

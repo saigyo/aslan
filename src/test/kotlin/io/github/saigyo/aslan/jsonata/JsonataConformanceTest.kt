@@ -15,9 +15,9 @@ class JsonataConformanceTest : AslTestCase() {
 
     /** Syntax error codes the scanner does not find, each with the reason. */
     private val gaps = mapOf(
-        "S0217" to "the parent operator is not resolved", "S0401" to "function signatures are not validated",
+        "S0217" to "the parent operator is not resolved", "S0401" to SIGNATURES,
     )
-    // S0402 ("function signatures are not validated") is not a gap: the only suite case of it,
+    // S0402 is not a gap here: the only suite case of it,
     // `λ($arr)<(sa<n>)>>{$arr}([[1]])`, also fails to parse after the signature (S0202 at the third `>`), so it is found.
     // JsonataReferenceTest lists S0402 as a gap, since there the reference also fails expressions whose only fault is the signature.
 
@@ -47,6 +47,10 @@ class JsonataConformanceTest : AslTestCase() {
     }
 
     companion object {
+        /** The reason of the gaps about function signatures. */
+        const val SIGNATURES = "function signatures are not parsed at all: S0401, S0402, and the plain JavaScript exceptions " +
+            "of parseSignature, such as for <n++>"
+
         val suite: List<Case> by lazy {
             JsonParser.parseString(File("src/test/testData/jsonata/suite.json").readText()).asJsonArray.map {
                 val o = it.asJsonObject

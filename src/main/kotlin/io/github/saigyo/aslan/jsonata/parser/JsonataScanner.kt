@@ -32,6 +32,16 @@ private class Tok(var kind: IElementType?, val start: Int, val end: Int, val val
 
 private class Failure(val error: ScanError) : RuntimeException(null, null, false, false)
 
+/** Parsing gave up at [MAX_NESTING]; not a syntax error. */
+private class TooDeep : RuntimeException(null, null, false, false)
+
+/**
+ * The deepest nesting of `expression` the scanner follows. On a 256 KB stack, a lambda nested in a lambda, the most
+ * expensive level, overflowed at 122 levels when measured; this limit is half of that, and still far above any
+ * expression written by hand. Beyond it the scan reports no error.
+ */
+private const val MAX_NESTING = 60
+
 // parser.js: var operators
 private val operators = mapOf(
     "." to 75, "[" to 80, "]" to 0, "{" to 70, "}" to 0, "(" to 80, ")" to 0, "," to 0, "@" to 80, "#" to 80, ";" to 80,
@@ -65,6 +75,9 @@ private class Lexer(private val path: CharSequence, private val tokens: MutableL
 
     /** The lexical error of the last call of [next], if any; the token it concerns is recorded. */
     var error: ScanError? = null
+
+    /** True while the parser collects a function signature, where `?:` and `??` are not operators of JSONata 2.1. */
+    var inSignature = false
 
     private fun charAt(i: Int): Char = if (i in 0 until length) path[i] else '\u0000'
 
@@ -120,8 +133,8 @@ private class Lexer(private val path: CharSequence, private val tokens: MutableL
             currentChar == '<' && next == '=' -> "<="
             currentChar == '*' && next == '*' -> "**"
             currentChar == '~' && next == '>' -> "~>"
-            currentChar == '?' && next == ':' -> "?:"
-            currentChar == '?' && next == '?' -> "??"
+            currentChar == '?' && next == ':' && !inSignature -> "?:"
+            currentChar == '?' && next == '?' && !inSignature -> "??"
             else -> null
         }
         if (double != null) {
@@ -304,6 +317,7 @@ private class Parser(private val source: CharSequence) {
 
     /** The end of the last token consumed. */
     private var lastEnd = 0
+    private var nesting = 0
     private val frames = ArrayList<Frame>()
 
     private fun failure(code: String, token: Tok) = Failure(ScanError(code, token.start, token.end))
@@ -346,6 +360,7 @@ private class Parser(private val source: CharSequence) {
 
     // Pratt's algorithm. parser.js: var expression
     private fun expression(rbp: Int): PNode {
+        if (++nesting > MAX_NESTING) throw TooDeep()
         val frame = open(null, -1)
         var t = current
         advance(null, true)
@@ -356,6 +371,7 @@ private class Parser(private val source: CharSequence) {
             left = led(t, left)
         }
         close(frame)
+        nesting--
         return left
     }
 
@@ -396,7 +412,8 @@ private class Parser(private val source: CharSequence) {
         return built
     }
 
-    private fun isVariable(n: PNode) = n.refType == "variable"
+    /** Where the reference requires a variable; a placeholder stands for text the scanner cannot know, so it is accepted. */
+    private fun isVariable(n: PNode) = n.refType == "variable" || n.refType == "placeholder"
 
     // --- the symbol table, in the order of parser.js
 
@@ -661,10 +678,12 @@ private class Parser(private val source: CharSequence) {
             if (current.id == "<") {
                 val signature = open(E.SIGNATURE, current.start)
                 var depth = 1
+                lexer.inSignature = true
                 while (depth > 0 && current.id != "{" && current.id != "(end)") {
                     val tok = advance()
                     if (tok.id == ">") depth-- else if (tok.id == "<") depth++
                 }
+                lexer.inSignature = false
                 advance(">")
                 close(signature) // the signature is not validated
             }
@@ -689,9 +708,13 @@ private class Parser(private val source: CharSequence) {
             complete = true
         } catch (failure: Failure) {
             error = failure.error
-        } catch (_: StackOverflowError) {
+        } catch (_: TooDeep) {
             // nested too deeply to follow; not reported, since the reference may still parse it
+        } catch (_: StackOverflowError) {
+            // a last resort, should the stack be smaller still: resume lexing after the last token recorded
+            lexer.position = tokens.lastOrNull()?.end ?: 0
         }
+        lexer.inSignature = false
         // close the nodes under construction at the last token consumed
         while (frames.size > 1) close(frames.last())
         frames.clear()
