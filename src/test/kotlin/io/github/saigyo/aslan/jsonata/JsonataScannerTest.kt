@@ -124,6 +124,20 @@ class JsonataScannerTest : AslTestCase() {
         assertError("S0204", 2, 3, "[1!2]")
     }
 
+    fun `test an error found after parsing has the range the reference points at, and the tree is whole`() {
+        assertError("S0209", 19, 20, "[1] /* c */ {\"a\":1}[0]")
+        assertError("S0210", 11, 12, "[1]{\"a\":1} {\"b\":2}")
+        assertError("S0210", 10, 11, "a{\"x\":1}.b{\"y\":1}")   // the group stays on the path
+        assertError("S0213", 2, 3, "\$.7")
+        assertError("S0213", 3, 4, "a.-1")
+        assertError("S0213", 2, 6, "a.true")
+        assertError("S0213", 6, 10, "\$.7[\$.true]")          // the predicate is processed before the steps are checked
+        assertError("S0215", 16, 17, "Account.Order[1]@\$o.Product")
+        assertError("S0216", 24, 25, "Account.Order^(>OrderID)@\$o.Product")
+        for (text in listOf("a[1]{\"x\":1}[0]", "7#\$i", "-1#\$i", "7[0]", "\$x.\"7\"")) assertNull(text, JsonataScanner.scan(text).error)
+        assertEquals(listOf("PATH", "PATH", "CONTEXT_REF", "LITERAL", "FIELD"), nodes("\$.7.a").map { it.toString() })
+    }
+
     fun `test the shape of a tree`() {
         val text = "(\$t := 1; \$f(\$t, ?).a[0])"
         val dump = StringBuilder()

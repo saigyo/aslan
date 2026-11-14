@@ -680,11 +680,13 @@ private class Parser(private val source: CharSequence) {
     fun run(): JsonataScan {
         val root = open(null, -1)
         var error: ScanError? = null
+        var complete = false
         try {
             // now invoke the tokenizer and the parser
             advance()
             expression(0)
             if (current.id != "(end)") throw failure("S0201", current)
+            complete = true
         } catch (failure: Failure) {
             error = failure.error
         } catch (_: StackOverflowError) {
@@ -699,6 +701,9 @@ private class Parser(private val source: CharSequence) {
             lexer.next(true)
             if (lexer.position == before) break
         }
-        return JsonataScan(tokens.map { ScanToken(it.kind!!, it.start, it.end) }, root.children.firstOrNull()?.scan, error)
+        val tree = root.children.firstOrNull()?.scan
+        // the errors the reference finds after parsing, in processAST
+        if (complete && tree != null) error = JsonataTreeChecks.check(tree, source)
+        return JsonataScan(tokens.map { ScanToken(it.kind!!, it.start, it.end) }, tree, error)
     }
 }
