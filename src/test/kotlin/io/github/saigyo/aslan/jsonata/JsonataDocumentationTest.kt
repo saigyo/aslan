@@ -2,11 +2,16 @@ package io.github.saigyo.aslan.jsonata
 
 import com.intellij.lang.documentation.DocumentationProvider
 import com.intellij.lang.parameterInfo.ParameterInfoUIContext
+import com.intellij.lang.documentation.ide.IdeDocumentationTargetProvider
+import com.intellij.platform.backend.documentation.impl.computeDocumentationBlocking
 import com.intellij.testFramework.utils.parameterInfo.MockCreateParameterInfoContext
 import com.intellij.testFramework.utils.parameterInfo.MockUpdateParameterInfoContext
 import io.github.saigyo.aslan.jsonata.docs.JsonataDocumentationProvider
 import io.github.saigyo.aslan.jsonata.docs.JsonataParameterInfoHandler
+import io.github.saigyo.aslan.docs.AslDocumentation
 import io.github.saigyo.aslan.spec.AslSpec
+import io.github.saigyo.aslan.spec.StatesField
+import io.github.saigyo.aslan.spec.StructureId
 
 class JsonataDocumentationTest : JsonataTestCase() {
     private fun doc(text: String): String? {
@@ -25,16 +30,21 @@ class JsonataDocumentationTest : JsonataTestCase() {
     }
 
     fun `test a Step Functions function and eval`() {
-        assertTrue(doc("\$uu<caret>id()")!!.contains("Step Functions"))
-        assertTrue(doc("\$ev<caret>al(\"1\")")!!.contains("does not support"))
+        // A note in italics stands before the description of an addition and of an unsupported function, not of a plain one.
+        assertTrue(AslSpec.jsonataFunction("uuid")!!.stepFunctionsOnly)
+        assertFalse(AslSpec.jsonataFunction("eval")!!.supported)
+        assertTrue(doc("\$uu<caret>id()")!!.contains("<i>"))
+        assertTrue(doc("\$ev<caret>al(\"1\")")!!.contains("<i>"))
+        assertFalse(doc("\$subs<caret>tring(\"a\", 1)")!!.contains("<i>"))
     }
 
     fun `test states and its fields`() {
         assertNotNull(doc("\$sta<caret>tes.input"))
-        assertTrue(doc("\$states.res<caret>ult")!!.contains(AslSpec.statesFieldDoc(io.github.saigyo.aslan.spec.StatesField.RESULT).description))
+        assertTrue(doc("\$states.res<caret>ult")!!.contains(AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description)))
         val execution = AslSpec.contextFields.first { it.name == "Execution" }
-        assertTrue(doc("\$states.context.Exec<caret>ution")!!.contains(execution.description))
-        assertTrue(doc("\$states.context.Execution.I<caret>d")!!.contains("ARN of the execution"))
+        assertTrue(doc("\$states.context.Exec<caret>ution")!!.contains(AslDocumentation.esc(execution.description)))
+        val id = execution.children.first { it.name == "Id" }
+        assertTrue(doc("\$states.context.Execution.I<caret>d")!!.contains(AslDocumentation.esc(id.description)))
         assertNull(doc("\$states.input.na<caret>me"))
     }
 
@@ -67,5 +77,44 @@ class JsonataDocumentationTest : JsonataTestCase() {
     fun `test no parameter info for a function that is not built in`() {
         assertNull(parameterIndex("\$mine(1, <caret>)"))
         assertNull(parameterIndex("(\$sum := function(\$a){ \$a }; \$sum(1, <caret>))"))
+    }
+
+    /**
+     * The documentation the way the IDE asks for it: the targets of the editor the fixture hands out (the injected editor
+     * when the caret is in an expression, as the data context of the IDE does), then the document of the first target.
+     */
+    private fun ideDoc(name: String, text: String): String? {
+        myFixture.configureByText(name, text)
+        val target = IdeDocumentationTargetProvider.getInstance(project)
+            .documentationTargets(myFixture.editor, myFixture.file, myFixture.editor.caretModel.offset).firstOrNull() ?: return null
+        return computeDocumentationBlocking(target.createPointer())?.html
+    }
+
+    private fun jsonHost(string: String): String =
+        """{"QueryLanguage": "JSONata", "StartAt": "Work", "States": {"Work": {"Type": "Task", "Resource": "arn:aws:states:::lambda:invoke", "Arguments": {"FunctionName": "catalog-reel"}, "Output": $string, "End": true}}}"""
+
+    fun `test the IDE asks for documentation in a YAML host`() {
+        val substring = AslSpec.jsonataFunction("substring")!!
+        val function = ideDoc("a.asl.yaml", hostText("\$subs<caret>tring('a', 1)"))!!
+        assertTrue(function, substring.url in function)
+        for (parameter in substring.parameters) assertTrue(function, parameter.name in function)
+        val result = ideDoc("b.asl.yaml", hostText("\$states.res<caret>ult"))!!
+        assertTrue(result, AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description) in result)
+    }
+
+    fun `test the IDE asks for documentation in a JSON host`() {
+        val substring = AslSpec.jsonataFunction("substring")!!
+        val function = ideDoc("a.asl.json", jsonHost("\"{% \$subs<caret>tring('a', 1) %}\""))!!
+        assertTrue(function, substring.url in function)
+        val result = ideDoc("b.asl.json", jsonHost("\"{% \$states.res<caret>ult %}\""))!!
+        assertTrue(result, AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description) in result)
+    }
+
+    fun `test the documentation of a key outside an expression is the stage 1 one`() {
+        val yaml = ideDoc("c.asl.yaml", hostText("1").replace("Output: >-", "Out<caret>put: >-"))!!
+        val output = AslSpec.structure(StructureId.TASK).field("Output")!!
+        assertTrue(yaml, AslDocumentation.esc(output.description) in yaml)
+        val json = ideDoc("c.asl.json", jsonHost("\"{% 1 %}\"").replace("\"Output\"", "\"Out<caret>put\""))!!
+        assertTrue(json, AslDocumentation.esc(output.description) in json)
     }
 }
