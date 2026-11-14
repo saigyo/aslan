@@ -77,6 +77,23 @@ internal object JsonataChecks {
     private class Expression(val host: PsiElement, val file: JsonataFile, val sites: List<JsonataSite>, val out: MutableList<AslFinding>) {
         private val manager = InjectedLanguageManager.getInstance(file.project)
 
+        /**
+         * `$` and `$$` where the expression binds them itself, as a parameter or with `:=`, `@` or `#`: a use may then hold
+         * the bound value (jsonata-js looks them up like any variable). Taken for the whole expression, not per scope, so
+         * that every use that may be bound stays silent.
+         */
+        private val rebound: Set<String> = HashSet<String>().also { names ->
+            var leaf: PsiElement? = PsiTreeUtil.firstChild(file)
+            while (leaf != null) {
+                val parent = leaf.parent
+                if (leaf.node.elementType == JsonataTokens.VARIABLE && (leaf.text == "\$" || leaf.text == "\$\$") &&
+                        (parent.node.elementType == E.PARAMETER || (parent.node.elementType == E.CONTEXT_REF && bound(parent)))) {
+                    names += leaf.text
+                }
+                leaf = PsiTreeUtil.nextLeaf(leaf)
+            }
+        }
+
         fun check() {
             newerOperators()
             // one walk with an explicit stack, since trees can be hundreds of levels deep; the flag is "without an input"
@@ -93,7 +110,8 @@ internal object JsonataChecks {
         private fun visit(element: PsiElement, bare: Boolean) {
             when (element.node.elementType) {
                 E.FIELD -> if (bare) withoutInput(element, "Field '${name(element)}'")
-                E.CONTEXT_REF -> if (!bound(element) && (bare || element.text == "\$\$")) withoutInput(element, "'${element.text}'")
+                E.CONTEXT_REF -> if (!bound(element) && element.text !in rebound && (bare || element.text == "\$\$"))
+                    withoutInput(element, "'${element.text}'")
                 E.VARIABLE_REF -> function(element as JsonataVariableRef)
                 E.PATH -> statesField(element as JsonataPath)
             }
@@ -130,6 +148,7 @@ internal object JsonataChecks {
         /** `$states.name`, where `$states` is the built-in: a name that is no field of it, or a field that a use of the expression does not have. */
         private fun statesField(path: JsonataPath) {
             val lhs = path.lhs as? JsonataVariableRef ?: return
+            // a PARAMETER is a JsonataVariableRef too; only a use is the built-in
             if (lhs.node.elementType != E.VARIABLE_REF || JsonataScopes.localName(lhs) != "states") return
             if (JsonataScopes.declarations(lhs).isNotEmpty()) return
             val rhs = path.rhs?.takeIf { it.node.elementType == E.FIELD } ?: return
@@ -197,6 +216,7 @@ internal object JsonataChecks {
         if (parent !is JsonataCall) return false
         if (index == 0) return true
         val callee = parent.callee as? JsonataVariableRef ?: return false
+        // a PARAMETER is a JsonataVariableRef too, and never a callee
         if (callee.node.elementType != E.VARIABLE_REF || JsonataScopes.declarations(callee).isNotEmpty()) return false
         return JsonataScopes.localName(callee) in CALLING
     }
