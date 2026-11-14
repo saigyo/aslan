@@ -168,6 +168,29 @@ class AwsConfirmedRulesTest : CheckTestCase() {
         assertEquals(listOf(WRONG_VALUE_KIND to "5.0"), found(json, "test.asl.json"))
     }
 
+    fun `test a fraction written with an exponent`() {
+        // In YAML an exponent without a decimal point is a number for some tools and a string for others, so it is not judged.
+        nothing(task("TimeoutSeconds: 15e-1"))
+        assertEquals(listOf(WRONG_VALUE_KIND to "1.5e+0"), found(task("TimeoutSeconds: 1.5e+0")))
+        val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": "$function", "TimeoutSeconds": 15e-1, "End": true}}}"""
+        assertEquals(listOf(WRONG_VALUE_KIND to "15e-1"), found(json, "test.asl.json"))
+    }
+
+    // the value of a key that ends in .$
+
+    fun `test a mapping or a list as the value of an evaluated key`() {
+        assertEquals(listOf(WRONG_VALUE_KIND to "{}"), found(task("ResultSelector:", "  value.$dollar: {}")))
+        assertEquals(listOf(WRONG_VALUE_KIND to "[a, b]"), found(task("ResultSelector:", "  nested:", "    value.$dollar: [a, b]")))
+        assertEquals(listOf(WRONG_VALUE_KIND to "{}"), found(task("Credentials:", "  RoleArn.$dollar: {}")))
+    }
+
+    fun `test a tagged list is not judged`() {
+        nothing(task("ResultSelector:", "  value.$dollar: !Join ['.', [$dollar, id]]"))
+        nothing(task("Credentials:", "  RoleArn.$dollar: !Join ['.', [$dollar, role]]"))
+        nothing(task("Comment: !Join ['', [a, b]]", "TimeoutSeconds: !If [Slow, 60, 30]", "Credentials: !If [Prod, {RoleArn: $role}, {RoleArn: $role}]"))
+        nothing(task(resource = "!Join [':', [arn, aws, lambda]]"))
+    }
+
     fun `test the bounds that AWS applies`() {
         nothing(task("Retry:", "  - ErrorEquals: [States.Timeout]", "    IntervalSeconds: 0"))
         nothing(task("TimeoutSeconds: 99999999", "HeartbeatSeconds: 5"))

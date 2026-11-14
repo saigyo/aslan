@@ -175,8 +175,8 @@ internal object StructureChecks {
         /** The value of a key that ends in `.$` is evaluated, so it must be a path or the call of an intrinsic function. */
         private fun pathOrIntrinsic(entry: AslEntry) {
             val node = entry.value
-            if (exemptFromKind(node) || node !is AslScalar) return
-            if (node.type != ScalarType.STRING) return wrongKind(node, "a string with a path or an intrinsic function")
+            if (exemptFromKind(node)) return
+            if (node !is AslScalar || node.type != ScalarType.STRING) return wrongKind(node, "a string with a path or an intrinsic function")
             if (!node.text.startsWith("$") && !INTRINSIC_CALL.containsMatchIn(node.text)) {
                 report(INVALID_PATH, node.psi, "The value of '${entry.key}' must be a path that starts with $ or an intrinsic function such as States.Format(...)")
             }
@@ -241,14 +241,14 @@ internal object StructureChecks {
         }
 
         /**
-         * AWS takes only a number without a decimal point as a whole number, so it rejects `1.5` and also `5.0`. A JSON
-         * file reaches AWS as it is written. A YAML file is converted first, and the tools differ: some turn `5.0` into
-         * `5`, others keep it. So in YAML only a number with a real fraction is certain to be rejected.
+         * AWS takes only a number without a fraction and without a decimal point as a whole number, so it rejects `1.5`,
+         * `15e-1` and also `5.0`. A JSON file reaches AWS as it is written. A YAML file is converted first, and the tools
+         * differ: some turn `5.0` into `5`, others keep it. So in YAML only a number with a real fraction is certain to
+         * be rejected.
          */
         private fun notWhole(scalar: AslScalar): Boolean {
-            if ('.' !in scalar.text) return false
             val fraction = scalar.text.toBigDecimalOrNull()?.let { it.stripTrailingZeros().scale() > 0 } ?: return false
-            return fraction || scalar.psi.containingFile is JsonFile
+            return fraction || ('.' in scalar.text && scalar.psi.containingFile is JsonFile)
         }
 
         private fun expectedText(kind: ValueKind): String = when (kind) {
@@ -357,7 +357,7 @@ internal object StructureChecks {
     /** A state whose type is a placeholder is not checked at all. */
     private fun skipped(state: AslState): Boolean = state.typeName?.let(Placeholders::contains) == true
 
-    /** Placeholders, ambiguous scalars and unresolved aliases are never checked for kind. */
+    /** Placeholders, ambiguous scalars, unresolved aliases and tagged mappings or lists are never checked for kind. */
     internal fun exemptFromKind(node: AslNode): Boolean = when (node) {
         is AslUnresolved -> true
         is AslScalar -> node.ambiguous || Placeholders.contains(node.text)

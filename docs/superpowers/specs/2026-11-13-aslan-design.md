@@ -270,7 +270,7 @@ The rule that follows from the anti-goals:
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
 
-A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply.
+A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply. A YAML mapping or list with a tag such as `!Join [...]` or `!If [...]` is not judged either: whatever handles the tag decides the value.
 
 ### Warnings
 
