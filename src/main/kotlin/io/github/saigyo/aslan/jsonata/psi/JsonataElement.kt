@@ -49,6 +49,8 @@ class JsonataVariableRef(node: ASTNode) : JsonataElement(node), PsiNameIdentifie
      * reference to the assignments of the state machine variable it reads, when the definition has one.
      */
     override fun getReference(): PsiReference? {
+        // A `$name` that no scope of the expression declares may read a state machine variable, which only the
+        // definition around the expression knows; so the JSONata layer asks the state machine layer here.
         val target = JsonataScopes.declarations(this).firstOrNull() ?: return AslVariableTargets.readReference(this)
         return if (target === this) null else JsonataVariableReference(this)
     }

@@ -86,7 +86,8 @@ class AslVariableFindUsagesHandlerFactory : FindUsagesHandlerFactory() {
 
     override fun createFindUsagesHandler(element: PsiElement, forHighlightUsages: Boolean): FindUsagesHandler? {
         val variables = AslVariableTargets.variablesAssignedAt(element)
-        return if (variables.isEmpty()) null else AslVariableFindUsagesHandler(element, variables)
+        if (variables.isEmpty() || AslVariableTargets.assignmentEntries(variables).isEmpty()) return null
+        return AslVariableFindUsagesHandler(element, variables)
     }
 }
 

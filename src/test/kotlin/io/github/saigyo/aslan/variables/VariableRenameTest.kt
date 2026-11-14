@@ -483,6 +483,90 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(setOf(SHARED_OCCURRENCE), assertRenameConflict(sharedRead, "film"))
     }
 
+    fun `test conflict 4, an occurrence that YAML also uses in a place that is no occurrence`() {
+        val fields = """
+            StartAt: Store
+            States:
+              Store:
+                Type: Pass
+                Parameters: &fields
+                  re<caret>el.§: §.reel
+                Assign: *fields
+                Next: Show
+              Show:
+                Type: Pass
+                InputPath: §reel
+                End: true
+        """.trimIndent()
+        // the rename would also change the key of Parameters, and so the state's output
+        assertEquals(setOf(SHARED_OCCURRENCE), assertRenameConflict(fields, "film"))
+        val merged = fields.replace("Assign: *fields", "Assign:\n      <<: *fields")
+        assertTrue(merged, "<<: *fields" in merged)
+        assertEquals(setOf(SHARED_OCCURRENCE), assertRenameConflict(merged, "film"))
+        // an expression aliased into a JSONPath state, where it is a plain string
+        val expression = jsonataMachine(
+            """
+            Show:
+              Type: Pass
+              Output: &shown "{% §reel %}"
+              Next: Note
+            Note:
+              Type: Pass
+              QueryLanguage: JSONPath
+              Parameters:
+                note: *shown
+              End: true
+            """.trimIndent(),
+        )
+        assertEquals(setOf(SHARED_OCCURRENCE), assertRenameConflict(withCaret(expression, "re|el: 1"), "film"))
+    }
+
+    fun `test an alias that every use reads the variable through is renamed once`() {
+        val before = jsonataMachine(
+            """
+            Show:
+              Type: Pass
+              Output: &shown "{% §reel %}"
+              Next: Again
+            Again:
+              Type: Pass
+              Output: *shown
+              End: true
+            """.trimIndent(),
+        )
+        val after = before.replace("reel: 1", "film: 1").replace("{% §reel %}", "{% §film %}")
+        assertEquals(after.replace("§", "$"), renameAtCaret(withCaret(before, "re|el: 1"), "film"))
+    }
+
+    fun `test a rename refuses where an expression with a syntax error mentions the old name`() {
+        val text = jsonataMachine("Show:\n  Type: Pass\n  Output: \"{% §reel + %}\"\n  End: true")
+        assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+    }
+
+    fun `test a name that YAML reads as another type is quoted as a key`() {
+        val before = jsonataMachine("Show:\n  Type: Pass\n  Output: \"{% §reel %}\"\n  End: true")
+        val after = before.replace("reel: 1", "\"true\": 1").replace("{% §reel %}", "{% §true %}")
+        assertEquals(after.replace("§", "$"), renameAtCaret(withCaret(before, "re|el: 1"), "true"))
+    }
+
+    fun `test rename in multi-line quoted and folded scalars`() {
+        val before = jsonataMachine(
+            """
+            Show:
+              Type: Pass
+              Output:
+                quoted: "{% §reel &
+                  §reel %}"
+                folded: >-
+                  {% §reel
+                  & §reel %}
+              End: true
+            """.trimIndent(),
+        )
+        val after = before.replace("reel: 1", "film: 1").replace("§reel", "§film")
+        assertEquals(after.replace("§", "$"), renameAtCaret(withCaret(before, "re|el: 1"), "film"))
+    }
+
     fun `test conflict 5, an occurrence written with an escape`() {
         val dollar = "\\" + "u0024"
         val yaml = jsonataMachine("Show:\n  Type: Pass\n  Output: \"{% ${dollar}reel %}\"\n  End: true")

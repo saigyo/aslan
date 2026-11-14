@@ -11,6 +11,7 @@ import com.intellij.patterns.PatternCondition
 import com.intellij.patterns.PlatformPatterns
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiReference
 import com.intellij.psi.search.SearchScope
 import com.intellij.psi.util.PsiTreeUtil
@@ -39,6 +40,8 @@ import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.JsonataSites
 import io.github.saigyo.aslan.model.PathRead
 import io.github.saigyo.aslan.tree.AslEntry
+import org.jetbrains.yaml.psi.YAMLAlias
+import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 import java.awt.GridBagConstraints
@@ -124,8 +127,18 @@ internal class AslVariableRename private constructor(
     /** An assignment entry, and what its key holds after the name: `.$` in a JSONPath state, else nothing. */
     private class Key(val entry: AslEntry, val suffix: String)
 
-    /** A read: its host and the range of `$` and the name in the host's text; null when it cannot be located. */
-    private class Read(val element: PsiElement, val host: PsiElement?, val range: TextRange?, val uses: Set<AslVariable?>)
+    /**
+     * A read: its host and the range of `$` and the name in the host's text, null when it cannot be located; the
+     * variables of its uses; the string that holds it, and how many uses of that string the model counts for it.
+     */
+    private class Read(
+        val element: PsiElement,
+        val host: PsiElement?,
+        val range: TextRange?,
+        val uses: Set<AslVariable?>,
+        val string: PsiElement,
+        val countedUses: Int,
+    )
 
     private val keys: List<Key> = variables.flatMap { model.assignmentsOf(it) }
         .distinctBy { it.entry.entryPsi }
@@ -137,19 +150,24 @@ internal class AslVariableRename private constructor(
             is JsonataRead -> {
                 val file = read.variable.containingFile as? JsonataFile
                 val inHost = file?.let { JsonataPsi.rangeInHost(it, read.variable.textRange) }
-                Read(read.variable, inHost?.first, inHost?.second, model.readsAt(read.variable).mapTo(HashSet()) { model.variableOf(it) })
+                val uses = model.readsAt(read.variable)
+                Read(read.variable, inHost?.first, inHost?.second, uses.mapTo(HashSet()) { model.variableOf(it) }, read.site.scalar.psi, uses.size)
             }
             is PathRead -> {
-                val uses = model.pathReadsAt(read.scalar.psi).filter { it.range == read.range }.mapTo(HashSet()) { model.variableOf(it) }
-                Read(read.scalar.psi, read.scalar.psi, read.range, uses)
+                val uses = model.pathReadsAt(read.scalar.psi).filter { it.range == read.range }
+                Read(read.scalar.psi, read.scalar.psi, read.range, uses.mapTo(HashSet()) { model.variableOf(it) }, read.scalar.psi, uses.size)
             }
         }
     }.distinctBy { if (it.host != null && it.range != null) it.host to it.range.startOffset else it.element }
 
-    private val region: Set<AslStateMachine> = variables.first().scope.let { scope ->
-        val upward = model.chain(scope)
-        document.allMachines().filterTo(HashSet()) { it in upward || scope in model.chain(it) }
+    /** The union of the regions of [variables]: each scope, and every machine whose chain reaches it or that its chain reaches. */
+    private val region: Set<AslStateMachine> = variables.mapTo(HashSet()) { it.scope }.let { scopes ->
+        document.allMachines().filterTo(HashSet()) { machine ->
+            scopes.any { scope -> machine in model.chain(scope) || scope in model.chain(machine) }
+        }
     }
+
+    private val treeUses = YamlTreeUses(document.file)
 
     /** Every reason a rename to [newName] could change what the definition reads; empty for the old name. */
     fun conflicts(newName: String): List<RenameConflict> {
@@ -198,6 +216,17 @@ internal class AslVariableRename private constructor(
         for (read in reads) {
             if (read.uses.size > 1) {
                 out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, read.element, "This read is used through an alias by states that read different variables \$$oldName")
+            }
+        }
+        // ... or that YAML also uses, through an alias or merge key, in a place that is no occurrence of a variable
+        for (key in keys) {
+            if (treeUses.of(key.entry.entryPsi) != model.assignmentsAt(key.entry.entryPsi).size.toLong()) {
+                out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, key.entry.entryPsi, "This assignment is also used through an alias where it assigns no variable")
+            }
+        }
+        for (read in reads.distinctBy { it.element }) {
+            if (treeUses.of(read.string) != read.countedUses.toLong()) {
+                out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, read.element, "This read is also used through an alias where it is no read of \$$oldName")
             }
         }
 
@@ -285,14 +314,17 @@ internal class AslVariableRename private constructor(
      * The strings of the file that hold `$name` (followed by no letter, digit or `_`) more often than the model knows
      * reads of [name] in them. Every string counts but the key of an entry and a `Comment` that is no JSONata
      * expression, since Step Functions evaluates neither. Comparing counts suffices: each known read is such a `$name`
-     * in its string, at its own place.
+     * in its string, at its own place. A read in an expression with a syntax error does not count as known, since what
+     * the expression reads once it is complete is not known (Review Focus 5).
      */
     private fun unknownMentions(name: String): List<PsiElement> {
         val known = HashMap<PsiElement, HashSet<Any>>()
         for (read in model.reads) {
             if (read.name != name) continue
             when (read) {
-                is JsonataRead -> known.getOrPut(read.site.scalar.psi) { HashSet() } += read.variable
+                is JsonataRead -> if (!PsiTreeUtil.hasErrorElements(read.variable.containingFile)) {
+                    known.getOrPut(read.site.scalar.psi) { HashSet() } += read.variable
+                }
                 is PathRead -> known.getOrPut(read.scalar.psi) { HashSet() } += read.range.startOffset
             }
         }
@@ -348,6 +380,39 @@ internal class AslVariableRename private constructor(
 
         /** The text of a key without its quotes. */
         private fun namePart(text: String): String = if (isQuoted(text)) text.substring(1, text.length - 1) else text
+    }
+}
+
+/**
+ * How many times the YAML value tree uses an element of [file]: once through its place, plus once for each use of
+ * every alias (or merge key) of an anchor on the element or on one of its ancestors. An element of a JSON file, or of
+ * a YAML file without aliases, is used once. A cycle of aliases counts as more uses than any model counts.
+ */
+private class YamlTreeUses(file: PsiFile) {
+    private val aliasesOf: Map<PsiElement, List<YAMLAlias>> =
+        if (file !is YAMLFile) emptyMap()
+        else PsiTreeUtil.findChildrenOfType(file, YAMLAlias::class.java)
+            .mapNotNull { alias -> alias.reference?.resolve()?.markedValue?.let { it to alias } }
+            .groupBy({ it.first }, { it.second })
+    private val counted = HashMap<PsiElement, Long>()
+    private val visiting = HashSet<PsiElement>()
+
+    fun of(element: PsiElement): Long {
+        if (aliasesOf.isEmpty() || element is PsiFile) return 1
+        counted[element]?.let { return it }
+        if (!visiting.add(element)) return MANY
+        try {
+            var uses = element.parent?.let { of(it) } ?: 1
+            for (alias in aliasesOf[element].orEmpty()) uses = minOf(MANY, uses + of(alias))
+            counted[element] = uses
+            return uses
+        } finally {
+            visiting.remove(element)
+        }
+    }
+
+    private companion object {
+        const val MANY = 1_000_000L
     }
 }
 

@@ -53,7 +53,8 @@ internal object AslVariableTargets {
      * through a YAML alias by states of different scopes.
      */
     fun variablesAt(element: PsiElement, offsetInElement: Int? = null): List<AslVariable> {
-        if (element is AslVariableTarget) return listOf(element.variable)
+        // a target made from an older model names a scope the current model no longer has
+        if (element is AslVariableTarget) return listOf(element.variable).filter { modelOf(it)?.assignmentsOf(it)?.isNotEmpty() == true }
         PsiTreeUtil.getNonStrictParentOfType(element, JsonataVariableRef::class.java)?.let { return readVariables(it) }
         assignmentEntryAt(element)?.let { entry ->
             val variables = variablesIn(entry) ?: return emptyList()
