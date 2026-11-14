@@ -1,12 +1,25 @@
 package io.github.saigyo.aslan.variables
 
+import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiElement
+import com.intellij.psi.impl.FakePsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.model.AslDocument
+import io.github.saigyo.aslan.model.AslState
+import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.AslVariable
 import io.github.saigyo.aslan.model.AssignPlace
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
+import io.github.saigyo.aslan.model.SchemaIndex
 import io.github.saigyo.aslan.model.ordinal
+import io.github.saigyo.aslan.spec.AslSpec
+import io.github.saigyo.aslan.spec.QueryLanguage
+import io.github.saigyo.aslan.tree.AslEntry
+import io.github.saigyo.aslan.tree.AslNode
+import io.github.saigyo.aslan.tree.AslObject
+import io.github.saigyo.aslan.tree.AslScalar
+import io.github.saigyo.aslan.tree.ScalarType
 import org.jetbrains.yaml.psi.YAMLKeyValue
 
 class AslVariablesTest : VariableTestCase() {
@@ -164,16 +177,22 @@ class AslVariablesTest : VariableTestCase() {
                       §reel)"
                     e.§: States.Format('{}',
                       §reel)
+                    f.§: |-
+                      States.Format('{}',
+                      §reel)
+                    g.§: &plain §reel
+                    h.§: &quoted "§reel"
+                    i.§: !!str &tagged §reel
                   InputPath: '§reel.title'
                   End: true
                 """,
             ),
         )
         val reads = doc.variables.reads.filterIsInstance<PathRead>()
-        assertEquals(6, doc.variables.reads.size)
-        assertEquals(List(6) { "reel" }, reads.map { it.name })
+        assertEquals(10, doc.variables.reads.size)
+        assertEquals(List(10) { "reel" }, reads.map { it.name })
         assertEquals(
-            listOf("\$reel", "\$reel", escapedDollar + "reel", "\$reel", "\$reel", "\$reel"),
+            listOf("\$reel", "\$reel", escapedDollar + "reel") + List(7) { "\$reel" },
             reads.map { it.range.substring(it.scalar.psi.text) },
         )
         for (read in reads) assertEquals(listOf(read), doc.variables.pathReadsAt(read.scalar.psi))
@@ -235,13 +254,16 @@ class AslVariablesTest : VariableTestCase() {
         assertEquals(setOf("reel"), variables.visibleNames(doc.state("Item")))
     }
 
-    /** A Parallel state "Fork" whose branches hold the states "Left" and "Right", with [left] and [right] as their bodies. */
-    private fun fork(left: String, right: String, before: String = ""): String {
+    /**
+     * A Parallel state "Fork" whose branches hold the states "Left" and "Right", with [left] and [right] as their
+     * bodies; [before] holds states ahead of it, [top] further top-level lines as for [machine].
+     */
+    private fun fork(left: String, right: String, before: String = "", top: String = ""): String {
         fun branch(name: String, body: String) =
             "- StartAt: $name\n  States:\n    $name:\n" + body.trimIndent().prependIndent("      ")
         val parallel = "Fork:\n  Type: Parallel\n  Branches:\n" +
             (branch("Left", left) + "\n" + branch("Right", right)).prependIndent("    ") + "\n  End: true"
-        return machine(if (before.isBlank()) parallel else before.trimIndent() + "\n" + parallel)
+        return machine(if (before.isBlank()) parallel else before.trimIndent() + "\n" + parallel, top)
     }
 
     fun `test two Parallel branches have separate variables`() {
@@ -391,6 +413,120 @@ class AslVariablesTest : VariableTestCase() {
         assertEquals(listOf(path), variables.pathReadsAt(path.scalar.psi))
         for (read in variables.reads) assertEquals(variable, variables.variableOf(read))
         assertEquals(variables.reads, variables.readsOf(variable))
+    }
+
+    fun `test an expression shared through an alias reads the variable of each branch`() {
+        val doc = yamlModel(
+            fork(
+                "Type: Pass\nAssign:\n  reel: 1\nOutput: &shown '{% §reel %}'\nEnd: true",
+                "Type: Pass\nAssign:\n  reel: 2\nOutput: *shown\nEnd: true",
+                top = "QueryLanguage: JSONata",
+            ),
+        )
+        val variables = doc.variables
+        val shared = variables.readsAt((variables.reads.first() as JsonataRead).variable)
+        assertEquals(variables.reads, shared)
+        assertEquals(listOf("Left", "Right"), shared.map { it.state.name })
+        assertEquals(
+            listOf(AslVariable("reel", doc.state("Left").machine), AslVariable("reel", doc.state("Right").machine)),
+            shared.map { variables.variableOf(it) },
+        )
+    }
+
+    fun `test a path shared through an alias reads the variable of each branch`() {
+        val doc = yamlModel(
+            fork(
+                "Type: Pass\nAssign:\n  reel: 1\nOutputPath: &shown §reel\nEnd: true",
+                "Type: Pass\nAssign:\n  reel: 2\nOutputPath: *shown\nEnd: true",
+            ),
+        )
+        val variables = doc.variables
+        val shared = variables.pathReadsAt((variables.reads.first() as PathRead).scalar.psi)
+        assertEquals(variables.reads, shared)
+        assertEquals(listOf("Left", "Right"), shared.map { it.state.name })
+        assertEquals(listOf("\$reel", "\$reel"), shared.map { it.range.substring(it.scalar.psi.text) })
+        assertEquals(
+            listOf(AslVariable("reel", doc.state("Left").machine), AslVariable("reel", doc.state("Right").machine)),
+            shared.map { variables.variableOf(it) },
+        )
+    }
+
+    fun `test an assigned name that is local in an expression is no read`() {
+        val doc = yamlModel(
+            machine(
+                """
+                Load:
+                  Type: Pass
+                  Assign:
+                    reel: 1
+                  Output: '{% (§reel := 2; §reel) %}'
+                  Next: Show
+                Show:
+                  Type: Pass
+                  Assign:
+                    reel: 3
+                  Output: '{% function(§reel){ §reel } %}'
+                  End: true
+                """,
+                "QueryLanguage: JSONata",
+            ),
+        )
+        assertEquals(listOf("reel", "reel"), doc.variables.assignments.map { it.name })
+        assertEquals(emptyList<String>(), doc.readNames())
+    }
+
+    fun `test an escape inside a name in JSON is a read of the decoded name`() {
+        val e = "\\" + "u0065"
+        val doc = jsonModel(
+            """
+            {"StartAt": "Load", "States": {
+              "Load": {"Type": "Pass", "Assign": {"reel": 1}, "Next": "Show"},
+              "Show": {"Type": "Pass", "QueryLanguage": "JSONata", "Output": "{% §r${e}el.title %}", "Next": "Copy"},
+              "Copy": {"Type": "Pass", "InputPath": "§r${e}el.title", "End": true}}}
+            """,
+        )
+        val variables = doc.variables
+        assertEquals(listOf("reel", "reel"), doc.readNames())
+        assertEquals("\$r${e}el", (variables.reads[0] as JsonataRead).variable.text)
+        val path = variables.reads[1] as PathRead
+        assertEquals("\$r${e}el", path.range.substring(path.scalar.psi.text))
+        for (read in variables.reads) assertEquals(AslVariable("reel", doc.root!!), variables.variableOf(read))
+    }
+
+    fun `test a built-in function assigned only in a sibling branch is no read`() {
+        val doc = yamlModel(
+            fork(
+                "Type: Pass\nAssign:\n  sum: 1\nEnd: true",
+                "Type: Pass\nOutput: '{% §sum([1]) %}'\nEnd: true",
+                top = "QueryLanguage: JSONata",
+            ),
+        )
+        assertEquals(listOf("sum"), doc.variables.assignments.map { it.name })
+        assertEquals(emptyList<String>(), doc.readNames())
+    }
+
+    fun `test a failure while building gives no assignments, no reads and open states`() {
+        val file = yaml("StartAt: Load\nStates: {}")
+        // a model built by hand whose keys have no text range, so that ordering the assignments throws
+        val broken = object : FakePsiElement() {
+            override fun getParent(): PsiElement = file
+            override fun getTextRange(): TextRange = throw IllegalStateException("no text range")
+        }
+        fun entry(key: String, value: AslNode) = AslEntry(key, broken, broken, value, viaMerge = false)
+        fun number(text: String) = AslScalar(broken, broken, ScalarType.NUMBER, text)
+        val assign = AslObject(broken, broken, listOf(entry("reel", number("1")), entry("title", number("2"))))
+        val stateObj = AslObject(broken, broken, listOf(entry("Assign", assign)))
+        val states = ArrayList<AslState>()
+        val root = AslStateMachine(AslObject(broken, broken, emptyList()), null, null, null, states)
+        val state = AslState(
+            "Load", entry("Load", stateObj), stateObj, root, "Pass", AslSpec.stateType("Pass"),
+            QueryLanguage.JSONPATH, true, emptyList(), emptyList(),
+        )
+        states += state
+        val doc = AslDocument(file, root.obj, root, SchemaIndex.EMPTY, QueryLanguage.JSONPATH, true)
+        assertEquals(emptyList<String>(), doc.variables.assignments.map { it.name })
+        assertEquals(emptyList<String>(), doc.readNames())
+        assertTrue(doc.variables.isOpen(state))
     }
 
     fun `test half-typed definitions do not throw`() {

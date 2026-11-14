@@ -42,7 +42,7 @@ object JsonPathReads {
                     } else i++
                     previous = 'x'
                 }
-                c == ' ' -> i++
+                Character.isWhitespace(c) -> i++
                 else -> {
                     previous = c
                     i++

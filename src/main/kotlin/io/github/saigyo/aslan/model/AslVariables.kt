@@ -1,6 +1,8 @@
 package io.github.saigyo.aslan.model
 
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiElement
@@ -17,6 +19,8 @@ import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
+import org.jetbrains.yaml.YAMLTokenTypes
+import org.jetbrains.yaml.psi.impl.YAMLScalarImpl
 
 /** Where an `Assign` stands: in the state itself, in one of its top-level Choice rules or in one of its Catchers. */
 enum class AssignPlace { STATE, CHOICE_RULE, CATCHER }
@@ -75,9 +79,12 @@ data class AslVariable(val name: String, val scope: AslStateMachine)
  * Catcher in it is not a mapping or leaves its fields open, or it belongs to a Map whose `Mode` is not settled.
  *
  * Everything is computed once, when the instance is made: after the model is built, since the reads need the injected
- * JSONata files.
+ * JSONata files. An instance made by [of] after the computation failed has no assignments and no reads, and every
+ * state in it is open, so no check concludes anything from it.
  */
-class AslVariables internal constructor(doc: AslDocument) {
+class AslVariables private constructor(doc: AslDocument, private val failed: Boolean) {
+    internal constructor(doc: AslDocument) : this(doc, failed = false)
+
     /** In file order; one per use through an alias or merge. */
     val assignments: List<AslAssignment>
 
@@ -96,27 +103,37 @@ class AslVariables internal constructor(doc: AslDocument) {
     private val readsByIdentity: Map<AslVariable, List<AslRead>>
 
     init {
-        val machines = doc.allMachines()
-        for (machine in machines) {
-            if (machine.open || boundary(machine) == Boundary.UNKNOWN) openMachines += machine
-        }
-        val found = ArrayList<AslAssignment>()
-        for (state in doc.allStates()) collectAssignments(state, found)
-        assignments = found.sortedBy { it.entry.keyPsi.textRange.startOffset }
-        for (assignment in assignments) assigned.getOrPut(assignment.state.machine) { HashSet() } += assignment.name
-        for (machine in machines) {
-            val chain = chainOf(machine)
-            chains[machine] = chain
-            visible[machine] = chain.flatMapTo(HashSet()) { assigned[it].orEmpty() }
-            open[machine] = chain.any { it in openMachines }
-        }
-        reads = (jsonataReads(doc) + pathReads(doc)).sortedBy { offsetInFile(it) }
+        if (failed) {
+            assignments = emptyList()
+            reads = emptyList()
+            assignmentsByEntry = emptyMap()
+            readsByVariable = emptyMap()
+            readsByHost = emptyMap()
+            assignmentsByIdentity = emptyMap()
+            readsByIdentity = emptyMap()
+        } else {
+            val machines = doc.allMachines()
+            for (machine in machines) {
+                if (machine.open || boundary(machine) == Boundary.UNKNOWN) openMachines += machine
+            }
+            val found = ArrayList<AslAssignment>()
+            for (state in doc.allStates()) collectAssignments(state, found)
+            assignments = found.sortedBy { it.entry.keyPsi.textRange.startOffset }
+            for (assignment in assignments) assigned.getOrPut(assignment.state.machine) { HashSet() } += assignment.name
+            for (machine in machines) {
+                val chain = chainOf(machine)
+                chains[machine] = chain
+                visible[machine] = chain.flatMapTo(HashSet()) { assigned[it].orEmpty() }
+                open[machine] = chain.any { it in openMachines }
+            }
+            reads = (jsonataReads(doc) + pathReads(doc)).sortedBy { offsetInFile(it) }
 
-        assignmentsByEntry = assignments.groupBy { it.entry.entryPsi }
-        readsByVariable = reads.filterIsInstance<JsonataRead>().groupBy { it.variable }
-        readsByHost = reads.filterIsInstance<PathRead>().groupBy { it.scalar.psi }
-        assignmentsByIdentity = assignments.groupBy { variableOf(it) }
-        readsByIdentity = reads.mapNotNull { read -> variableOf(read)?.let { it to read } }.groupBy({ it.first }, { it.second })
+            assignmentsByEntry = assignments.groupBy { it.entry.entryPsi }
+            readsByVariable = reads.filterIsInstance<JsonataRead>().groupBy { it.variable }
+            readsByHost = reads.filterIsInstance<PathRead>().groupBy { it.scalar.psi }
+            assignmentsByIdentity = assignments.groupBy { variableOf(it) }
+            readsByIdentity = reads.mapNotNull { read -> variableOf(read)?.let { it to read } }.groupBy({ it.first }, { it.second })
+        }
     }
 
     fun variableOf(assignment: AslAssignment): AslVariable =
@@ -142,7 +159,7 @@ class AslVariables internal constructor(doc: AslDocument) {
     fun visibleNames(state: AslState): Set<String> = visible[state.machine].orEmpty()
 
     /** Whether the file does not say every name a read in [state] can reach. */
-    fun isOpen(state: AslState): Boolean = open[state.machine] == true
+    fun isOpen(state: AslState): Boolean = failed || open[state.machine] == true
 
     private fun owningScope(name: String, machine: AslStateMachine): AslStateMachine? =
         chains[machine].orEmpty().lastOrNull { name in assigned[it].orEmpty() }
@@ -230,8 +247,7 @@ class AslVariables internal constructor(doc: AslDocument) {
     }
 
     /**
-     * The range of each of [names] in the host text of [scalar], through the host's escaper over the value's range
-     * (inside the quotes; a JSON string's escaper reports the whole literal as relevant). The escaper of a YAML scalar
+     * The range of each of [names] in the host text of [scalar], through the host's escaper over the [valueRange]. The escaper of a YAML scalar
      * that spans lines keeps the line breaks the model folds, so offsets in the model's text are carried over by the
      * position among the characters that are not whitespace, which folding leaves alone. Null when the two texts
      * differ in more than whitespace.
@@ -239,7 +255,7 @@ class AslVariables internal constructor(doc: AslDocument) {
     private fun hostRanges(scalar: AslScalar, names: List<PathName>): List<TextRange>? {
         val host = scalar.psi as? PsiLanguageInjectionHost ?: return null
         val escaper = host.createLiteralTextEscaper()
-        val inside = ElementManipulators.getValueTextRange(host)
+        val inside = valueRange(host)
         val builder = StringBuilder()
         if (!escaper.decode(inside, builder)) return null
         val decoded = builder.toString()
@@ -258,11 +274,49 @@ class AslVariables internal constructor(doc: AslDocument) {
         }
     }
 
+    /**
+     * The part of [host] that holds its value. For a YAML scalar: from its first content range to its last, but not
+     * before the content token of a plain or quoted scalar, because the scalar's element also holds an anchor or tag in
+     * front, and the platform counts an anchor as content there. Otherwise the manipulator's range, inside the quotes
+     * (a JSON string's escaper reports the whole literal as relevant).
+     */
+    private fun valueRange(host: PsiLanguageInjectionHost): TextRange {
+        if (host is YAMLScalarImpl) {
+            val ranges = host.contentRanges
+            if (ranges.isNotEmpty()) {
+                val token = generateSequence(host.node.firstChildNode) { it.treeNext }.firstOrNull { it.elementType in CONTENT_TOKENS }
+                val start = token?.let { it.startOffsetInParent + if (it.elementType == YAMLTokenTypes.TEXT) 0 else 1 } ?: 0
+                return TextRange(maxOf(ranges.first().startOffset, start), ranges.last().endOffset)
+            }
+        }
+        return ElementManipulators.getValueTextRange(host)
+    }
+
     private fun solidOffsets(text: String): List<Int> = text.indices.filter { !text[it].isWhitespace() }
 
     private fun offsetInFile(read: AslRead): Int = when (read) {
         is JsonataRead -> InjectedLanguageManager.getInstance(read.variable.project).injectedToHost(read.variable, read.variable.textRange.startOffset)
         is PathRead -> read.scalar.psi.textRange.startOffset + read.range.startOffset
+    }
+
+    companion object {
+        private val log = logger<AslVariables>()
+
+        /** The first token of a plain scalar's text, and the token of a quoted scalar, quotes included. */
+        private val CONTENT_TOKENS = setOf(YAMLTokenTypes.TEXT, YAMLTokenTypes.SCALAR_STRING, YAMLTokenTypes.SCALAR_DSTRING)
+
+        /**
+         * The variables of [doc]. Making them never throws (except to cancel), as for the model itself: on any other
+         * exception it is logged, and the variables are an instance with nothing in it and every state open.
+         */
+        internal fun of(doc: AslDocument): AslVariables =
+            try {
+                AslVariables(doc)
+            } catch (e: Exception) {
+                if (e is ControlFlowException) throw e
+                log.warn("ASL variables could not be built for ${doc.file.name}", e)
+                AslVariables(doc, failed = true)
+            }
     }
 
     private enum class Boundary { NONE, DISTRIBUTED, UNKNOWN }

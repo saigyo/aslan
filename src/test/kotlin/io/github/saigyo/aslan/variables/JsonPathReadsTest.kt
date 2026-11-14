@@ -28,6 +28,12 @@ class JsonPathReadsTest : VariableTestCase() {
         assertEquals(listOf(read("a"), read("b")), JsonPathReads.names(text))
     }
 
+    fun `test line breaks and tabs before an intrinsic argument`() {
+        val text = d("States.Format('{} {}',\n\t§a,\r\n  §b)")
+        fun read(name: String) = d("§$name").let { PathName(name, text.indexOf(it), text.indexOf(it) + it.length) }
+        assertEquals(listOf(read("a"), read("b")), JsonPathReads.names(text))
+    }
+
     fun `test quoted text in an intrinsic is no read`() {
         val text = "States.Format('it\\'s \$no', \$c)"
         assertEquals(listOf(PathName("c", text.indexOf("\$c"), text.indexOf("\$c") + 2)), JsonPathReads.names(text))
@@ -78,10 +84,10 @@ class JsonPathReadsTest : VariableTestCase() {
               End: true
             """.replace("§", "$"),
         )
-        assertEquals(
-            listOf("a.b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "n").map { "$$it" },
-            sites(text).map { it.first }.sortedBy { it.substring(1) },
-        )
+        val work = listOf("a.b", "n", "c", "d", "e", "f").map { "$$it" to "Work" }
+        val pick = listOf("g", "h", "i").map { "$$it" to "Pick" }
+        val each = listOf("j", "k").map { "$$it" to "Each" }
+        assertEquals(work + pick + each + ("\$l" to "One"), sites(text))
     }
 
     fun `test JSONata states have no JSONPath strings`() {
