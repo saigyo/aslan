@@ -1,7 +1,10 @@
 package io.github.saigyo.aslan
 
+import com.intellij.codeInsight.highlighting.HighlightManager
+import com.intellij.codeInsight.highlighting.HighlightManagerImpl
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 import com.intellij.psi.PsiFile
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 abstract class AslTestCase : BasePlatformTestCase() {
@@ -20,11 +23,16 @@ abstract class AslTestCase : BasePlatformTestCase() {
         return myFixture.lookupElementStrings.orEmpty()
     }
 
-    /** The text of every range highlighted by Highlight Usages at `<caret>`, sorted by start offset. */
+    /**
+     * The text of every range highlighted by Highlight Usages at `<caret>`, sorted by start offset; the highlighters of
+     * the daemon do not count. With the caret in an injected file the fixture hands out the injected editor, so the
+     * highlighters are read from the host editor.
+     */
     protected fun highlightedUsages(): List<String> {
         HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)
-        val text = myFixture.editor.document.charsSequence
-        return myFixture.editor.markupModel.allHighlighters
+        val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+        val text = editor.document.charsSequence
+        return (HighlightManager.getInstance(project) as HighlightManagerImpl).getHighlighters(editor)
             .sortedBy { it.startOffset }
             .map { text.subSequence(it.startOffset, it.endOffset).toString() }
     }
