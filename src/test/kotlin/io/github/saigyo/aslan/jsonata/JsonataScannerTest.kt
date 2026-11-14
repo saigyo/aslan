@@ -101,7 +101,7 @@ class JsonataScannerTest : AslTestCase() {
     }
 
     fun `test text after a complete expression is an error`() {
-        assertError("S0201", 24, 25, "Account.Order[0].Product;")
+        assertError("S0201", 21, 22, "Archive.Reel[0].Title;")
         assertError("S0201", 2, 3, "1 2")
         assertError("S0201", 3, 4, "/a/x")
     }
@@ -132,8 +132,8 @@ class JsonataScannerTest : AslTestCase() {
         assertError("S0213", 3, 4, "a.-1")
         assertError("S0213", 2, 6, "a.true")
         assertError("S0213", 6, 10, "\$.7[\$.true]")          // the predicate is processed before the steps are checked
-        assertError("S0215", 16, 17, "Account.Order[1]@\$o.Product")
-        assertError("S0216", 24, 25, "Account.Order^(>OrderID)@\$o.Product")
+        assertError("S0215", 15, 16, "Archive.Reel[1]@\$o.Title")
+        assertError("S0216", 22, 23, "Archive.Reel^(>ReelID)@\$o.Title")
         for (text in listOf("a[1]{\"x\":1}[0]", "7#\$i", "-1#\$i", "7[0]", "\$x.\"7\"")) assertNull(text, JsonataScanner.scan(text).error)
         assertEquals(listOf("PATH", "PATH", "CONTEXT_REF", "LITERAL", "FIELD"), nodes("\$.7.a").map { it.toString() })
     }

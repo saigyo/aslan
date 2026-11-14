@@ -20,9 +20,12 @@ import com.intellij.refactoring.listeners.RefactoringElementListener
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenameHandler
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenamer
+import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.IncorrectOperationException
+import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
+import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 
 /**
@@ -51,6 +54,9 @@ class JsonataInplaceRenameHandler : VariableInplaceRenameHandler() {
 /** Edits each occurrence after its `$`, so the template shows and takes the name alone. */
 class JsonataInplaceRenamer(element: PsiNamedElement, editor: Editor, initialName: String? = element.name, oldName: String? = element.name) :
     VariableInplaceRenamer(element, editor, element.project, initialName, oldName) {
+    /** Taken before the template changes the text; the platform's own collision check does not run for an injected expression. */
+    private val conflicts = (element as? JsonataVariableRef)?.let { JsonataRenameConflicts.of(it) }
+
     override fun getRangeToRename(element: PsiElement): TextRange = afterDollar(element) ?: super.getRangeToRename(element)
 
     override fun getRangeToRename(reference: PsiReference): TextRange = afterDollar(reference.element) ?: super.getRangeToRename(reference)
@@ -68,11 +74,13 @@ class JsonataInplaceRenamer(element: PsiNamedElement, editor: Editor, initialNam
      * and so that editor. The host would keep the bad name.
      */
     override fun performRefactoring(): Boolean {
-        val name = myInsertedName
-        if (name == null || isIdentifier(name, null)) return super.performRefactoring()
+        val name = myInsertedName ?: return super.performRefactoring()
+        val problem = if (!isIdentifier(name, null)) "'$name' is not a valid variable name" else conflicts?.conflict(name)
+        if (problem == null) return super.performRefactoring()
+        // a conflict is refused, not renamed into: the host gets the old name back
         tryRollback()
         val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myEditor)
-        if (!ApplicationManager.getApplication().isUnitTestMode) HintManager.getInstance().showErrorHint(editor, "'$name' is not a valid variable name")
+        if (!ApplicationManager.getApplication().isUnitTestMode) HintManager.getInstance().showErrorHint(editor, problem)
         return false
     }
 
@@ -114,6 +122,14 @@ class JsonataTargetElementEvaluator : TargetElementEvaluatorEx2() {
 class JsonataVariableRenameProcessor : RenamePsiElementProcessor() {
     override fun canProcessElement(element: PsiElement): Boolean = isLocalVariable(element)
 
+    override fun findCollisions(element: PsiElement, newName: String, allRenames: Map<out PsiElement, String>, result: MutableList<UsageInfo>) {
+        val variable = element as? JsonataVariableRef ?: return
+        val conflict = JsonataRenameConflicts.of(variable).conflict(newName) ?: return
+        result += object : UnresolvableCollisionUsageInfo(variable, variable) {
+            override fun getDescription(): String = conflict
+        }
+    }
+
     override fun renameElement(element: PsiElement, newName: String, usages: Array<out UsageInfo>, listener: RefactoringElementListener?) {
         val variable = element as JsonataVariableRef
         if (!JsonataNamesValidator().isIdentifier(newName, variable.project)) throw IncorrectOperationException("not a valid variable name: $newName")
@@ -133,5 +149,37 @@ class JsonataVariableRenameProcessor : RenamePsiElementProcessor() {
         documents.commitDocument(host)
         val renamed = documents.getPsiFile(document)?.findElementAt(first)?.parent as? JsonataVariableRef
         if (renamed != null) listener?.elementRenamed(renamed)
+    }
+}
+
+/**
+ * What a rename of one local variable must not choose as the new name, because the expression would then compute
+ * something else: the name of another local variable visible at an occurrence (the occurrences would refer to it, or
+ * it to them), the name of a built-in function or `states`, and a name read in the expression that is no local
+ * variable (a state machine variable or an undeclared name, which the renamed variable would capture). Taken from the
+ * expression as it stands before the rename.
+ */
+internal class JsonataRenameConflicts private constructor(private val oldName: String, private val locals: Set<String>, private val reads: Set<String>) {
+    /** A description of the conflict a rename to [newName] makes, or null. */
+    fun conflict(newName: String): String? = when {
+        newName == oldName -> null
+        newName in locals -> "Another variable named \$$newName is visible where \$$oldName is used"
+        newName == "states" || AslSpec.jsonataFunction(newName) != null -> "\$$newName is a built-in name that \$$oldName would hide"
+        newName in reads -> "\$$newName is read in this expression and would then refer to the renamed variable"
+        else -> null
+    }
+
+    companion object {
+        fun of(variable: JsonataVariableRef): JsonataRenameConflicts {
+            val oldName = variable.name
+            val locals = HashSet<String>()
+            for (occurrence in JsonataScopes.occurrences(variable)) locals += JsonataScopes.visibleNames(occurrence)
+            locals -= oldName
+            val file = variable.containingFile as? JsonataFile
+            val reads = file?.let { JsonataScopes.variables(it) }.orEmpty()
+                .filter { JsonataScopes.declarations(it).isEmpty() }
+                .mapTo(HashSet()) { it.name }
+            return JsonataRenameConflicts(oldName, locals, reads)
+        }
     }
 }

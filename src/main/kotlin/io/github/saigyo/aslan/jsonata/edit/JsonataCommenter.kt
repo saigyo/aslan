@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.jsonata.edit
 import com.intellij.codeInsight.generation.CommenterDataHolder
 import com.intellij.codeInsight.generation.SelfManagingCommenter
 import com.intellij.lang.Commenter
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
@@ -12,6 +13,9 @@ import com.intellij.psi.PsiFile
  * `/* … */`, and uncommented by taking the delimiters off again, so that toggling twice restores the text exactly. The
  * platform's own handling of block-only commenters in an injected fragment does not manage that when white space
  * follows the comment on the line (`{% $x + 1 %}`).
+ *
+ * In a quoted YAML scalar over several lines the commenter does nothing: the injected document of such a scalar is one
+ * line, so commenting "the line" would comment the whole expression.
  */
 class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun getLineCommentPrefix(): String? = null
@@ -21,10 +25,17 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun getCommentedBlockCommentSuffix(): String? = null
 
     override fun createLineCommentingState(startLine: Int, endLine: Int, document: Document, file: PsiFile): CommenterDataHolder =
-        State
+        stateFor(file)
 
     override fun createBlockCommentingState(selectionStart: Int, selectionEnd: Int, document: Document, file: PsiFile): CommenterDataHolder =
-        State
+        stateFor(file)
+
+    private fun stateFor(file: PsiFile): CommenterDataHolder {
+        val host = InjectedLanguageManager.getInstance(file.project).getInjectionHost(file) ?: return State
+        val text = host.text
+        val quoted = text.startsWith("'") || text.startsWith("\"")
+        return if (quoted && text.contains('\n')) Disabled else State
+    }
 
     /** The range of the text of [line] without the white space at both ends. */
     private fun content(line: Int, document: Document): TextRange {
@@ -37,6 +48,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     }
 
     override fun isLineCommented(line: Int, offset: Int, document: Document, data: CommenterDataHolder): Boolean {
+        if (data === Disabled) return false
         val range = content(line, document)
         val text = range.substring(document.text)
         return isOneComment(text)
@@ -48,6 +60,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
             text.indexOf(CLOSE, OPEN.length) == text.length - CLOSE.length
 
     override fun commentLine(line: Int, offset: Int, document: Document, data: CommenterDataHolder) {
+        if (data === Disabled) return
         val range = content(line, document)
         // JSONata comments do not nest: a line that holds a comment delimiter is left as it is.
         range.substring(document.text).let { if (it.contains(OPEN) || it.contains(CLOSE)) return }
@@ -56,6 +69,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     }
 
     override fun uncommentLine(line: Int, offset: Int, document: Document, data: CommenterDataHolder) {
+        if (data === Disabled) return
         val range = content(line, document)
         val text = range.substring(document.text)
         if (!isOneComment(text)) return
@@ -70,6 +84,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun getCommentPrefix(line: Int, document: Document, data: CommenterDataHolder): String = OPEN
 
     override fun getBlockCommentRange(selectionStart: Int, selectionEnd: Int, document: Document, data: CommenterDataHolder): TextRange? {
+        if (data === Disabled) return null
         val text = document.charsSequence
         var start = selectionStart
         var end = selectionEnd
@@ -84,12 +99,14 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
     override fun getBlockCommentSuffix(selectionEnd: Int, document: Document, data: CommenterDataHolder): String = CLOSE
 
     override fun uncommentBlockComment(startOffset: Int, endOffset: Int, document: Document, data: CommenterDataHolder) {
+        if (data === Disabled) return
         val range = getBlockCommentRange(startOffset, endOffset, document, data) ?: return
         document.deleteString(range.endOffset - CLOSE.length, range.endOffset)
         document.deleteString(range.startOffset, range.startOffset + OPEN.length)
     }
 
     override fun insertBlockComment(startOffset: Int, endOffset: Int, document: Document, data: CommenterDataHolder): TextRange {
+        if (data === Disabled) return TextRange(startOffset, endOffset)
         document.insertString(endOffset, CLOSE)
         document.insertString(startOffset, OPEN)
         return TextRange(startOffset, endOffset + OPEN.length + CLOSE.length)
@@ -97,6 +114,8 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
 
     private companion object {
         val State = object : CommenterDataHolder() {}
+        /** For a quoted YAML scalar over several lines. */
+        val Disabled = object : CommenterDataHolder() {}
         const val OPEN = "/*"
         const val CLOSE = "*/"
     }

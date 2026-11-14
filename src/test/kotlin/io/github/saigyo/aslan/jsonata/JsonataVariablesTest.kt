@@ -18,6 +18,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.util.IncorrectOperationException
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.refactoring.BaseRefactoringProcessor
 import com.intellij.refactoring.rename.RenameUtil
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil
 import io.github.saigyo.aslan.check.AslChecker
@@ -128,16 +129,16 @@ class JsonataVariablesTest : JsonataTestCase() {
         val sites = AslModel.of(host)!!.jsonataSites.all.size
         assertTrue(sites > 0)
         myFixture.renameElementAtCaret(newName)
-        assertResult(host, after, sites)
+        assertResult(host, after, sites, newName)
     }
 
-    private fun assertResult(host: PsiFile, after: String, sites: Int) {
+    private fun assertResult(host: PsiFile, after: String, sites: Int, newName: String = "sum2") {
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         assertEquals(after, PsiDocumentManager.getInstance(project).getDocument(host)!!.text)
         assertEquals(after, host.text)
         assertEquals(sites, AslModel.of(host)?.jsonataSites?.all?.size)
         assertEquals(emptyList<AslProblem>(), AslChecker.findings(host).map { it.problem }.filter { it == AslProblem.JSONATA_SYNTAX_ERROR })
-        val renamed = injectedVariables().filter { it.name == "sum2" }
+        val renamed = injectedVariables().filter { it.name == newName }
         assertTrue(renamed.isNotEmpty())
         assertEquals(renamed, JsonataScopes.occurrences(renamed.first()))
     }
@@ -210,8 +211,8 @@ class JsonataVariablesTest : JsonataTestCase() {
             hostText("(\$sum2 := 1; \$sum2 := \$sum2 + 1; \$sum2)"),
         )
         jsonata("(\$n := 1; function(\$n){ \$n }(\$<caret>n))")
-        myFixture.renameElementAtCaret("count")
-        myFixture.checkResult("(\$count := 1; function(\$n){ \$n }(\$count))")
+        myFixture.renameElementAtCaret("tally")
+        myFixture.checkResult("(\$tally := 1; function(\$n){ \$n }(\$tally))")
     }
 
     fun `test rename rejects a name that is no identifier`() {
@@ -428,5 +429,57 @@ class JsonataVariablesTest : JsonataTestCase() {
             }
         }
         assertEquals("(\$sum := 1; \$sum)", myFixture.editor.document.text)
+    }
+
+    /** Renames at the caret of [before] to [newName], expects a reported conflict, and checks that the host is unchanged. */
+    private fun assertRenameConflict(before: String, newName: String) {
+        myFixture.configureByText("test.asl.yaml", before)
+        val host = hostFile()
+        try {
+            myFixture.renameElementAtCaret(newName)
+            fail("expected a rename conflict for $newName")
+        } catch (e: BaseRefactoringProcessor.ConflictsInTestsException) {
+            assertFalse(e.messages.isEmpty())
+        }
+        assertEquals(before.replace("<caret>", ""), PsiDocumentManager.getInstance(project).getDocument(host)!!.text)
+    }
+
+    fun `test rename to the name of another visible variable is a conflict`() {
+        assertRenameConflict(hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)"), "b")
+        // the other variable is a parameter of a lambda the renamed one is used in
+        assertRenameConflict(hostText("(\$a := 1; function(\$b){ \$b + \$<caret>a })"), "b")
+        // the renamed variable would hide an outer one read in its scope
+        assertRenameConflict(hostText("(\$b := 1; (\$<caret>a := 2; \$a + \$b))"), "b")
+    }
+
+    fun `test rename to a built-in name is a conflict`() {
+        assertRenameConflict(hostText("(\$x := [1]; \$sum(\$<caret>x))"), "sum")
+        assertRenameConflict(hostText("(\$x := [1]; \$<caret>x)"), "count")
+    }
+
+    fun `test rename to a name read as no local variable is a conflict`() {
+        assertRenameConflict(hostText("(\$<caret>n := 1; \$n + \$limit)"), "limit")
+    }
+
+    fun `test a forced rename into a conflict and a rename to a fresh name`() {
+        val before = hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)")
+        myFixture.configureByText("test.asl.yaml", before)
+        val host = hostFile()
+        BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts<Throwable> { myFixture.renameElementAtCaret("b") }
+        assertEquals(hostText("(\$b := 1; \$b := 2; \$b + \$b)"), PsiDocumentManager.getInstance(project).getDocument(host)!!.text)
+        assertRename(hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)"), hostText("(\$total := 1; \$b := 2; \$total + \$b)"), newName = "total")
+    }
+
+    fun `test in-place rename into a conflict is refused`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        for ((before, name) in listOf(
+            hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)") to "b",
+            hostText("(\$x := [1]; \$sum(\$<caret>x))") to "sum",
+            hostText("(\$<caret>n := 1; \$n + \$limit)") to "limit",
+        )) {
+            assertEquals(name, before.replace("<caret>", ""), inplaceRenameTo(before, name, "test.asl.yaml"))
+        }
+        val fresh = hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)")
+        assertEquals(hostText("(\$total := 1; \$b := 2; \$total + \$b)"), inplaceRenameTo(fresh, "total", "test.asl.yaml"))
     }
 }

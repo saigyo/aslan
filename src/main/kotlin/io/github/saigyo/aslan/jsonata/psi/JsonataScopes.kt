@@ -72,6 +72,9 @@ object JsonataScopes {
         return bindings.occurrences[first].orEmpty()
     }
 
+    /** Every `$name` of [file] that can be a local variable (see [localName]), local or not, in file order. */
+    internal fun variables(file: JsonataFile): List<JsonataVariableRef> = bindings(file).variables
+
     /** The name of [variable] without `$`, or null where it cannot be a local variable: `$`, `$$`, a placeholder. */
     internal fun localName(variable: JsonataVariableRef): String? {
         val token = variable.node.firstChildNode ?: return null
@@ -89,6 +92,8 @@ object JsonataScopes {
         val declarations: Map<JsonataVariableRef, List<JsonataVariableRef>>,
         /** For each first declaration, every occurrence of its variable in file order. */
         val occurrences: Map<JsonataVariableRef, List<JsonataVariableRef>>,
+        /** Every variable with a [localName], in file order. */
+        val variables: List<JsonataVariableRef>,
     )
 
     /**
@@ -159,7 +164,7 @@ object JsonataScopes {
         // a declaration that stands before the end of the first one of its scope (`$a := $a := 1`) is resolved outward
         // like a use and declares nothing there
         val declarations = occurrences.mapValues { (_, all) -> all.filter { it in declaring } }
-        return Bindings(declared, firstOf, declarations, occurrences)
+        return Bindings(declared, firstOf, declarations, occurrences, variables.map { it.first })
     }
 
     /** Pushes the composite children of [element], each with the scope it stands in, so that they are popped in file order. */
