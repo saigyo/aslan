@@ -16,7 +16,7 @@ object AslChecker {
 
     /**
      * The findings of [file], sorted by the start offset of their element and then by problem, with no two of the
-     * same problem on the same element; empty for a file that is not an ASL file.
+     * same problem, element and message; empty for a file that is not an ASL file.
      */
     fun findings(file: PsiFile): List<AslFinding> {
         if (!AslFiles.isAslFile(file)) return emptyList()
@@ -37,7 +37,7 @@ object AslChecker {
             if (e is ControlFlowException) throw e
             log.error("ASL checks failed on ${file.name}", e)
         }
-        return out.distinctBy { it.problem to it.element }
+        return out.distinctBy { Triple(it.problem, it.element, it.message) }
             .sortedWith(compareBy<AslFinding> { it.element.textRange.startOffset }.thenBy { it.problem.ordinal })
     }
 }

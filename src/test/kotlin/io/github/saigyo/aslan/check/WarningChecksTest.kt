@@ -187,7 +187,7 @@ class WarningChecksTest : CheckTestCase() {
             |          End: true
             |""".trimMargin())
         val finding = AslChecker.findings(myFixture.configureByText("test.asl.yaml", text)).single()
-        assertEquals(INVALID_MAP_LABEL, finding.problem)
+        assertEquals(AslProblem.DUPLICATE_MAP_LABEL, finding.problem)
         assertEquals("the later use is reported", text.lastIndexOf("Label: Reels") + "Label: ".length, finding.element.textRange.startOffset)
     }
 
@@ -212,4 +212,21 @@ class WarningChecksTest : CheckTestCase() {
         found("StartAt: A\nStates:\n  A:\n    Type: Choice\n    Choices:\n      - Not:\n        - Next")
         found("StartAt: A\nStates:\n  A:\n    Type: Task\n    Retry:\n      - ErrorEquals: [States.\n    HeartbeatSeconds: 5\n    TimeoutSeconds:")
     }
+
+    fun `test a placeholder label is not compared`() {
+        val text = paths("Label: Reels" to "Label: ${dollar}{Label}", "          Type: Pass\n          End: true\n" to """
+            |          Type: Map
+            |          Label: ${dollar}{Label}
+            |          ItemProcessor:
+            |            StartAt: Frame
+            |            States:
+            |              Frame:
+            |                Type: Succeed
+            |          End: true
+            |""".trimMargin())
+        assertEquals(emptyList<Any>(), found(text))
+    }
+
+    fun `test Choice state with a placeholder key and no Default`() =
+        assertEquals(emptyList<Any>(), found(edit("    Default: Rejected\n" to "    ${dollar}{DefaultKey}: Rejected\n")))
 }

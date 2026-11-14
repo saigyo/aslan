@@ -4,7 +4,9 @@ import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
+import io.github.saigyo.aslan.check.AslProblem.MISPLACED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.MISSING_TRANSITION
+import io.github.saigyo.aslan.check.AslProblem.NULL_VALUE
 import io.github.saigyo.aslan.check.AslProblem.ROOT_NOT_MAPPING
 import io.github.saigyo.aslan.check.AslProblem.UNCLOSED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_STATE_TYPE
@@ -29,7 +31,10 @@ import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
 import java.util.IdentityHashMap
 
-/** The checks of the definition's structure whose failure AWS documents as a rejection. */
+/**
+ * The checks of the definition's structure whose failure AWS documents as a rejection, and the two warnings that are
+ * decided at the same place: a null optional field and JSONata delimiters that do not wrap the whole value.
+ */
 internal object StructureChecks {
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
         val rootNode = doc.rootNode ?: return
@@ -53,13 +58,8 @@ internal object StructureChecks {
         val evaluatesJsonata: Boolean get() = inState && known && ql == QueryLanguage.JSONATA
 
         companion object {
-            /** The context of the top level of [root], whose `QueryLanguage` decides that of every state unless it sets its own. */
-            fun topLevel(root: AslStateMachine): Context {
-                val language = root.obj["QueryLanguage"]?.value as? AslScalar
-                val known = language == null || !Placeholders.contains(language.text)
-                val jsonata = language?.type == ScalarType.STRING && language.text == QueryLanguage.JSONATA.text
-                return Context(if (jsonata) QueryLanguage.JSONATA else QueryLanguage.JSONPATH, known, inState = false)
-            }
+            /** The context of the top level of [doc], whose `QueryLanguage` decides that of every state unless it sets its own. */
+            fun topLevel(doc: AslDocument) = Context(doc.queryLanguage, doc.queryLanguageKnown, inState = false)
 
             fun of(state: AslState) = Context(state.queryLanguage, state.queryLanguageKnown, inState = true)
         }
@@ -67,11 +67,10 @@ internal object StructureChecks {
 
     private class Walk(val doc: AslDocument, val root: AslStateMachine, val out: MutableList<AslFinding>) {
         private val machines = IdentityHashMap<AslObject, AslStateMachine>().apply { for (m in doc.allMachines()) put(m.obj, m) }
-        private val rootLanguage = root.obj["QueryLanguage"]?.value as? AslScalar
-        private val topLevelJsonata = rootLanguage?.type == ScalarType.STRING && rootLanguage.text == QueryLanguage.JSONATA.text
+        private val topLevelJsonata = doc.queryLanguageKnown && doc.queryLanguage == QueryLanguage.JSONATA
 
         fun run() {
-            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(root), root.obj.anchorPsi)
+            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(doc), root.obj.anchorPsi)
         }
 
         private fun report(problem: AslProblem, element: PsiElement, message: String) {
@@ -80,7 +79,7 @@ internal object StructureChecks {
 
         /** Checks [o] as [structure]; [anchor] is where a missing field is reported. */
         private fun obj(o: AslObject, structure: StructureSpec, ctx: Context, anchor: PsiElement) {
-            if (!hasUnappliedMerge(o)) {
+            if (!uncertain(o)) {
                 for (field in structure.fields) {
                     if (field.required && o[field.name] == null) report(MISSING_REQUIRED_FIELD, anchor, "Missing required field '${field.name}'")
                 }
@@ -96,15 +95,19 @@ internal object StructureChecks {
                     continue
                 }
                 if (field.lenient) continue
-                value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o)
+                value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o, optional = !field.required && field.kind != ValueKind.StateName)
             }
         }
 
         /**
          * Checks that [node] fits [kind] and, if it does, descends into it. [jsonata] tells whether the field evaluates
-         * JSONata; [owner] is the object holding the field.
+         * JSONata; [owner] is the object holding the field. [optional] is true for the direct value of a field that is
+         * neither required nor a transition target, where a null value is only a warning.
          */
-        private fun value(node: AslNode, kind: ValueKind, nullable: Boolean, jsonata: Boolean, ctx: Context, anchor: PsiElement, owner: AslObject) {
+        private fun value(
+            node: AslNode, kind: ValueKind, nullable: Boolean, jsonata: Boolean, ctx: Context, anchor: PsiElement, owner: AslObject,
+            optional: Boolean = false,
+        ) {
             if (kind == ValueKind.FreeForm) {
                 if (ctx.evaluatesJsonata) freeFormDelimiters(node)
                 return
@@ -115,9 +118,14 @@ internal object StructureChecks {
                 return
             }
             if (!fitsKind(node, kind, nullable)) {
-                wrongKind(node, expectedText(kind))
+                if (optional && node is AslScalar && node.type == ScalarType.NULL) {
+                    report(NULL_VALUE, node.psi, "The field is present but has no value")
+                } else {
+                    wrongKind(node, expectedText(kind))
+                }
                 return
             }
+            if (node is AslScalar && jsonata && ctx.evaluatesJsonata) misplaced(node)
             when (kind) {
                 is ValueKind.Struct -> obj(node as AslObject, AslSpec.structure(kind.id), ctx, anchor)
                 is ValueKind.ListOf ->
@@ -159,7 +167,7 @@ internal object StructureChecks {
             obj(o, AslSpec.structure(state.type?.structure ?: StructureId.STATE), ctx, state.entry.keyPsi)
 
             val type = state.type
-            if (type != null && type.needsTransition && !hasUnappliedMerge(o) && o["Next"] == null && !mayEnd(o["End"])) {
+            if (type != null && type.needsTransition && !uncertain(o) && o["Next"] == null && !mayEnd(o["End"])) {
                 report(MISSING_TRANSITION, state.entry.keyPsi, "A ${type.name} state needs 'Next' or 'End: true'")
             }
             if (topLevelJsonata && state.queryLanguageKnown) {
@@ -180,7 +188,7 @@ internal object StructureChecks {
                 return
             }
             for (rule in list.items) {
-                if (rule !is AslObject || hasUnappliedMerge(rule)) continue
+                if (rule !is AslObject || uncertain(rule)) continue
                 if (rule["Next"] == null) report(MISSING_REQUIRED_FIELD, rule.anchorPsi, "Missing required field 'Next'")
                 if (ctx.known && ctx.ql == QueryLanguage.JSONATA && rule["Condition"] == null) {
                     report(MISSING_REQUIRED_FIELD, rule.anchorPsi, "Missing required field 'Condition'")
@@ -193,13 +201,33 @@ internal object StructureChecks {
             when (node) {
                 is AslObject -> for (entry in node.entries) if (!entry.viaMerge && !isUnappliedMerge(entry)) freeFormDelimiters(entry.value)
                 is AslArray -> for (item in node.items) freeFormDelimiters(item)
-                is AslScalar -> if (isJsonata(node) && !Placeholders.contains(node.text)) unclosed(node)
+                is AslScalar -> when {
+                    node.ambiguous || Placeholders.contains(node.text) -> {}
+                    isJsonata(node) -> unclosed(node)
+                    else -> misplaced(node)
+                }
                 is AslUnresolved -> {}
             }
         }
 
         private fun unclosed(scalar: AslScalar) {
-            if (!scalar.text.endsWith("%}")) report(UNCLOSED_JSONATA_DELIMITER, scalar.psi, "A JSONata expression must end with %}")
+            val text = scalar.text
+            if (text.endsWith("%}")) return
+            val message = if (text.trimEnd('\n', '\r').endsWith("%}")) {
+                "A JSONata expression must end with %}, but this value ends with a line break; in a YAML block scalar, >- or |- removes it"
+            } else {
+                "A JSONata expression must end with %}"
+            }
+            report(UNCLOSED_JSONATA_DELIMITER, scalar.psi, message)
+        }
+
+        /** A string that holds JSONata delimiters but does not start with `{%` is plain text, which is probably not meant. */
+        private fun misplaced(scalar: AslScalar) {
+            val text = scalar.text
+            if (scalar.type != ScalarType.STRING || text.startsWith("{%") || Placeholders.contains(text)) return
+            if ("{%" in text || "%}" in text) {
+                report(MISPLACED_JSONATA_DELIMITER, scalar.psi, "Step Functions evaluates JSONata only in a value that starts with {% and ends with %}; this is plain text")
+            }
         }
     }
 
@@ -237,5 +265,9 @@ internal object StructureChecks {
         return !(value is AslScalar && value.type == ScalarType.BOOLEAN && !value.ambiguous && value.text.equals("false", ignoreCase = true))
     }
 
-    internal fun hasUnappliedMerge(o: AslObject) = o.entries.any(::isUnappliedMerge)
+    /**
+     * Whether the file leaves open which fields [o] has: an unapplied merge or a placeholder key may supply any field,
+     * so no rule may report a field of [o] as absent.
+     */
+    internal fun uncertain(o: AslObject) = o.entries.any { isUnappliedMerge(it) || Placeholders.contains(it.key) }
 }

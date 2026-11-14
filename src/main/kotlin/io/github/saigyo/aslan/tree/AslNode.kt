@@ -35,7 +35,7 @@ class AslArray(override val psi: PsiElement, override val usePsi: PsiElement, va
 
 /**
  * A scalar value. [text] is the decoded value. [ambiguous] is true for a plain YAML scalar that YAML 1.1
- * and YAML 1.2 type differently, so no check may judge its kind.
+ * and YAML 1.2 type differently, and for any tagged YAML scalar, so no check may judge its kind.
  */
 class AslScalar(
     override val psi: PsiElement,

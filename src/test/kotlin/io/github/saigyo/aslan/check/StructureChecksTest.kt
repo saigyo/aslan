@@ -3,7 +3,10 @@ package io.github.saigyo.aslan.check
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
+import io.github.saigyo.aslan.check.AslProblem.MISPLACED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.MISSING_TRANSITION
+import io.github.saigyo.aslan.check.AslProblem.NULL_VALUE
+import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_ENUM_VALUE
 import io.github.saigyo.aslan.check.AslProblem.ROOT_NOT_MAPPING
 import io.github.saigyo.aslan.check.AslProblem.UNCLOSED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_STATE_TYPE
@@ -209,5 +212,124 @@ class StructureChecksTest : CheckTestCase() {
     fun `test an unapplied merge key is not reported and may supply required fields`() = assertEquals(
         emptyList<Any>(),
         found(edit("      - ErrorEquals: [States.ALL]\n        MaxAttempts: 2" to "      - <<: *missing\n        MaxAttempts: 2")),
+    )
+
+    // Null values (A2)
+
+    private fun withSucceedField(line: String) = edit("    Type: Succeed" to "    Type: Succeed\n    $line")
+
+    fun `test empty optional field`() = assertEquals(listOf(NULL_VALUE to "Comment"), found(withSucceedField("Comment:")))
+
+    fun `test null optional field`() = assertEquals(listOf(NULL_VALUE to "null"), found(withSucceedField("Comment: null")))
+
+    fun `test empty optional list`() = assertEquals(listOf(NULL_VALUE to "Retry"), found(edit(retryBlock to "    Retry:\n")))
+
+    fun `test tilde in an optional number`() = assertEquals(
+        listOf(NULL_VALUE to "~"),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: ~\n")),
+    )
+
+    fun `test JSON null in an optional field`() = assertEquals(
+        listOf(NULL_VALUE to "null"),
+        found("""{"StartAt": "A", "States": {"A": {"Type": "Succeed", "Comment": null}}}""", "test.asl.json"),
+    )
+
+    fun `test null in a required field stays a wrong kind`() = assertEquals(
+        listOf(WRONG_VALUE_KIND to "Resource"),
+        found(edit("Resource: arn:aws:states:::lambda:invoke" to "Resource:")),
+    )
+
+    fun `test null as a state stays a wrong kind`() =
+        assertEquals(listOf(WRONG_VALUE_KIND to "Accepted"), found(edit("  Accepted:\n    Type: Succeed" to "  Accepted:")))
+
+    fun `test null in a nullable field is clean`() = assertEquals(
+        emptyList<Any>(),
+        found("StartAt: A\nStates:\n  A:\n    Type: Pass\n    ResultPath: null\n    End: true\n"),
+    )
+
+    // Findings that differ only in message (A4)
+
+    fun `test root with neither StartAt nor States reports both`() = assertEquals(
+        listOf(MISSING_REQUIRED_FIELD to "Comment", MISSING_REQUIRED_FIELD to "Comment"),
+        found("Comment: nothing yet\n"),
+    )
+
+    fun `test catcher with neither ErrorEquals nor Next reports both`() = assertEquals(
+        listOf(MISSING_REQUIRED_FIELD to "Comment", MISSING_REQUIRED_FIELD to "Comment"),
+        found(edit("      - ErrorEquals: [States.ALL]\n        Next: Rejected" to "      - Comment: later")),
+    )
+
+    // Placeholder keys (A5)
+
+    fun `test Task with a placeholder key and no Resource`() = assertEquals(
+        emptyList<Any>(),
+        found(edit("    Resource: arn:aws:states:::lambda:invoke\n" to "    ${'$'}{ResourceKey}: arn:aws:states:::lambda:invoke\n")),
+    )
+
+    fun `test state with a placeholder key and neither Next nor End`() =
+        assertEquals(emptyList<Any>(), found(edit("    Next: Decide\n" to "    ${'$'}{NextKey}: Decide\n")))
+
+    fun `test Choice rule with a placeholder key and no Next`() =
+        assertEquals(emptyList<Any>(), found(edit("        Next: Accepted\n" to "        ${'$'}{NextKey}: Accepted\n")))
+
+    fun `test JSONata Choice rule with a placeholder key and no Condition`() =
+        assertEquals(emptyList<Any>(), found(edit("      - Condition: $condition\n" to "      - ${'$'}{ConditionKey}: $condition\n")))
+
+    // Tags (A6)
+
+    fun `test tagged quoted number`() = assertEquals(
+        emptyList<Any>(),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: !!int \"12\"\n")),
+    )
+
+    fun `test tagged block scalar`() =
+        assertEquals(emptyList<Any>(), found(edit("MaxAttempts: 2" to "MaxAttempts: !!int |-\n          2")))
+
+    // Query language being typed (C1)
+
+    fun `test mistyped top-level query language gives only the enumeration warning`() =
+        assertEquals(listOf(UNKNOWN_ENUM_VALUE to "JSONat"), found(edit("QueryLanguage: JSONata" to "QueryLanguage: JSONat")))
+
+    fun `test mistyped state query language gives only the enumeration warning`() = assertEquals(
+        listOf(UNKNOWN_ENUM_VALUE to "JSONPat"),
+        found(edit("QueryLanguage: JSONata\n" to "", "    Type: Task\n" to "    Type: Task\n    QueryLanguage: JSONPat\n")).filter { it.first != WRONG_QUERY_LANGUAGE_FIELD || it.second != "Condition" },
+    )
+
+    // Misplaced delimiters (C2)
+
+    fun `test delimiters that do not start the value in free-form data`() = assertEquals(
+        listOf(MISPLACED_JSONATA_DELIMITER to "' {% ${'$'}x %}'"),
+        found(edit("FunctionName: ${'$'}{InspectFn}" to "FunctionName: ' {% ${'$'}x %}'")),
+    )
+
+    fun `test delimiters that do not start a text field that evaluates JSONata`() = assertEquals(
+        listOf(MISPLACED_JSONATA_DELIMITER to "'Bad {% ${'$'}x %}'"),
+        found(edit("    Type: Fail" to "    Type: Fail\n    Error: 'Bad {% ${'$'}x %}'")),
+    )
+
+    fun `test misplaced delimiters with a placeholder`() =
+        assertEquals(emptyList<Any>(), found(edit("FunctionName: ${'$'}{InspectFn}" to "FunctionName: 'x {% ${'$'}{Tail} %}'")))
+
+    fun `test misplaced delimiters in a field that is never evaluated`() =
+        assertEquals(emptyList<Any>(), found(withSucceedField("Comment: 'uses {% here %}'")))
+
+    fun `test misplaced delimiters in a JSONPath state`() = assertEquals(
+        emptyList<Any>(),
+        found("StartAt: A\nStates:\n  A:\n    Type: Pass\n    Parameters:\n      x: ' {% 1 %}'\n    End: true\n"),
+    )
+
+    fun `test the unclosed message names the line break of a block scalar`() {
+        val finding = AslChecker.findings(myFixture.configureByText("test.asl.yaml",
+            edit("Condition: $condition" to "Condition: >\n          {% ${'$'}states.input.ok %}"))).single()
+        val plain = AslChecker.findings(myFixture.configureByText("test.asl.yaml", edit(condition to "'{% ${'$'}states.input.ok'"))).single()
+        assertEquals(UNCLOSED_JSONATA_DELIMITER, finding.problem)
+        assertFalse("the block scalar case has its own message", finding.message == plain.message)
+    }
+
+    // Guards of errors (C15)
+
+    fun `test placeholder in an unclosed delimiter of a field that evaluates JSONata`() = assertEquals(
+        emptyList<Any>(),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: '{% ${'$'}x ${'$'}{Tail}'\n")),
     )
 }

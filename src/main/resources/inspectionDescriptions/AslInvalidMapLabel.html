@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a <code>Label</code> of a Map state that is longer than 40 characters, contains whitespace, control characters or one of <code>? * &lt; &gt; { } [ ] : ; , \ | ^ ~ $ # % &amp; ` "</code>, or is used by another Map state of the same definition. The developer guide states these limits for Distributed Map labels.</p>
-<p>It is only a warning: no AWS source documents that such a definition is rejected when it is created.</p>
+<p>Reports a <code>Label</code> of a Map state that is longer than 40 characters, or contains whitespace, control characters or one of <code>? * &lt; &gt; { } [ ] : ; , \ | ^ ~ $ # % &amp; ` "</code>. The developer guide states these limits for Distributed Map labels.</p>
+<p>The Step Functions API reference lists an <code>INVALID_LABEL_NAME</code> error for definition validation. The plugin keeps this finding a warning until its reading of the length and character rules has been confirmed against AWS.</p>
 </body>
 </html>

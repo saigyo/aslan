@@ -107,17 +107,19 @@ internal object YamlTree {
             }
         }
 
+        /** A tag (`!!int "12"`, `!Sub '...'`) may give any scalar another type or value, so a tagged scalar is always ambiguous. */
         private fun scalar(scalar: YAMLScalar, usePsi: PsiElement): AslScalar {
             val text = scalar.textValue
+            val tagged = scalar.tag != null
             return when (scalar) {
                 is YAMLPlainTextImpl -> AslScalar(
                     scalar, usePsi, YamlScalars.type(text), text,
-                    ambiguous = scalar.tag != null || YamlScalars.isAmbiguous(text),
+                    ambiguous = tagged || YamlScalars.isAmbiguous(text),
                 )
                 is YAMLScalarText, is YAMLScalarList ->
-                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text))
-                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text)
-                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text)
+                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text), ambiguous = tagged)
+                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text, ambiguous = tagged)
+                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text, ambiguous = tagged)
             }
         }
 
