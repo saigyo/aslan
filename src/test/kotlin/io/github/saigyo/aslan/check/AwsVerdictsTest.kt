@@ -22,6 +22,10 @@ class AwsVerdictsTest : CheckTestCase() {
         }
     }
 
+    private companion object {
+        const val PARENT = "the parent operator % is not resolved"
+    }
+
     private fun errors(probe: Probe): List<AslProblem> =
         AslChecker.findings(myFixture.configureByText("probe.asl.json", probe.definition)).map { it.problem }.filter { it.level == HighlightDisplayLevel.ERROR }
 
@@ -45,7 +49,38 @@ class AwsVerdictsTest : CheckTestCase() {
         "r3-AI-dollar-word-OutputPath" to "variables are checked in a later stage",
         "r3-AI-dollar-word-TimeoutSecondsPath" to "variables are checked in a later stage",
         "r3-AI-dollar-word-Variable" to "variables are checked in a later stage",
+        "r9-s-S0217-1" to PARENT, "r9-s-S0217-2" to PARENT, "r9-s-S0217-3" to PARENT, "r9-p-parent" to PARENT,
+        "r9-s-S0401-1" to "function signatures are not parsed",
+        "r9-p-context-unknown" to "the fields below \$states.context are not checked, since the plugin's list can be behind AWS",
     )
+
+    /**
+     * What AWS says about the JSONata expressions of round 9 beyond rejecting or accepting: it warns about `$eval`, an
+     * unknown function and an undeclared variable ("possibly not defined") and accepts them, so the plugin warns at most.
+     */
+    fun `test the warnings of AWS about JSONata are no errors in the plugin`() {
+        val warned = probes.filter { p -> p.name.startsWith("r9-") && p.diagnostics.any { it.startsWith("WARNING POSSIBLY_UNDEFINED_VARIABLE") } }
+        assertEquals(listOf("r9-p-eval", "r9-p-unknown-function", "r9-p-variable"), warned.map { it.name }.sorted())
+        for (p in warned) assertTrue(p.name, p.accepted && errors(p).isEmpty())
+        assertEquals(listOf(AslProblem.UNSUPPORTED_JSONATA_FUNCTION), problems("r9-p-eval"))
+        assertEquals(listOf(AslProblem.UNKNOWN_JSONATA_FUNCTION), problems("r9-p-unknown-function"))
+    }
+
+    /** Each expression check is an error exactly on the probes of round 9 that AWS rejects for that reason. */
+    fun `test the JSONata checks agree with AWS probe by probe`() {
+        fun reportedOn(problem: AslProblem, prefix: String) = probes.filter { it.name.startsWith(prefix) && problem in problems(it.name) }.map { it.name }.toSet()
+        fun rejectedFor(text: String, prefix: String) = probes.filter { p -> p.name.startsWith(prefix) && p.diagnostics.any { text in it } }.map { it.name }.toSet()
+
+        assertEquals(rejectedFor("does not exist", "r9-") - "r9-p-context-unknown", reportedOn(AslProblem.STATES_FIELD_UNAVAILABLE, "r9-"))
+        assertEquals(rejectedFor("is not supported", "r9-p-"), reportedOn(AslProblem.JSONATA_WITHOUT_INPUT, "r9-p-"))
+        assertEquals(setOf("r9-p-elvis", "r9-p-coalesce"), reportedOn(AslProblem.NEWER_JSONATA_OPERATOR, "r9-"))
+        assertTrue(probes.first { it.name == "r9-p-elvis" }.accepted.not() && probes.first { it.name == "r9-p-coalesce" }.accepted.not())
+    }
+
+    private fun problems(name: String): List<AslProblem> {
+        val probe = probes.first { it.name == name }
+        return AslChecker.findings(myFixture.configureByText("probe.asl.json", probe.definition)).map { it.problem }.distinct()
+    }
 
     private fun gap(name: String): String? = gaps.entries.firstOrNull { name.startsWith(it.key) }?.value
 
