@@ -2,6 +2,8 @@ package io.github.saigyo.aslan.refs
 
 import com.intellij.json.psi.JsonElementGenerator
 import com.intellij.json.psi.JsonProperty
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
 import com.intellij.patterns.ElementPattern
 import com.intellij.patterns.PatternCondition
@@ -11,6 +13,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.listeners.RefactoringElementListener
+import com.intellij.refactoring.rename.RenameDialog
 import com.intellij.refactoring.rename.RenameInputValidator
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo
@@ -49,12 +52,23 @@ private fun isStateEntry(element: PsiElement): Boolean = documentOfStateEntry(el
 
 private fun hasLineBreak(name: String): Boolean = name.any { it == '\n' || it == '\r' }
 
+/** Why [name] cannot be the name of a state, or null when it can. */
+internal fun stateNameProblem(name: String): String? = when {
+    name.isBlank() -> "A state name cannot be blank"
+    hasLineBreak(name) -> "A state name must fit on one line"
+    name.codePointCount(0, name.length) > MAX_STATE_NAME_LENGTH -> "A state name can have at most $MAX_STATE_NAME_LENGTH characters"
+    else -> null
+}
+
 /**
  * Renames a state: its key and every value that names it, each written so that it reads back as the new name. The
  * platform's own rename writes a YAML key as typed, which breaks names such as `Needs: review`.
  */
 class AslStateRenameProcessor : RenamePsiElementProcessor() {
     override fun canProcessElement(element: PsiElement): Boolean = isStateEntry(element)
+
+    override fun createRenameDialog(project: Project, element: PsiElement, nameSuggestionContext: PsiElement?, editor: Editor?): RenameDialog =
+        AslStateRenameDialog(project, element, nameSuggestionContext, editor)
 
     /** Each alias that the rename would leave on the old name, or change although it names another machine's state. */
     override fun findCollisions(element: PsiElement, newName: String, allRenames: Map<out PsiElement, String>, result: MutableList<UsageInfo>) {
@@ -91,8 +105,18 @@ class AslStateNameInputValidator : RenameInputValidator {
             override fun accepts(element: PsiElement, context: ProcessingContext?): Boolean = isStateEntry(element)
         })
 
-    override fun isInputValid(newName: String, element: PsiElement, context: ProcessingContext): Boolean =
-        newName.isNotBlank() && !hasLineBreak(newName) && newName.codePointCount(0, newName.length) <= MAX_STATE_NAME_LENGTH
+    override fun isInputValid(newName: String, element: PsiElement, context: ProcessingContext): Boolean = stateNameProblem(newName) == null
+}
+
+/**
+ * The Rename dialog for a state. The platform's dialog also shows the message of the YAML plugin's validator, which
+ * calls a name such as `Needs: review` "not a valid key name" although the rename writes it correctly.
+ */
+internal class AslStateRenameDialog(project: Project, element: PsiElement, nameSuggestionContext: PsiElement?, editor: Editor?) :
+    RenameDialog(project, element, nameSuggestionContext, editor) {
+    override fun canRun() {
+        stateNameProblem(newName)?.let { throw ConfigurationException(it) }
+    }
 }
 
 /**

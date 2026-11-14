@@ -1,10 +1,12 @@
 package io.github.saigyo.aslan.refs
 
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.BaseRefactoringProcessor.ConflictsInTestsException
+import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import com.intellij.refactoring.rename.RenameUtil
 import io.github.saigyo.aslan.AslTestCase
 import io.github.saigyo.aslan.model.AslModel
@@ -108,6 +110,21 @@ class StateRenameTest : AslTestCase() {
         assertFalse(RenameUtil.isValidName(project, entry, "two\nlines"))
         assertTrue(RenameUtil.isValidName(project, entry, "\uD83C\uDF9E".repeat(80)))
         assertFalse(RenameUtil.isValidName(project, entry, "\uD83C\uDF9E".repeat(81)))
+    }
+
+    fun `test the rename dialog judges a name by the rules for state names only`() {
+        val entry = rootDone()
+        val dialog = RenamePsiElementProcessor.forElement(entry).createRenameDialog(project, entry, null, null)
+        try {
+            // The platform's dialog would show the YAML plugin's "not a valid key name" for a name that needs quotes.
+            assertInstanceOf(dialog, AslStateRenameDialog::class.java)
+        } finally {
+            Disposer.dispose(dialog.disposable)
+        }
+        assertNull(stateNameProblem("Needs: review"))
+        assertEquals("A state name must fit on one line", stateNameProblem("two\nlines"))
+        assertEquals("A state name can have at most 80 characters", stateNameProblem("x".repeat(81)))
+        assertEquals("A state name cannot be blank", stateNameProblem("  "))
     }
 
     fun `test renaming onto an existing state name is a conflict`() {
