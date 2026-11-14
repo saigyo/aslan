@@ -60,6 +60,8 @@
         <readWriteAccessDetector implementation="io.github.saigyo.aslan.refs.AslVariableReadWriteAccessDetector"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
+        <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslVariableRenameProcessor"/>
+        <renameInputValidator implementation="io.github.saigyo.aslan.refs.AslVariableNameInputValidator"/>
         <yaml.customStructureViewFactory implementation="io.github.saigyo.aslan.structure.AslYamlStructureViewFactory"/>
         <json.customStructureViewFactory order="first" implementation="io.github.saigyo.aslan.structure.AslJsonStructureViewFactory"/>
         <highlightErrorFilter implementation="io.github.saigyo.aslan.jsonata.highlight.JsonataErrorFilter"/>

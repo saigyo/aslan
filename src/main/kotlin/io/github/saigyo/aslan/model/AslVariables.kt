@@ -159,7 +159,13 @@ class AslVariables private constructor(doc: AslDocument, private val failed: Boo
     fun visibleNames(state: AslState): Set<String> = visible[state.machine].orEmpty()
 
     /** Whether the file does not say every name a read in [state] can reach. */
-    fun isOpen(state: AslState): Boolean = failed || open[state.machine] == true
+    fun isOpen(state: AslState): Boolean = isOpen(state.machine)
+
+    /** Whether the file does not say every name a read in [machine] can reach: a machine in its chain is open. */
+    fun isOpen(machine: AslStateMachine): Boolean = failed || open[machine] == true
+
+    /** The chain of [machine]: the machine, then outward, ending after the processor of a Distributed Map. */
+    fun chain(machine: AslStateMachine): List<AslStateMachine> = chains[machine].orEmpty()
 
     private fun owningScope(name: String, machine: AslStateMachine): AslStateMachine? =
         chains[machine].orEmpty().lastOrNull { name in assigned[it].orEmpty() }
