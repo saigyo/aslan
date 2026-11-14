@@ -18,7 +18,11 @@ object JsonataTokens {
     /** `$name`, also `$` and `$$`. */
     @JvmField val VARIABLE = JsonataTokenType("VARIABLE")
     @JvmField val REGEX = JsonataTokenType("REGEX")
-    /** `${Name}`, which a deployment tool replaces before the definition reaches AWS. */
+    /**
+     * `${Name}`, which a deployment tool replaces before the definition reaches AWS. It is recognised only at the start
+     * of a token: in `prefix${X}` or `$${Var}` the placeholder is part of a name or a variable, so whether an expression
+     * holds a placeholder cannot be decided from its tokens alone.
+     */
     @JvmField val PLACEHOLDER = JsonataTokenType("PLACEHOLDER")
     @JvmField val TRUE = JsonataTokenType("TRUE")
     @JvmField val FALSE = JsonataTokenType("FALSE")
