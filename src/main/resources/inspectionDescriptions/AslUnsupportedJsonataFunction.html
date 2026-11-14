@@ -1,0 +1,6 @@
+<html>
+<body>
+<p>Reports a use of <code>$eval</code>, a JSONata function that Step Functions does not provide. Step Functions accepts the definition with a warning that the variable is possibly not defined; the call fails when the state runs. To turn a string holding JSON into a value, use <code>$parse</code>.</p>
+<p>A variable named <code>$eval</code> that the expression declares itself is not reported. An expression that contains a deployment-time placeholder such as <code>${Name}</code> outside a string literal is not checked. To switch the check off, disable this inspection in Settings | Editor | Inspections | Amazon States Language.</p>
+</body>
+</html>

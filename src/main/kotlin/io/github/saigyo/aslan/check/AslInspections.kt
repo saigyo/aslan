@@ -73,6 +73,11 @@ class AslInapplicableFieldInspection : AslProblemInspection(AslProblem.INAPPLICA
 class AslNullValueInspection : AslProblemInspection(AslProblem.NULL_VALUE)
 class AslMisplacedJsonataDelimiterInspection : AslProblemInspection(AslProblem.MISPLACED_JSONATA_DELIMITER)
 class AslJsonataSyntaxErrorInspection : AslProblemInspection(AslProblem.JSONATA_SYNTAX_ERROR)
+class AslStatesFieldUnavailableInspection : AslProblemInspection(AslProblem.STATES_FIELD_UNAVAILABLE)
+class AslNewerJsonataOperatorInspection : AslProblemInspection(AslProblem.NEWER_JSONATA_OPERATOR)
+class AslJsonataWithoutInputInspection : AslProblemInspection(AslProblem.JSONATA_WITHOUT_INPUT)
+class AslUnknownJsonataFunctionInspection : AslProblemInspection(AslProblem.UNKNOWN_JSONATA_FUNCTION)
+class AslUnsupportedJsonataFunctionInspection : AslProblemInspection(AslProblem.UNSUPPORTED_JSONATA_FUNCTION)
 class AslChoiceWithoutDefaultInspection : AslProblemInspection(AslProblem.CHOICE_WITHOUT_DEFAULT)
 
 object AslInspections {
@@ -106,6 +111,8 @@ object AslInspections {
         AslUnknownServiceIntegrationInspection(),
         AslEndFalseWithoutNextInspection(),
         AslEmptyConfigurationInspection(),
+        AslUnknownJsonataFunctionInspection(),
+        AslUnsupportedJsonataFunctionInspection(),
         AslUnreferencedStateInspection(),
         AslEmptyListInspection(),
         AslUnknownPredefinedErrorInspection(),
@@ -118,6 +125,9 @@ object AslInspections {
         AslNullValueInspection(),
         AslMisplacedJsonataDelimiterInspection(),
         AslJsonataSyntaxErrorInspection(),
+        AslStatesFieldUnavailableInspection(),
+        AslNewerJsonataOperatorInspection(),
+        AslJsonataWithoutInputInspection(),
         AslChoiceWithoutDefaultInspection(),
     )
 }

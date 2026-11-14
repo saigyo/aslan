@@ -1,0 +1,7 @@
+<html>
+<body>
+<p>Reports a field name, or <code>$</code>, that a JSONata expression would look up in the input of the expression itself, and every <code>$$</code>. Step Functions evaluates its expressions without such an input and rejects the definition when it is created; the state's input is <code>$states.input</code>.</p>
+<p>Names on the right side of a path, in a filter predicate, in a group-by or order-by, and in a transform are evaluated against the values of the path and are not reported, as in <code>$states.input.items[price &gt; 1].name</code>. The check reports only places where AWS was shown to reject a name; in places it cannot judge with certainty, such as the right side of <code>~&gt;</code>, a focus or index binding, or a function passed to a function of your own, it stays silent. The wildcards <code>*</code> and <code>**</code> and the parent operator <code>%</code> are not reported.</p>
+<p>An expression that contains a deployment-time placeholder such as <code>${Name}</code> outside a string literal is not checked. To switch the check off, disable this inspection in Settings | Editor | Inspections | Amazon States Language.</p>
+</body>
+</html>
