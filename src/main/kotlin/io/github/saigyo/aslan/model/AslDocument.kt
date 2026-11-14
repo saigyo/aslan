@@ -76,14 +76,14 @@ class AslStateMachine(
     fun state(name: String): AslState? = states.firstOrNull { it.name == name }
 
     /**
-     * True when the machine cannot be fully read: its `States` value or a state name contains a placeholder, the
-     * value is an alias that does not resolve, or it holds a merge key that could not be applied.
+     * True when the file does not say which states the machine has: `States` is a mapping with a placeholder key or a
+     * merge key that could not be applied, `States` is anything else (a placeholder, a tagged value, an alias that does
+     * not resolve, a value of the wrong kind), or there is no `States` and [obj] leaves its own fields open.
      */
     val open: Boolean = when (val value = statesEntry?.value) {
-        is AslScalar -> Placeholders.contains(value.text)
-        is AslUnresolved -> true
-        is AslObject -> value.entries.any { isUnappliedMerge(it) || Placeholders.contains(it.key) }
-        else -> false
+        null -> leavesFieldsOpen(obj)
+        is AslObject -> leavesFieldsOpen(value)
+        else -> true
     }
 }
 
@@ -119,3 +119,9 @@ class AslTransition(val kind: TransitionKind, val from: AslState, val target: As
 
 /** An entry with key `<<` that is not the result of an applied YAML merge; it is never a field or a state. */
 internal fun isUnappliedMerge(entry: AslEntry): Boolean = entry.key == "<<" && !entry.viaMerge
+
+/**
+ * Whether the file leaves open which entries [o] has: a merge key that could not be applied or a key with a placeholder
+ * may stand for any field or state, so nothing may be concluded from one being absent.
+ */
+internal fun leavesFieldsOpen(o: AslObject): Boolean = o.entries.any { isUnappliedMerge(it) || Placeholders.contains(it.key) }

@@ -17,6 +17,7 @@ import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslState
 import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.isUnappliedMerge
+import io.github.saigyo.aslan.model.leavesFieldsOpen
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
@@ -276,5 +277,5 @@ internal object StructureChecks {
      * Whether the file leaves open which fields [o] has: an unapplied merge or a placeholder key may supply any field,
      * so no rule may report a field of [o] as absent.
      */
-    internal fun uncertain(o: AslObject) = o.entries.any { isUnappliedMerge(it) || Placeholders.contains(it.key) }
+    internal fun uncertain(o: AslObject) = leavesFieldsOpen(o)
 }
