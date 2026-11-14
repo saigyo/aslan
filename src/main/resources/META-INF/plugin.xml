@@ -25,6 +25,10 @@
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <yaml.customStructureViewFactory implementation="io.github.saigyo.aslan.structure.AslYamlStructureViewFactory"/>
         <json.customStructureViewFactory order="first" implementation="io.github.saigyo.aslan.structure.AslJsonStructureViewFactory"/>
+        <annotator language="yaml" implementationClass="io.github.saigyo.aslan.highlight.AslAnnotator"/>
+        <annotator language="JSON" implementationClass="io.github.saigyo.aslan.highlight.AslAnnotator"/>
+        <colorSettingsPage implementation="io.github.saigyo.aslan.highlight.AslColorSettingsPage"/>
+        <highlightUsagesHandlerFactory implementation="io.github.saigyo.aslan.highlight.PlaceholderUsagesHandlerFactory"/>
         <applicationService serviceImplementation="io.github.saigyo.aslan.settings.AslSettings"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>
