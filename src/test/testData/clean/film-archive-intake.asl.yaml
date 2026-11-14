@@ -1,0 +1,1181 @@
+# Film archive intake
+#
+# A depositor delivers a batch of film reels by uploading incoming/<batchId>/manifest.json to the
+# intake bucket. An EventBridge rule on "Object Created" starts this state machine with the event.
+#
+# The run locks the batch, reads and checks the manifest, compares it with an earlier delivery of
+# the same batch, reads the free shelves of the destination vault page by page, finds a shelf for
+# every reel and has each reel measured. It then writes the catalog in one DynamoDB transaction,
+# stores a catalog copy (and a seal when the depositor marks the delivery as final), publishes
+# events and cleans up. Rejected batches get a rejection notice; faults are filed as incidents.
+# When the catalog write cannot be confirmed either way, the run stops with the lock still held,
+# so nothing touches the batch until someone has reconciled it by hand.
+#
+# Deployment replaces the ${...} placeholders with bucket, table, topic and function names.
+Comment: Takes in a batch of film reels described by a depositor's manifest
+QueryLanguage: JSONata
+# Four days: a manual shelf review may wait up to three days for a curator.
+TimeoutSeconds: 345600
+StartAt: InitialiseRun
+States:
+
+  # Every variable the workflow reads gets its first value here, so no path reads one before it is
+  # set. The batch ID comes from the object key; any other upload leaves it undefined.
+  InitialiseRun:
+    Type: Pass
+    Assign:
+      batch: |-
+        {% (
+          $key := $states.input.detail.object.key;
+          /* Only incoming/<batchId>/manifest.json starts an intake. */
+          $parts := $match($key, /^incoming\/([A-Za-z0-9][A-Za-z0-9-]{2,62})\/manifest\.json$/);
+          {
+            "bucket": $states.input.detail.bucket.name,
+            "manifestKey": $key,
+            "batchId": $parts ? $parts[0].groups[0],
+            "receivedAt": $states.input.time,
+            "runId": $states.context.Execution.Name,
+            "startedAt": $states.context.Execution.StartTime
+          }
+        ) %}
+      # The lock token proves that a lock item belongs to this run; the transaction ID makes the
+      # catalog write idempotent when it has to be repeated.
+      lockToken: '{% $uuid() %}'
+      transactionId: '{% $uuid() %}'
+      lockHeld: false
+      lockAttempts: 0
+      manifest: null
+      reels: []
+      hasCatalogCopy: false
+      hasSeal: false
+      earlierCatalog: null
+      revision: null
+      shelfIndex: []
+      shelfToken: null
+      shelfPages: 0
+      route: standard
+      reviewDecision: none
+      verdicts: []
+      catalogWriteAttempts: 0
+      catalogConfirmed: false
+      rejection: null
+      fault: null
+      severity: low
+      warnings: []
+      outcome: pending
+    Next: CheckManifestKey
+
+  # Uploads that do not follow the manifest naming rule are not deliveries; finish quietly.
+  CheckManifestKey:
+    Type: Choice
+    Choices:
+      - Condition: '{% $exists($batch.batchId) %}'
+        Next: AcquireBatchLock
+    Default: IgnoreForeignObject
+
+  IgnoreForeignObject:
+    Type: Succeed
+    Output: '{% {"ignored": $batch.manifestKey} %}'
+
+  # Step 1: take the batch lock. A conditional put fails while another run holds an unexpired lock
+  # on the same batch. The lock lives longer than the longest manual review.
+  # The retry rules defined here with anchors are reused by every task below.
+  AcquireBatchLock:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:putItem
+    Arguments:
+      TableName: ${LockTable}
+      Item:
+        ${LockKeyAttribute}:
+          S: '{% "BATCH#" & $batch.batchId %}'
+        lockToken:
+          S: '{% $lockToken %}'
+        holder:
+          S: '{% $states.context.Execution.Id %}'
+        expiresAt:
+          N: '{% $string($floor($millis() / 1000) + 345600) %}'
+      ConditionExpression: 'attribute_not_exists(#pk) OR expiresAt < :now'
+      ExpressionAttributeNames:
+        '#pk': ${LockKeyAttribute}
+      ExpressionAttributeValues:
+        ':now':
+          N: '{% $string($floor($millis() / 1000)) %}'
+    Assign:
+      lockHeld: true
+    Output: '{% {"locked": $batch.batchId} %}'
+    Retry:
+      # Missing permissions and broken expressions do not heal by waiting.
+      - &noRetry
+        ErrorEquals: [States.Permissions, States.QueryEvaluationError]
+        MaxAttempts: 0
+      # A held lock is handled by the catcher, which waits much longer than a retry would.
+      - ErrorEquals: [DynamoDB.ConditionalCheckFailedException]
+        MaxAttempts: 0
+      - &retryAll
+        ErrorEquals: [States.ALL]
+        IntervalSeconds: 2
+        MaxAttempts: 3
+        BackoffRate: 2
+        MaxDelaySeconds: 20
+        JitterStrategy: FULL
+    Catch:
+      - ErrorEquals: [DynamoDB.ConditionalCheckFailedException]
+        Assign:
+          lockAttempts: '{% $lockAttempts + 1 %}'
+        Next: LockAttemptsLeft
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "AcquireBatchLock", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: ReadManifest
+
+  # Another run is working on this batch. Wait a few times before giving up.
+  LockAttemptsLeft:
+    Type: Choice
+    Choices:
+      - Condition: '{% $lockAttempts < 5 %}'
+        Next: WaitForLock
+    Default: BatchBusy
+
+  # The wait grows with every attempt and carries some jitter, so two waiting runs drift apart.
+  WaitForLock:
+    Type: Wait
+    Seconds: '{% 20 * $lockAttempts + $floor($random() * 10) %}'
+    Next: AcquireBatchLock
+
+  BatchBusy:
+    Type: Fail
+    Error: Archive.BatchBusy
+    Cause: '{% "Batch " & $batch.batchId & " is locked by another intake run" %}'
+
+  # Step 2: read the manifest. A manifest that is not valid JSON makes $parse fail, which the
+  # second catcher turns into a rejection rather than an incident.
+  ReadManifest:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:getObject
+    Arguments:
+      Bucket: '{% $batch.bucket %}'
+      Key: '{% $batch.manifestKey %}'
+    Assign:
+      manifest: '{% $parse($states.result.Body) %}'
+    Output: '{% {"manifestKey": $batch.manifestKey, "bytes": $states.result.ContentLength} %}'
+    Retry:
+      - *noRetry
+      - ErrorEquals: [S3.NoSuchKeyException]
+        MaxAttempts: 0
+      - *retryAll
+    Catch:
+      - ErrorEquals: [S3.NoSuchKeyException]
+        Assign:
+          rejection: '{% {"code": "manifest-missing", "reason": "The manifest was removed before it could be read"} %}'
+        Next: RejectBatch
+      - ErrorEquals: [States.QueryEvaluationError]
+        Assign:
+          rejection: '{% {"code": "manifest-unreadable", "reason": "The manifest is not valid JSON"} %}'
+        Next: RejectBatch
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "ReadManifest", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: SplitManifest
+
+  # Split the manifest into the batch header and a normalised list of reels. Depositors write gauges
+  # as "35 mm" or "35mm" and bases in any case; the catalog wants one spelling. Each reel records
+  # which required fields it lacks and whether its ID follows the archive's pattern.
+  SplitManifest:
+    Type: Pass
+    Assign:
+      batch: >-
+        {% $merge([
+          $batch,
+          {
+            "formatVersion": $manifest.formatVersion,
+            "depositor": $manifest.depositor.name,
+            "depositorId": $manifest.depositor.id,
+            "vault": $manifest.destinationVault,
+            "final": $manifest.final = true,
+            "title": $manifest.title
+          }
+        ]) %}
+      reels: |-
+        {% [$manifest.reels.(
+          $reel := $;
+          $required := ["reelId", "title", "gauge", "base", "lengthFeet", "cans"];
+          {
+            "reelId": $uppercase($trim(reelId)),
+            "title": $trim(title),
+            "gauge": $lowercase($replace(gauge, /\s+/, "")),
+            "base": $lowercase(base),
+            "lengthFeet": $number(lengthFeet),
+            "cans": $number(cans),
+            "condition": condition ? $lowercase(condition) : "unknown",
+            "wellFormed": $contains($uppercase($trim(reelId)), /^FA-\d{4}-\d{4}-R\d{2}$/),
+            "missing": [$filter($required, function($f) { $not($exists($lookup($reel, $f))) })]
+          }
+        )] %}
+    Next: InspectManifest
+
+  # Reject manifests the rest of the workflow cannot handle. The reel limit keeps the catalog write
+  # within the 100 items a single DynamoDB transaction allows. Reels without an ID are left to the
+  # completeness check in DecideRoute, which names every missing field at once.
+  InspectManifest:
+    Type: Choice
+    Choices:
+      - Condition: '{% $not($manifest.formatVersion in [2, 3]) %}'
+        Assign:
+          rejection: '{% {"code": "unsupported-format", "reason": "Manifest format " & $string($manifest.formatVersion) & " is not supported"} %}'
+        Next: RejectBatch
+      - Condition: '{% $count($reels) = 0 %}'
+        Assign:
+          rejection: '{% {"code": "empty", "reason": "The manifest lists no reels"} %}'
+        Next: RejectBatch
+      - Condition: '{% $count($reels) > 90 %}'
+        Assign:
+          rejection: '{% {"code": "too-large", "reason": "A batch may hold at most 90 reels, this one has " & $string($count($reels))} %}'
+        Next: RejectBatch
+      - Condition: '{% $count($distinct($reels.reelId)) < $count($reels.reelId) %}'
+        Assign:
+          rejection: '{% {"code": "duplicate-reels", "reason": "Some reel IDs appear more than once"} %}'
+        Next: RejectBatch
+      - Condition: '{% $exists($reels[wellFormed = false]) %}'
+        Assign:
+          rejection: >-
+            {% {
+              "code": "malformed-ids",
+              "reason": "Reel IDs must look like FA-1952-0041-R03: " & $join($reels[wellFormed = false].reelId, ", ")
+            } %}
+        Next: RejectBatch
+    Default: ListReelFolder
+
+  # Step 3: look for the catalog copy and the seal of an earlier delivery with this batch ID.
+  ListReelFolder:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:listObjectsV2
+    Arguments:
+      Bucket: ${ArchiveBucket}
+      Prefix: '{% "batches/" & $batch.batchId & "/" %}'
+    Assign:
+      hasCatalogCopy: >-
+        {% ("batches/" & $batch.batchId & "/catalog.json") in $states.result.Contents.Key %}
+      hasSeal: >-
+        {% ("batches/" & $batch.batchId & "/sealed.json") in $states.result.Contents.Key %}
+    Output: '{% {"objects": $states.result.KeyCount} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "ListReelFolder", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: CheckFolder
+
+  # A sealed batch is closed for good. A batch with a catalog copy but no seal may be revised.
+  CheckFolder:
+    Type: Choice
+    Choices:
+      - Condition: '{% $hasSeal %}'
+        Assign:
+          rejection: '{% {"code": "sealed", "reason": "Batch " & $batch.batchId & " was sealed and accepts no further deliveries"} %}'
+        Next: RejectBatch
+      - Condition: '{% $hasCatalogCopy %}'
+        Next: LoadEarlierCatalog
+    Default: ReadShelfIndex
+
+  # The catalog copy holds the reels exactly as the earlier run catalogued them.
+  LoadEarlierCatalog:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:getObject
+    Arguments:
+      Bucket: ${ArchiveBucket}
+      Key: '{% "batches/" & $batch.batchId & "/catalog.json" %}'
+    Assign:
+      earlierCatalog: '{% $parse($states.result.Body) %}'
+    Output: '{% {"earlierCatalog": $batch.batchId} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "LoadEarlierCatalog", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: CompareWithEarlierBatch
+
+  # Work out what this delivery changes compared with the catalog copy: reels added, reels removed
+  # and reels whose catalogued fields differ. Removed reels are withdrawn in the catalog write.
+  CompareWithEarlierBatch:
+    Type: Pass
+    Assign:
+      revision: |-
+        {% (
+          $before := $earlierCatalog.reels;
+          $fields := ["title", "gauge", "base", "lengthFeet", "cans", "condition"];
+          /* The fields in which two versions of a reel differ, in catalog order. */
+          $changedFields := function($old, $new) {
+            [$filter($fields, function($f) { $lookup($old, $f) != $lookup($new, $f) })]
+          };
+          $beforeIds := [$before.reelId];
+          $afterIds := [$reels.reelId];
+          $changed := $reels.(
+            $id := reelId;
+            $old := $before[reelId = $id];
+            $diff := $old ? $changedFields($old, $);
+            $count($diff) > 0 ? {"reelId": $id, "fields": $diff}
+          );
+          {
+            "number": ($earlierCatalog.revision ? $earlierCatalog.revision : 1) + 1,
+            "supersedes": $earlierCatalog.transactionId,
+            "added": [$filter($afterIds, function($id) { $not($id in $beforeIds) })],
+            "removed": [$sort($filter($beforeIds, function($id) { $not($id in $afterIds) }))],
+            "changed": [$changed]
+          }
+        ) %}
+    Next: ReadShelfIndex
+
+  # Step 4: read the free shelves of the destination vault, one page per visit. The first page has
+  # no start key; later pages continue from where the previous one stopped.
+  ReadShelfIndex:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:dynamodb:query
+    Arguments: >-
+      {% $merge([
+        {
+          "TableName": "${ShelfTable}",
+          "IndexName": "by-vault",
+          "KeyConditionExpression": "vault = :vault",
+          "FilterExpression": "freeSlots > :none",
+          "ExpressionAttributeValues": {":vault": {"S": $batch.vault}, ":none": {"N": "0"}},
+          "Limit": 100
+        },
+        $shelfToken ? {"ExclusiveStartKey": $shelfToken} : {}
+      ]) %}
+    Assign:
+      shelfIndex: '{% $append($shelfIndex, $states.result.Items) %}'
+      shelfToken: '{% $exists($states.result.LastEvaluatedKey) ? $states.result.LastEvaluatedKey : null %}'
+      shelfPages: '{% $shelfPages + 1 %}'
+    Output: '{% {"page": $shelfPages + 1, "shelves": $states.result.Count} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "ReadShelfIndex", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: MoreShelfPages
+
+  # No vault has anywhere near 2,000 free shelves, so twenty pages are a safe upper bound.
+  MoreShelfPages:
+    Type: Choice
+    Choices:
+      - Condition: '{% $type($shelfToken) = "object" and $shelfPages < 20 %}'
+        Next: PauseBetweenPages
+    Default: ClassifyReels
+
+  # The shelf table runs on provisioned capacity that the vault scanners share with us.
+  PauseBetweenPages:
+    Type: Wait
+    Seconds: 1
+    Next: ReadShelfIndex
+
+  # Give every reel a storage class and a shelf. Nitrate is hazardous whatever its condition and
+  # goes to the isolated cold rooms; acetate that smells of vinegar or has shrunk is unstable.
+  # Reels are placed largest first, and every placement uses up slots on its shelf, so a shelf is
+  # never promised to more cans than it holds. A reel without a fitting shelf keeps shelf null.
+  ClassifyReels:
+    Type: Pass
+    Assign:
+      reels: |-
+        {% (
+          /* Shelf items arrive in DynamoDB's attribute-value format; flatten them first. */
+          $shelves := [$shelfIndex.{
+            "shelfId": shelfId.S,
+            "climate": climate.S,
+            "accepts": accepts.SS,
+            "freeSlots": $number(freeSlots.N)
+          }];
+          $classOf := function($reel) {
+            $reel.base = "nitrate" ? "hazardous"
+              : ($reel.base = "acetate" and $contains($reel.condition, /vinegar|shrink/i)) ? "unstable"
+              : "stable"
+          };
+          $climateFor := {"hazardous": "isolated-cold", "unstable": "cold", "stable": "cool"};
+          $ordered := $sort($reels, function($a, $b) { $a.cans < $b.cans });
+          $placement := $reduce($ordered, function($acc, $reel) {(
+            $class := $classOf($reel);
+            $climate := $lookup($climateFor, $class);
+            $shelf := $acc.free[climate = $climate and $reel.base in accepts and freeSlots >= $reel.cans][0];
+            {
+              "free": $shelf
+                ? [$acc.free.(shelfId = $shelf.shelfId ? $merge([$, {"freeSlots": freeSlots - $reel.cans}]) : $)]
+                : $acc.free,
+              "placed": $append($acc.placed, $merge([$reel, {
+                "class": $class,
+                "shelf": $shelf ? $shelf.shelfId : null
+              }]))
+            }
+          )}, {"free": $shelves, "placed": []});
+          [$placement.placed]
+        ) %}
+    Next: DecideRoute
+
+  # Decide which way the batch goes. The routes are exclusive and the first match wins: a revision
+  # that brings nitrate goes to conservation first, whose notice also lists the removed reels.
+  DecideRoute:
+    Type: Pass
+    Assign:
+      route: |-
+        {% (
+          $changes := $revision
+            ? $count($revision.added) + $count($revision.removed) + $count($revision.changed)
+            : 0;
+          $writes := $count($reels) + ($revision ? $count($revision.removed) : 0) + 1;
+          $exists($reels[$count(missing) > 0]) ? "incomplete"
+            : $hasCatalogCopy and $changes = 0 ? "unchanged"
+            : $writes > 100 ? "oversize"
+            : $exists($reels[shelf = null]) ? "unplaceable"
+            : "nitrate" in $reels.base ? "quarantine"
+            : $hasCatalogCopy and $count($revision.removed) + $count($revision.changed) > 0 ? "revision"
+            : "standard"
+        ) %}
+    Next: RouteBatch
+
+  # Dispatch on the route chosen above.
+  RouteBatch:
+    Type: Choice
+    Choices:
+      - Condition: "{% $route = 'incomplete' %}"
+        Assign:
+          rejection: >-
+            {% {
+              "code": "incomplete",
+              "reason": "Reels lack required fields: " & $join($reels[$count(missing) > 0].(reelId & " (" & $join(missing, ", ") & ")"), "; ")
+            } %}
+        Next: RejectBatch
+      - Condition: "{% $route = 'oversize' %}"
+        Assign:
+          rejection: '{% {"code": "too-large", "reason": "The revision touches more reels than one catalog write can hold"} %}'
+        Next: RejectBatch
+      - Condition: "{% $route = 'unchanged' %}"
+        Next: SkipUnchangedBatch
+      - Condition: "{% $route = 'unplaceable' %}"
+        Next: RequestManualReview
+      - Condition: "{% $route = 'quarantine' %}"
+        Next: NotifyConservation
+      - Condition: "{% $route = 'revision' %}"
+        Next: NotifyLoanDesk
+    Default: ValidateReels
+
+  # The same manifest was delivered again. Nothing to catalog; remove it from the intake bucket.
+  SkipUnchangedBatch:
+    Type: Pass
+    Assign:
+      outcome: unchanged
+    Output: '{% {"batchId": $batch.batchId, "unchanged": true, "revision": $revision.number - 1} %}'
+    Next: CleanUpIncoming
+
+  # No shelf fits some reels. A curator assigns shelves in the review tool, which answers with
+  # SendTaskSuccess and a decision; silence for three days counts as a rejection.
+  RequestManualReview:
+    Type: Task
+    Resource: arn:aws:states:::sqs:sendMessage.waitForTaskToken
+    Arguments:
+      QueueUrl: https://sqs.${AwsRegion}.amazonaws.com/${AwsAccountId}/archive-shelf-review
+      MessageBody:
+        taskToken: '{% $states.context.Task.Token %}'
+        batchId: '{% $batch.batchId %}'
+        vault: '{% $batch.vault %}'
+        unplaced: |-
+          {% [$reels[shelf = null].{
+            "reelId": reelId,
+            "title": title,
+            "class": class,
+            "cans": cans
+          }] %}
+        requestedAt: '{% $states.context.State.EnteredTime %}'
+    TimeoutSeconds: 259200
+    Assign:
+      reviewDecision: '{% $states.result.decision = "accept" ? "accept" : "reject" %}'
+      reels: >-
+        {% [$reels.(
+          $id := reelId;
+          $placed := $states.result.placements[reelId = $id];
+          $placed ? $merge([$, {"shelf": $placed.shelfId}]) : $
+        )] %}
+    Output: '{% {"curator": $states.result.curator, "note": $states.result.note} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.Timeout]
+        Assign:
+          rejection: '{% {"code": "review-timeout", "reason": "No curator placed the remaining reels within three days"} %}'
+        Next: RejectBatch
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "RequestManualReview", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: ReviewDecision
+
+  # A curator may decline the batch, or accept it but still leave reels without a shelf.
+  ReviewDecision:
+    Type: Choice
+    Choices:
+      - Condition: '{% $reviewDecision != "accept" %}'
+        Assign:
+          rejection: '{% {"code": "declined", "reason": "A curator declined the batch: " & $states.input.note} %}'
+        Next: RejectBatch
+      - Condition: '{% $exists($reels[shelf = null]) %}'
+        Assign:
+          rejection: '{% {"code": "unplaced", "reason": "The review left reels without a shelf"} %}'
+        Next: RejectBatch
+    Default: ValidateReels
+
+  # Nitrate is flammable; conservation must know before the cans leave the loading bay.
+  NotifyConservation:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Arguments:
+      TopicArn: ${ConservationTopicArn}
+      Subject: '{% "Nitrate reels in batch " & $batch.batchId %}'
+      Message: |-
+        {% $join([
+          "Batch " & $batch.batchId & " from " & $batch.depositor & " contains nitrate reels.",
+          "They are booked into the isolated cold rooms:",
+          $reels[base = "nitrate"].("  " & reelId & "  " & title & "  -> " & shelf),
+          $revision and $count($revision.removed) > 0
+            ? "This delivery also withdraws: " & $join($revision.removed, ", "),
+          "Please inspect the cans on arrival."
+        ], "\n") %}
+      MessageAttributes:
+        vault:
+          DataType: String
+          StringValue: '{% $batch.vault %}'
+    Output: '{% {"notified": "conservation"} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "NotifyConservation", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: ValidateReels
+
+  # A revision withdraws or changes reels that may be out on loan; the loan desk checks its bookings.
+  NotifyLoanDesk:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Arguments:
+      TopicArn: ${LoanDeskTopicArn}
+      Subject: '{% "Batch " & $batch.batchId & " revised (revision " & $string($revision.number) & ")" %}'
+      Message: '{% $string({"batchId": $batch.batchId, "removed": $revision.removed, "changed": $revision.changed}) %}'
+    Output: '{% {"notified": "loan-desk"} %}'
+    Retry:
+      - *noRetry
+      - *retryAll
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "NotifyLoanDesk", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: ValidateReels
+
+  # Step 5: have every reel measured. The inspector function reads the scanner data for a reel and
+  # reports shrinkage, acidity and the number of splices. Each iteration returns a verdict; a reel
+  # the inspector cannot measure becomes "unmeasured" instead of failing the whole Map.
+  ValidateReels:
+    Type: Map
+    Items: '{% $reels %}'
+    ItemSelector: >-
+      {% {
+        "reel": $states.context.Map.Item.Value,
+        "position": $states.context.Map.Item.Index + 1,
+        "batchId": $batch.batchId
+      } %}
+    MaxConcurrency: 8
+    ItemProcessor:
+      ProcessorConfig:
+        Mode: INLINE
+      StartAt: MeasureReel
+      States:
+
+        # The function name carries the "live" alias so a deployment never measures with a draft.
+        MeasureReel:
+          Type: Task
+          Resource: arn:aws:states:::lambda:invoke
+          Arguments:
+            FunctionName: ${ReelInspectorArn}:live
+            Payload:
+              reel: '{% $states.input.reel %}'
+              batchId: '{% $states.input.batchId %}'
+              checks: [shrinkage, acidity, splices]
+          Assign:
+            measurement: '{% $states.result.Payload %}'
+          Output: '{% $states.input %}'
+          Retry:
+            - *noRetry
+            - &retryLambda
+              ErrorEquals:
+                - Lambda.ServiceException
+                - Lambda.AWSLambdaException
+                - Lambda.SdkClientException
+                - Lambda.TooManyRequestsException
+              IntervalSeconds: 1
+              MaxAttempts: 6
+              BackoffRate: 2
+              JitterStrategy: FULL
+          Catch:
+            - ErrorEquals: [States.ALL]
+              Output: '{% {"reel": $states.input.reel, "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+              Next: RecordMeasurementFailure
+          Next: JudgeReel
+
+        # Thresholds from the archive's conservation handbook.
+        JudgeReel:
+          Type: Choice
+          Choices:
+            - Condition: "{% $measurement.shrinkagePercent > 1.2 or $measurement.acidity >= 0.5 or $measurement.splices > 12 %}"
+              Next: FlagReelForRepair
+          Default: AcceptReel
+
+        AcceptReel:
+          Type: Pass
+          Output: >-
+            {% $merge([$states.input.reel, {
+              "status": "accepted",
+              "position": $states.input.position,
+              "measurement": $measurement
+            }]) %}
+          End: true
+
+        # The reel is catalogued, but with the reasons it needs the repair bench.
+        FlagReelForRepair:
+          Type: Pass
+          Output: |-
+            {% $merge([$states.input.reel, {
+              "status": "repair",
+              "position": $states.input.position,
+              "measurement": $measurement,
+              "reasons": [
+                $measurement.shrinkagePercent > 1.2 ? "shrinkage",
+                $measurement.acidity >= 0.5 ? "acidity",
+                $measurement.splices > 12 ? "splices"
+              ]
+            }]) %}
+          End: true
+
+        RecordMeasurementFailure:
+          Type: Pass
+          Output: '{% $merge([$states.input.reel, {"status": "unmeasured", "error": $states.input.error}]) %}'
+          End: true
+
+    Assign:
+      verdicts: '{% $states.result %}'
+    Output: '{% {"measured": $count($states.result)} %}'
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "ValidateReels", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: WeighVerdicts
+
+  # A batch is catalogued completely or not at all; an unmeasured reel sends it back.
+  WeighVerdicts:
+    Type: Choice
+    Choices:
+      - Condition: '{% $exists($verdicts[status = "unmeasured"]) %}'
+        Assign:
+          rejection: >-
+            {% {
+              "code": "unmeasured",
+              "reason": "The inspector could not measure: " & $join($verdicts[status = "unmeasured"].reelId, ", ")
+            } %}
+        Next: RejectBatch
+    Default: WriteCatalogTransaction
+
+  # Step 6: write the catalog in one transaction: a summary item for the batch, one item per reel,
+  # and a withdrawal for every reel a revision removes. The client request token makes a repeated
+  # call with the same transaction ID a no-op, so retries and the re-write after a timeout are safe.
+  WriteCatalogTransaction:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:dynamodb:transactWriteItems
+    TimeoutSeconds: 30
+    Arguments: |-
+      {% (
+        $stamp := $now();
+        $put := function($v) {
+          {
+            "Put": {
+              "TableName": "${CatalogTable}",
+              "Item": {
+                "pk": {"S": "REEL#" & $v.reelId},
+                "sk": {"S": "CURRENT"},
+                "batchId": {"S": $batch.batchId},
+                "title": {"S": $v.title},
+                "gauge": {"S": $v.gauge},
+                "storageClass": {"S": $v.class},
+                "shelfId": {"S": $v.shelf},
+                "status": {"S": $v.status},
+                "lengthFeet": {"N": $string($v.lengthFeet)},
+                "updatedAt": {"S": $stamp}
+              }
+            }
+          }
+        };
+        $withdraw := function($reelId) {
+          {
+            "Update": {
+              "TableName": "${CatalogTable}",
+              "Key": {"pk": {"S": "REEL#" & $reelId}, "sk": {"S": "CURRENT"}},
+              "UpdateExpression": "SET #status = :withdrawn, updatedAt = :stamp",
+              "ExpressionAttributeNames": {"#status": "status"},
+              "ExpressionAttributeValues": {":withdrawn": {"S": "withdrawn"}, ":stamp": {"S": $stamp}}
+            }
+          }
+        };
+        $summary := {
+          "Put": {
+            "TableName": "${CatalogTable}",
+            "Item": {
+              "pk": {"S": "BATCH#" & $batch.batchId},
+              "sk": {"S": "SUMMARY"},
+              "transactionId": {"S": $transactionId},
+              "revision": {"N": $string($revision ? $revision.number : 1)},
+              "reelCount": {"N": $string($count($verdicts))},
+              "repairCount": {"N": $string($count($verdicts[status = "repair"]))},
+              "receivedAt": {"S": $batch.receivedAt}
+            }
+          }
+        };
+        {
+          "ClientRequestToken": $transactionId,
+          "TransactItems": $append($append([$summary], $map($verdicts, $put)), $map($revision.removed, $withdraw))
+        }
+      ) %}
+    Assign:
+      catalogConfirmed: true
+      outcome: catalogued
+    Output: '{% {"transactionId": $transactionId} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      # After a timeout nobody knows whether the transaction committed. Look before writing again.
+      - ErrorEquals: [States.Timeout, DynamoDb.InternalServerErrorException]
+        Assign:
+          catalogWriteAttempts: '{% $catalogWriteAttempts + 1 %}'
+        Next: VerifyCatalogWrite
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "WriteCatalogTransaction", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: StoreCatalogCopy
+
+  # A strongly consistent read of the summary item tells whether this run's transaction landed.
+  VerifyCatalogWrite:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:getItem
+    Arguments:
+      TableName: ${CatalogTable}
+      Key:
+        pk:
+          S: '{% "BATCH#" & $batch.batchId %}'
+        sk:
+          S: SUMMARY
+      ConsistentRead: true
+    Assign:
+      catalogConfirmed: '{% $states.result.Item.transactionId.S = $transactionId %}'
+    Output: '{% {"found": $exists($states.result.Item)} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "VerifyCatalogWrite", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ReportOutcomeUnknown
+    Next: CatalogWriteLanded
+
+  # Landed: carry on. Not visible yet: write again with the same token, at most three times.
+  # Still not visible after that: the transaction may yet be in flight, and we do not guess.
+  CatalogWriteLanded:
+    Type: Choice
+    Choices:
+      - Condition: '{% $catalogConfirmed %}'
+        Assign:
+          outcome: catalogued
+        Next: StoreCatalogCopy
+      - Condition: '{% $catalogWriteAttempts < 3 %}'
+        Next: WriteCatalogTransaction
+    Default: ReportOutcomeUnknown
+
+  # The catalog copy is what the next delivery of this batch is compared with.
+  StoreCatalogCopy:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:putObject
+    Arguments:
+      Bucket: ${ArchiveBucket}
+      Key: '{% "batches/" & $batch.batchId & "/catalog.json" %}'
+      ContentType: application/json
+      Body: |-
+        {% $string({
+          "batchId": $batch.batchId,
+          "title": $batch.title,
+          "depositorId": $batch.depositorId,
+          "revision": $revision ? $revision.number : 1,
+          "transactionId": $transactionId,
+          "cataloguedAt": $now(),
+          "reels": [$verdicts.{
+            "reelId": reelId, "title": title, "gauge": gauge, "base": base,
+            "lengthFeet": lengthFeet, "cans": cans, "condition": condition,
+            "shelf": shelf, "status": status
+          }]
+        }) %}
+    Output: '{% {"catalogCopy": $states.result.ETag} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "StoreCatalogCopy", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: IsFinalDelivery
+
+  # Only a delivery the depositor marks as final closes the batch.
+  IsFinalDelivery:
+    Type: Choice
+    Choices:
+      - Condition: '{% $batch.final %}'
+        Next: SealBatch
+    Default: PublishEvents
+
+  # The seal records a fingerprint of the catalogued reel list, so a later audit can tell whether
+  # the catalog still matches what was sealed.
+  SealBatch:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:putObject
+    Arguments:
+      Bucket: ${ArchiveBucket}
+      Key: '{% "batches/" & $batch.batchId & "/sealed.json" %}'
+      ContentType: application/json
+      Body: >-
+        {% $string({
+          "batchId": $batch.batchId,
+          "sealedAt": $now(),
+          "sealedBy": $states.context.Execution.Id,
+          "transactionId": $transactionId,
+          "reels": $count($verdicts),
+          "fingerprint": $hash($join($sort($verdicts.(reelId & ":" & shelf)), "|"), "SHA-256")
+        }) %}
+    Output: '{% {"sealed": $batch.batchId} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "SealBatch", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: PublishEvents
+
+  # Step 7: tell the rest of the archive. Downstream systems take the events; curators get a mail.
+  # The catalog is already written, so a failure here is recorded as a warning, not a fault.
+  PublishEvents:
+    Type: Parallel
+    Branches:
+      - StartAt: BuildCatalogEvents
+        States:
+
+          # EventBridge takes at most ten entries per call, so ten reels go into each event and
+          # a batch of 90 reels fills nine entries.
+          BuildCatalogEvents:
+            Type: Pass
+            Output: |-
+              {% (
+                $parts := $partition($verdicts, 10);
+                {
+                  "entries": [$map($parts, function($part, $i) {
+                    {
+                      "EventBusName": "${ArchiveEventBusName}",
+                      "Source": "film-archive.intake",
+                      "DetailType": "Reels Catalogued",
+                      "Detail": {
+                        "batchId": $batch.batchId,
+                        "revision": $revision ? $revision.number : 1,
+                        "part": $i + 1,
+                        "parts": $count($parts),
+                        "reels": [$part.{"reelId": reelId, "shelfId": shelf, "status": status}]
+                      }
+                    }
+                  })]
+                }
+              ) %}
+            Next: PutCatalogEvents
+
+          PutCatalogEvents:
+            Type: Task
+            Resource: arn:aws:states:::events:putEvents
+            Arguments: '{% {"Entries": $states.input.entries} %}'
+            Retry: [*noRetry, *retryAll]
+            Next: EventsAccepted
+
+          # PutEvents succeeds even when single entries fail; it only reports how many did.
+          EventsAccepted:
+            Type: Choice
+            Choices:
+              - Condition: '{% $states.input.FailedEntryCount = 0 %}'
+                Next: EventsPublished
+            Default: EventsRejected
+
+          EventsPublished:
+            Type: Succeed
+
+          EventsRejected:
+            Type: Fail
+            Error: Archive.EventsRejected
+            Cause: '{% $string($states.input.FailedEntryCount) & " catalog events were not accepted" %}'
+
+      - StartAt: NotifyCurators
+        States:
+
+          # A short plain-text summary for the curators' mailing list.
+          NotifyCurators:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Arguments:
+              TopicArn: ${CuratorTopicArn}
+              Subject: '{% "Batch " & $batch.batchId & " catalogued" %}'
+              Message: |-
+                {% (
+                  $repair := $verdicts[status = "repair"];
+                  $join([
+                    $batch.title & " (" & $batch.batchId & ") from " & $batch.depositor,
+                    $string($count($verdicts)) & " reels catalogued in vault " & $batch.vault & ".",
+                    $count($repair) > 0
+                      ? "For the repair bench: " & $join($repair.reelId, ", ")
+                      : "No reel needs repair.",
+                    $batch.final ? "The batch is now sealed.",
+                    "Run: " & $states.context.Execution.Name
+                  ], "\n")
+                ) %}
+            Retry: [*noRetry, *retryAll]
+            End: true
+
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Output: '{% $states.errorOutput %}'
+        Next: RecordPublishFailure
+    Next: CleanUpIncoming
+
+  RecordPublishFailure:
+    Type: Pass
+    Assign:
+      warnings: '{% $append($warnings, "Events or curator mail not sent: " & $states.input.Error) %}'
+    Next: CleanUpIncoming
+
+  # Remove the manifest from the intake bucket so the depositor's folder is free for the next delivery.
+  CleanUpIncoming:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:deleteObject
+    Arguments:
+      Bucket: '{% $batch.bucket %}'
+      Key: '{% $batch.manifestKey %}'
+    Output: '{% {"removed": $batch.manifestKey} %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          warnings: '{% $append($warnings, "Manifest left in the intake bucket: " & $states.errorOutput.Error) %}'
+        Next: ReleaseBatchLock
+    Next: ReleaseBatchLock
+
+  # Rejection: write a notice next to the manifest that explains what the depositor has to fix.
+  RejectBatch:
+    Type: Pass
+    Assign:
+      outcome: rejected
+    Output: |-
+      {% {
+        "batchId": $batch.batchId,
+        "manifestKey": $batch.manifestKey,
+        "rejectedAt": $now(),
+        "code": $rejection.code,
+        "reason": $rejection.reason,
+        "reelsInManifest": $count($reels),
+        "earlierDelivery": $hasCatalogCopy,
+        "help": "https://archive.example.org/deposit/manifest-format#" & $rejection.code
+      } %}
+    Next: WriteRejectionNotice
+
+  WriteRejectionNotice:
+    Type: Task
+    Resource: arn:aws:states:::aws-sdk:s3:putObject
+    Arguments:
+      Bucket: '{% $batch.bucket %}'
+      Key: '{% "incoming/" & $batch.batchId & "/rejection.json" %}'
+      ContentType: application/json
+      Body: '{% $string($states.input) %}'
+    Output: '{% $states.input %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "WriteRejectionNotice", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: NotifyRejection
+
+  # Depositors subscribe to the topic with a filter on their depositor ID.
+  NotifyRejection:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Arguments:
+      TopicArn: ${DepositorTopicArn}
+      Subject: '{% "Batch " & $batch.batchId & " was not accepted" %}'
+      Message: '{% $states.input.reason & "\nDetails: s3://" & $batch.bucket & "/incoming/" & $batch.batchId & "/rejection.json" %}'
+      MessageAttributes:
+        depositorId:
+          DataType: String
+          StringValue: '{% $exists($batch.depositorId) ? $batch.depositorId : "unknown" %}'
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Assign:
+          fault: '{% {"step": "NotifyRejection", "error": $states.errorOutput.Error, "cause": $states.errorOutput.Cause} %}'
+        Next: ClassifyFault
+    Next: CheckLockHeld
+
+  # Incidents: rate the fault before filing it. Permission and expression errors are defects in the
+  # deployment; errors of the services behind the tasks usually pass on their own.
+  ClassifyFault:
+    Type: Choice
+    Choices:
+      - Condition: '{% $fault.error in ["States.Permissions", "States.QueryEvaluationError"] %}'
+        Assign:
+          severity: high
+        Next: ReportIncident
+      - Condition: '{% $catalogConfirmed %}'
+        Assign:
+          severity: medium
+        Next: ReportIncident
+      - Condition: '{% $contains($fault.error, /^(Lambda|DynamoDB|DynamoDb|S3|SNS|SQS)\./) %}'
+        Assign:
+          severity: low
+        Next: ReportIncident
+    Default: ReportIncident
+
+  # The incident reporter opens a ticket in the archive's tracker and pages for high severity.
+  ReportIncident:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    Arguments: |-
+      {% {
+        "FunctionName": "${IncidentReporterArn}",
+        "Payload": {
+          "incidentKey": $batch.batchId & "/" & $batch.runId,
+          "severity": $severity,
+          "step": $fault.step,
+          "error": $fault.error,
+          "cause": $substring($fault.cause, 0, 2000),
+          "batch": $batch,
+          "catalogWritten": $catalogConfirmed,
+          "lockHeld": $lockHeld,
+          "execution": $states.context.Execution.Id,
+          "summary": "Intake of batch " & $batch.batchId & " stopped in " & $fault.step & " with " & $fault.error
+        }
+      } %}
+    Assign:
+      outcome: failed
+    Output: '{% {"ticket": $states.result.Payload.ticketId} %}'
+    Retry: [*noRetry, *retryLambda]
+    Catch:
+      # The fault itself stays the reason the run failed; the lost report only adds a warning.
+      - ErrorEquals: [States.ALL]
+        Assign:
+          outcome: failed
+          warnings: '{% $append($warnings, "Incident report not filed: " & $states.errorOutput.Error) %}'
+        Next: CheckLockHeld
+    Next: CheckLockHeld
+
+  # A fault before the lock was taken leaves nothing to release.
+  CheckLockHeld:
+    Type: Choice
+    Choices:
+      - Condition: '{% $lockHeld %}'
+        Next: ReleaseBatchLock
+    Default: ReportOutcome
+
+  # The condition on the token makes sure a run never deletes a lock that another run took over
+  # after this run's lock had expired.
+  ReleaseBatchLock:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:deleteItem
+    Arguments:
+      TableName: ${LockTable}
+      Key:
+        ${LockKeyAttribute}:
+          S: '{% "BATCH#" & $batch.batchId %}'
+      ConditionExpression: lockToken = :token
+      ExpressionAttributeValues:
+        ':token':
+          S: '{% $lockToken %}'
+    Assign:
+      lockHeld: false
+    Output: '{% {"released": $batch.batchId} %}'
+    Retry:
+      - *noRetry
+      - ErrorEquals: [DynamoDB.ConditionalCheckFailedException]
+        MaxAttempts: 0
+      - *retryAll
+    Catch:
+      # Lock items carry a TTL, so a lock left behind expires on its own.
+      - ErrorEquals: [States.ALL]
+        Assign:
+          warnings: '{% $append($warnings, "Lock not released: " & $states.errorOutput.Error) %}'
+        Next: ReportOutcome
+    Next: ReportOutcome
+
+  # Every run that held the lock ends here, with the outcome deciding how the execution finishes.
+  ReportOutcome:
+    Type: Choice
+    Choices:
+      - Condition: '{% $outcome in ["catalogued", "unchanged"] %}'
+        Next: IntakeComplete
+      - Condition: '{% $outcome = "rejected" %}'
+        Next: BatchRejected
+    Default: IntakeFailed
+
+  IntakeComplete:
+    Type: Succeed
+    Output: |-
+      {% {
+        "batchId": $batch.batchId,
+        "outcome": $outcome,
+        "revision": $revision ? $revision.number : 1,
+        "reels": $count($verdicts),
+        "repair": [$verdicts[status = "repair"].reelId],
+        "sealed": $batch.final and $outcome = "catalogued",
+        "warnings": $warnings
+      } %}
+
+  BatchRejected:
+    Type: Fail
+    Error: '{% "Archive.Rejected." & $rejection.code %}'
+    Cause: '{% $rejection.reason %}'
+
+  IntakeFailed:
+    Type: Fail
+    Error: '{% $fault ? $fault.error : "Archive.IntakeFailed" %}'
+    Cause: '{% $fault ? $fault.step & ": " & $fault.cause : "The run failed without recording a fault" %}'
+
+  # Outcome unknown: the catalog may or may not hold this batch. Page the archive engineers and
+  # stop with the lock held, so no later delivery of the batch runs into a half-known state.
+  ReportOutcomeUnknown:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Arguments:
+      TopicArn: ${IncidentTopicArn}
+      Subject: '{% "Catalog state unknown for batch " & $batch.batchId %}'
+      Message: |-
+        {% $string({
+          "batchId": $batch.batchId,
+          "transactionId": $transactionId,
+          "attempts": $catalogWriteAttempts,
+          "lastFault": $fault,
+          "execution": $states.context.Execution.Id,
+          "action": "Check the SUMMARY item in ${CatalogTable}, then delete lock BATCH#" & $batch.batchId & " from ${LockTable}"
+        }) %}
+    Retry: [*noRetry, *retryAll]
+    Catch:
+      - ErrorEquals: [States.ALL]
+        Next: OutcomeUnknown
+    Next: OutcomeUnknown
+
+  OutcomeUnknown:
+    Type: Fail
+    Error: Archive.OutcomeUnknown
+    Cause: '{% "Transaction " & $transactionId & " for batch " & $batch.batchId & " could not be confirmed" %}'

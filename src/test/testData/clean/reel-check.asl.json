@@ -1,0 +1,149 @@
+{
+  "Comment": "Measures one catalogued reel again on request and records whether it has deteriorated",
+  "QueryLanguage": "JSONata",
+  "StartAt": "ReadRequest",
+  "States": {
+    "ReadRequest": {
+      "Type": "Pass",
+      "Assign": {
+        "reelId": "{% $uppercase($trim($states.input.reelId)) %}",
+        "requestedBy": "{% $exists($states.input.requestedBy) ? $states.input.requestedBy : \"scheduler\" %}",
+        "reel": null,
+        "measurement": null
+      },
+      "Next": "LoadReel"
+    },
+    "LoadReel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Arguments": {
+        "TableName": "${CatalogTable}",
+        "Key": {
+          "pk": { "S": "{% 'REEL#' & $reelId %}" },
+          "sk": { "S": "CURRENT" }
+        }
+      },
+      "Assign": {
+        "reel": "{% $states.result.Item ? {'reelId': $reelId, 'shelf': $states.result.Item.shelfId.S, 'status': $states.result.Item.status.S, 'shrinkage': $number($states.result.Item.shrinkagePercent.N)} : null %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Output": "{% $states.errorOutput %}",
+          "Next": "ReelCheckFailed"
+        }
+      ],
+      "Next": "ReelKnown"
+    },
+    "ReelKnown": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $reel != null and $reel.status != 'withdrawn' %}",
+          "Next": "MeasureAgain"
+        }
+      ],
+      "Default": "ReelNotFound"
+    },
+    "ReelNotFound": {
+      "Type": "Fail",
+      "Error": "Archive.ReelNotFound",
+      "Cause": "{% 'No current catalog entry for reel ' & $reelId %}"
+    },
+    "MeasureAgain": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${ReelInspectorArn}:live",
+        "Payload": {
+          "reel": "{% $reel %}",
+          "checks": ["shrinkage", "acidity", "splices"],
+          "reason": "{% 'recheck requested by ' & $requestedBy %}"
+        }
+      },
+      "Assign": {
+        "measurement": "{% $states.result.Payload %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Output": "{% $states.errorOutput %}",
+          "Next": "ReelCheckFailed"
+        }
+      ],
+      "Next": "CompareMeasurement"
+    },
+    "CompareMeasurement": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $measurement.shrinkagePercent > 1.2 or $measurement.acidity >= 0.5 or $measurement.shrinkagePercent - $reel.shrinkage > 0.3 %}",
+          "Next": "RecordDeterioration"
+        }
+      ],
+      "Default": "RecordCheck"
+    },
+    "RecordDeterioration": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${CatalogTable}",
+        "Key": {
+          "pk": { "S": "{% 'REEL#' & $reelId %}" },
+          "sk": { "S": "CURRENT" }
+        },
+        "UpdateExpression": "SET #status = :repair, shrinkagePercent = :shrinkage, lastCheckedAt = :now",
+        "ExpressionAttributeNames": { "#status": "status" },
+        "ExpressionAttributeValues": {
+          ":repair": { "S": "repair" },
+          ":shrinkage": { "N": "{% $string($measurement.shrinkagePercent) %}" },
+          ":now": { "S": "{% $now() %}" }
+        }
+      },
+      "Output": "{% {'reelId': $reelId, 'status': 'repair', 'measurement': $measurement} %}",
+      "Next": "CheckDone"
+    },
+    "RecordCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${CatalogTable}",
+        "Key": {
+          "pk": { "S": "{% 'REEL#' & $reelId %}" },
+          "sk": { "S": "CURRENT" }
+        },
+        "UpdateExpression": "SET shrinkagePercent = :shrinkage, lastCheckedAt = :now",
+        "ExpressionAttributeValues": {
+          ":shrinkage": { "N": "{% $string($measurement.shrinkagePercent) %}" },
+          ":now": { "S": "{% $now() %}" }
+        }
+      },
+      "Output": "{% {'reelId': $reelId, 'status': $reel.status, 'measurement': $measurement} %}",
+      "Next": "CheckDone"
+    },
+    "CheckDone": {
+      "Type": "Succeed"
+    },
+    "ReelCheckFailed": {
+      "Type": "Fail",
+      "Error": "{% $states.input.Error %}",
+      "Cause": "{% $states.input.Cause %}"
+    }
+  }
+}
