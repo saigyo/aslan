@@ -1,0 +1,215 @@
+# Reel restoration
+#
+# A conservator assesses the damaged reels of a delivery and answers through the task token. The
+# assessment decides the route: urgent reels are restored at once, minor damage waits on the
+# shelf, reels inspected long ago are inspected again, and everything else is queued for the
+# restoration workshop from the vault's inventory report. The workflow predates JSONata in the
+# archive and stays in JSONPath, so it uses paths, the older comparison operators and the
+# legacy Iterator of the Map state.
+Comment: Routes damaged reels to restoration according to the conservator's assessment
+StartAt: AssessDamage
+States:
+
+  # The time limits come with the input, because each conservator agrees their own.
+  AssessDamage:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+    Parameters:
+      FunctionName: ${AssessDamageFn}
+      Payload:
+        reels.$: $.reels
+        taskToken.$: $$.Task.Token
+    TimeoutSecondsPath: $.limits.assessmentSeconds
+    HeartbeatSecondsPath: $.limits.heartbeatSeconds
+    ResultPath: $.assessment
+    Catch:
+      - ErrorEquals: [States.Timeout]
+        ResultPath: $.error
+        Next: AssessmentTimedOut
+    Next: SortReels
+
+  # The rules are tried in order; the policy part of the input holds the thresholds.
+  SortReels:
+    Type: Choice
+    Choices:
+      - Not:
+          Variable: $.assessment.severity
+          IsPresent: true
+        Next: AssessmentIncomplete
+      - Or:
+          - Variable: $.assessment.severity
+            IsNull: true
+          - Variable: $.assessment.severity
+            IsNumeric: false
+        Next: AssessmentIncomplete
+      - And:
+          - Variable: $.assessment.urgent
+            IsBoolean: true
+          - Variable: $.assessment.urgent
+            BooleanEqualsPath: $.policy.urgentFlag
+        Next: RestoreNow
+      - Or:
+          - Variable: $.assessment.severity
+            NumericEquals: 5
+          - Variable: $.assessment.severity
+            NumericEqualsPath: $.policy.maxSeverity
+          - Variable: $.assessment.severity
+            NumericGreaterThan: 3
+          - Variable: $.assessment.severity
+            NumericGreaterThanPath: $.policy.restoreAbove
+          - Variable: $.assessment.severity
+            NumericGreaterThanEquals: 4
+          - Variable: $.assessment.severity
+            NumericGreaterThanEqualsPath: $.policy.restoreFrom
+        Next: RestoreNow
+      - And:
+          - Variable: $.assessment.severity
+            NumericLessThan: 2
+          - Variable: $.assessment.severity
+            NumericLessThanPath: $.policy.minorBelow
+          - Variable: $.assessment.severity
+            NumericLessThanEqualsPath: $.policy.minorUpTo
+        Next: ShelveForLater
+      - Or:
+          - Variable: $.assessment.gauge
+            StringEqualsPath: $.policy.priorityGauge
+          - Variable: $.assessment.gauge
+            StringMatches: 35mm*
+          - Variable: $.assessment.stock
+            StringGreaterThan: nitrate
+          - Variable: $.assessment.stock
+            StringGreaterThanEquals: polyester
+          - Variable: $.assessment.stock
+            StringGreaterThanPath: $.policy.stockAfter
+          - Variable: $.assessment.stock
+            StringGreaterThanEqualsPath: $.policy.stockFrom
+          - Variable: $.assessment.stock
+            StringLessThan: acetate
+          - Variable: $.assessment.stock
+            StringLessThanEquals: acetate
+          - Variable: $.assessment.stock
+            StringLessThanPath: $.policy.stockBefore
+          - Variable: $.assessment.stock
+            StringLessThanEqualsPath: $.policy.stockUpTo
+        Next: ScheduleRestoration
+      # An inspection before the archive's 2020 survey, or one at a date the policy names, is
+      # repeated before anything is restored.
+      - And:
+          - Variable: $.assessment.inspectedAt
+            IsString: true
+          - Variable: $.assessment.inspectedAt
+            IsTimestamp: true
+          - Or:
+              - Variable: $.assessment.inspectedAt
+                TimestampLessThan: '2020-01-01T00:00:00Z'
+              - Variable: $.assessment.inspectedAt
+                TimestampLessThanEquals: '2020-01-01T00:00:00Z'
+              - Variable: $.assessment.inspectedAt
+                TimestampLessThanPath: $.policy.surveyStart
+              - Variable: $.assessment.inspectedAt
+                TimestampLessThanEqualsPath: $.policy.surveyStart
+              - Variable: $.assessment.inspectedAt
+                TimestampEquals: '2020-06-30T12:00:00Z'
+              - Variable: $.assessment.inspectedAt
+                TimestampEqualsPath: $.policy.recallDate
+              - Variable: $.assessment.inspectedAt
+                TimestampGreaterThan: '2031-01-01T00:00:00Z'
+              - Variable: $.assessment.inspectedAt
+                TimestampGreaterThanEquals: '2031-01-01T00:00:00Z'
+              - Variable: $.assessment.inspectedAt
+                TimestampGreaterThanPath: $.policy.surveyEnd
+              - Variable: $.assessment.inspectedAt
+                TimestampGreaterThanEqualsPath: $.policy.surveyEnd
+        Next: ReinspectReels
+    Default: ScheduleRestoration
+
+  # Urgent reels are restored one by one, as many at a time as there are restorers on duty.
+  RestoreNow:
+    Type: Map
+    ItemsPath: $.reels
+    MaxConcurrencyPath: $.limits.restorers
+    Iterator:
+      StartAt: RestoreReel
+      States:
+        RestoreReel:
+          Type: Task
+          Resource: arn:aws:states:::lambda:invoke
+          Parameters:
+            FunctionName: ${RestoreReelFn}
+            Payload.$: $
+          ResultSelector:
+            reelId.$: $.Payload.reelId
+            restored.$: $.Payload.restored
+          End: true
+    ResultPath: $.restored
+    Next: Restored
+
+  # Minor damage waits on the shelf for as long as the policy says.
+  ShelveForLater:
+    Type: Wait
+    SecondsPath: $.policy.shelfSeconds
+    Next: ScheduleRestoration
+
+  # The climate-controlled inspection room reopens after its refit; the reels are assessed again
+  # then.
+  ReinspectReels:
+    Type: Wait
+    Timestamp: '2027-01-04T08:00:00Z'
+    Next: AssessDamage
+
+  # The workshop queue is filled from the vault's S3 inventory report, in batches whose size the
+  # input sets.
+  ScheduleRestoration:
+    Type: Map
+    Label: RestorationQueue
+    ItemReader:
+      Resource: arn:aws:states:::s3:getObject
+      Parameters:
+        Bucket: ${InventoryBucket}
+        Key.$: $.assessment.inventoryManifestKey
+      ReaderConfig:
+        ManifestType: S3_INVENTORY
+        MaxItemsPath: $.limits.maxReels
+    ItemBatcher:
+      MaxItemsPerBatchPath: $.limits.batchSize
+      MaxInputBytesPerBatchPath: $.limits.batchBytes
+      BatchInput:
+        severity.$: $.assessment.severity
+    MaxConcurrency: 10
+    ToleratedFailurePercentagePath: $.limits.failurePercent
+    ToleratedFailureCountPath: $.limits.failureCount
+    ItemProcessor:
+      ProcessorConfig:
+        Mode: DISTRIBUTED
+        ExecutionType: STANDARD
+      StartAt: QueueBatch
+      States:
+        QueueBatch:
+          Type: Task
+          Resource: arn:aws:states:::sqs:sendMessage
+          Parameters:
+            QueueUrl: ${WorkshopQueueUrl}
+            MessageBody.$: States.JsonToString($)
+          End: true
+    ResultWriter:
+      Resource: arn:aws:states:::s3:putObject
+      Parameters:
+        Bucket: ${ReportsBucket}
+        Prefix: restoration-queue
+    ResultPath: $.queued
+    Next: Restored
+
+  Restored:
+    Type: Succeed
+    OutputPath: $.assessment
+
+  AssessmentIncomplete:
+    Type: Fail
+    Error: Assessment.Incomplete
+    Cause: The assessment gives no usable severity
+
+  # The conservator did not answer in time; the timeout error is passed on as it came.
+  AssessmentTimedOut:
+    Type: Fail
+    ErrorPath: $.error.Error
+    CausePath: $.error.Cause

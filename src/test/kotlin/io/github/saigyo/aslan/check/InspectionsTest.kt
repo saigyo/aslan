@@ -54,7 +54,10 @@ class InspectionsTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), highlights(edit("Type: Task" to "Type: Tsak"), "plain.yaml"))
 
     fun `test clean definitions show nothing`() {
-        for (name in listOf("film-archive-intake.asl.yaml", "reel-check.asl.json", "legacy-loan.asl.yaml")) {
+        val names = io.github.saigyo.aslan.fixtures.CleanCoverageTest.cleanDefinitions()
+        assertEquals(listOf("film-archive-intake.asl.yaml", "legacy-loan.asl.yaml", "reel-check.asl.json", "reel-digitising.asl.yaml",
+            "reel-restoration.asl.yaml"), names)
+        for (name in names) {
             myFixture.configureByFile("clean/$name")
             myFixture.enableInspections(*AslInspections.all().toTypedArray())
             assertEquals(name, emptyList<String>(), myFixture.doHighlighting(HighlightSeverity.WEAK_WARNING).map { "${it.severity}: ${it.description} at ${it.text}" })
