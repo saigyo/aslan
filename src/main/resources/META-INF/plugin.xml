@@ -38,6 +38,7 @@
         <referencesSearch implementation="io.github.saigyo.aslan.jsonata.refs.JsonataReferencesSearcher"/>
         <renameHandler implementation="io.github.saigyo.aslan.jsonata.refs.JsonataInplaceRenameHandler"/>
         <renamePsiElementProcessor implementation="io.github.saigyo.aslan.jsonata.refs.JsonataVariableRenameProcessor"/>
+        <completion.contributor language="AslJsonata" order="first" implementationClass="io.github.saigyo.aslan.jsonata.completion.JsonataCompletionContributor"/>
         <completion.contributor language="yaml" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <lang.documentationProvider language="yaml" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
