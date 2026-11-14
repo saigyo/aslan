@@ -50,7 +50,7 @@ class JsonataHighlightingTest : JsonataTestCase() {
     }
 
     fun `test semantic colours in a host file`() {
-        val expression = "\$sum(\$states.input.prices) & function(\$v){ \$v } & 'in \${Bucket}'"
+        val expression = "\$sum(\$states.input.fees) & function(\$v){ \$v } & 'in \${Bucket}'"
         val found = marks(hostText(expression)).filter { it.first.startsWith("ASL_JSONATA_") || it.first == "ASL_PLACEHOLDER" }
         assertEquals(
             listOf(

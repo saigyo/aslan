@@ -7,6 +7,8 @@ import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
+import com.intellij.psi.tree.TokenSet
+import org.jetbrains.yaml.YAMLTokenTypes
 
 /**
  * JSONata has block comments only. A line is commented by wrapping its text, white space around it left alone, in
@@ -32,9 +34,9 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
 
     private fun stateFor(file: PsiFile): CommenterDataHolder {
         val host = InjectedLanguageManager.getInstance(file.project).getInjectionHost(file) ?: return State
-        val text = host.text
-        val quoted = text.startsWith("'") || text.startsWith("\"")
-        return if (quoted && text.contains('\n')) Disabled else State
+        // the quoted token itself, so that an anchor or a tag in front of it does not hide the quote style
+        val quoted = host.node.findChildByType(QUOTED) ?: return State
+        return if (quoted.textContains('\n')) Disabled else State
     }
 
     /** The range of the text of [line] without the white space at both ends. */
@@ -114,6 +116,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
 
     private companion object {
         val State = object : CommenterDataHolder() {}
+        val QUOTED = TokenSet.create(YAMLTokenTypes.SCALAR_STRING, YAMLTokenTypes.SCALAR_DSTRING)
         /** For a quoted YAML scalar over several lines. */
         val Disabled = object : CommenterDataHolder() {}
         const val OPEN = "/*"
