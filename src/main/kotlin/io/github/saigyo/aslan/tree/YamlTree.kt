@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.tree
 
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.psi.PsiElement
 import org.jetbrains.yaml.YAMLTokenTypes
 import org.jetbrains.yaml.psi.YAMLAlias
@@ -18,19 +19,28 @@ import org.jetbrains.yaml.psi.impl.YAMLPlainTextImpl
 internal object YamlTree {
     private const val MERGE_KEY = "<<"
 
+    /** How many nodes one file may build. Aliases can double the tree at every level, so their expansion is capped. */
+    internal const val NODE_BUDGET = 200_000
+
     fun root(file: YAMLFile): AslNode? =
         file.documents.firstOrNull()?.topLevelValue?.let { Builder().node(it, it) }
 
     /**
      * Holds the values on the current build path. An alias or merge key that leads back to one of them
-     * resolves into itself and yields [AslUnresolved] instead of recursing.
+     * resolves into itself and yields [AslUnresolved] instead of recursing. Once [NODE_BUDGET] nodes are built, further
+     * aliases yield [AslUnresolved] and further merge keys stay unapplied, so the checks treat them as unknown.
      */
     private class Builder {
         private val inProgress = HashSet<YAMLValue>()
+        private var built = 0
+
+        private val exhausted: Boolean get() = built >= NODE_BUDGET
 
         fun node(value: YAMLValue, usePsi: PsiElement): AslNode {
+            ProgressManager.checkCanceled()
             if (value is YAMLAlias) return alias(value)
             if (!inProgress.add(value)) return AslUnresolved(usePsi, usePsi)
+            built++
             try {
                 return when (value) {
                     is YAMLMapping -> AslObject(value, usePsi, entries(value))
@@ -46,6 +56,7 @@ internal object YamlTree {
         }
 
         private fun alias(alias: YAMLAlias): AslNode {
+            if (exhausted) return AslUnresolved(alias, alias)
             val target = target(alias) ?: return AslUnresolved(alias, alias)
             return node(target, alias)
         }
@@ -89,6 +100,7 @@ internal object YamlTree {
          * A merge key that returns null stays an ordinary entry.
          */
         private fun merge(keyValue: YAMLKeyValue): List<AslEntry>? {
+            if (exhausted) return null
             val aliases = when (val value = keyValue.value) {
                 is YAMLAlias -> listOf(value)
                 is YAMLSequence -> value.items.map { it.value as? YAMLAlias ?: return null }
@@ -148,8 +160,8 @@ internal object YamlTree {
                 ?: return text
             if (indicator.contains('-') || indicator.contains('+')) return text
             if (scalar.text.endsWith('\n')) return text
-            val rest = scalar.containingFile.text.substring(scalar.textRange.endOffset)
-            return if (rest.contains('\n')) text else text.removeSuffix("\n")
+            val contents = scalar.containingFile.viewProvider.contents
+            return if (contents.indexOf('\n', scalar.textRange.endOffset) >= 0) text else text.removeSuffix("\n")
         }
     }
 }

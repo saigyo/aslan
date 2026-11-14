@@ -36,7 +36,7 @@ class AslConfigurable : Configurable {
     override fun apply() {
         AslSettings.getInstance().extraPatterns = enteredPatterns()
         for (project in ProjectManager.getInstance().openProjects) {
-            if (!project.isDisposed) DaemonCodeAnalyzer.getInstance(project).restart()
+            if (!project.isDisposed) DaemonCodeAnalyzer.getInstance(project).restart("ASL file name patterns changed")
         }
     }
 

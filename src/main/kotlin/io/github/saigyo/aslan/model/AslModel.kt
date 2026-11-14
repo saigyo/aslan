@@ -1,5 +1,7 @@
 package io.github.saigyo.aslan.model
 
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
@@ -19,13 +21,29 @@ import java.util.IdentityHashMap
 
 /** Builds the [AslDocument] of a file and caches it until the file or the settings change. */
 object AslModel {
-    /** The model of [file], or null when it is not an ASL file. */
-    fun of(file: PsiFile): AslDocument? = CachedValuesManager.getCachedValue(file) {
-        CachedValueProvider.Result.create(build(file), PsiModificationTracker.MODIFICATION_COUNT, AslSettings.getInstance())
+    private val log = logger<AslModel>()
+
+    /**
+     * The model of [file], or null when it is not an ASL file or the model could not be built. Building never throws
+     * (except to cancel), because the annotator, completion, references and documentation call it on half-typed files.
+     */
+    fun of(file: PsiFile): AslDocument? {
+        if (!AslFiles.isAslFile(file)) return null
+        return CachedValuesManager.getCachedValue(file) {
+            CachedValueProvider.Result.create(guardedBuild(file), PsiModificationTracker.MODIFICATION_COUNT, AslSettings.getInstance())
+        }
     }
 
-    private fun build(file: PsiFile): AslDocument? {
-        if (!AslFiles.isAslFile(file)) return null
+    private fun guardedBuild(file: PsiFile): AslDocument? =
+        try {
+            build(file)
+        } catch (e: Exception) {
+            if (e is ControlFlowException) throw e
+            log.warn("ASL model could not be built for ${file.name}", e)
+            null
+        }
+
+    private fun build(file: PsiFile): AslDocument {
         val rootNode = AslTree.root(file)
         val rootObj = rootNode as? AslObject ?: return AslDocument(file, rootNode, null, SchemaIndex.EMPTY, QueryLanguage.JSONPATH, true)
         val topLevel = QueryLanguageSetting.of(rootObj["QueryLanguage"])

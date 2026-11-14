@@ -238,4 +238,33 @@ class AslTreeTest : AslTestCase() {
         assertEquals(ScalarType.NULL, r["None"]!!.value.scalar().type)
         assertEquals("StartAt", r["StartAt"]!!.key)
     }
+
+    fun `test doubling aliases stop at the node budget`() {
+        val levels = 30
+        val text = buildString {
+            append("Defaults:\n  a0: &a0 [x, x]\n")
+            for (i in 1..levels) append("  a$i: &a$i [*a${i - 1}, *a${i - 1}]\n")
+            append("StartAt: A\nStates:\n  A:\n    Type: Pass\n    Parameters:\n      all: *a$levels\n    End: true\n")
+        }
+        val started = System.nanoTime()
+        val file = yaml(text)
+        val tree = AslTree.root(file)!!
+        io.github.saigyo.aslan.check.AslChecker.findings(file)
+        val millis = (System.nanoTime() - started) / 1_000_000
+        var nodes = 0
+        var unresolved = 0
+        fun walk(node: AslNode) {
+            nodes++
+            when (node) {
+                is AslObject -> node.entries.forEach { walk(it.value) }
+                is AslArray -> node.items.forEach(::walk)
+                is AslUnresolved -> unresolved++
+                is AslScalar -> {}
+            }
+        }
+        walk(tree)
+        assertTrue("built $nodes nodes", nodes <= 2 * YamlTree.NODE_BUDGET)
+        assertTrue(unresolved > 0)
+        assertTrue("took $millis ms", millis < 10_000)
+    }
 }
