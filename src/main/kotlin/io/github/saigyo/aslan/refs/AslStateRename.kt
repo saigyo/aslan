@@ -70,13 +70,19 @@ class AslStateRenameProcessor : RenamePsiElementProcessor() {
     override fun createRenameDialog(project: Project, element: PsiElement, nameSuggestionContext: PsiElement?, editor: Editor?): RenameDialog =
         AslStateRenameDialog(project, element, nameSuggestionContext, editor)
 
-    /** Each alias that the rename would leave on the old name, or change although it names another machine's state. */
+    /** Each alias that the rename would leave on the old name, or change although it names another machine's state or no state at all. */
     override fun findCollisions(element: PsiElement, newName: String, allRenames: Map<out PsiElement, String>, result: MutableList<UsageInfo>) {
         val document = documentOfStateEntry(element) ?: return
-        val aliases = StateTargets.statesDeclaredBy(document, element).flatMap { StateTargets.aliasesBrokenByRename(document, it) }.distinct()
+        val states = StateTargets.statesDeclaredBy(document, element)
+        val aliases = states.flatMap { StateTargets.aliasesBrokenByRename(document, it) }.distinct()
         for (alias in aliases) result += object : UnresolvableCollisionUsageInfo(alias, element) {
             override fun getDescription(): String =
                 "The transition '${alias.parent?.text ?: alias.text}' is written through an alias, so renaming cannot update it correctly"
+        }
+        val others = states.flatMap { StateTargets.otherAliasesOfRenamedValues(document, it) }.distinct()
+        for (alias in others) result += object : UnresolvableCollisionUsageInfo(alias, element) {
+            override fun getDescription(): String =
+                "'${alias.parent?.text ?: alias.text}' reuses a renamed value through an alias, so renaming would change it too"
         }
     }
 
