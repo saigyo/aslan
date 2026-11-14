@@ -6,3 +6,5 @@ This product is licensed under the Apache License, Version 2.0. See the file LIC
 The descriptions of ASL fields and errors in this product are original text. They link to the AWS documentation and do not copy it.
 
 "Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.
+
+The JSONata scanner (src/main/kotlin/io/github/saigyo/aslan/jsonata/parser/JsonataScanner.kt) is ported from the tokenizer and parser of jsonata-js 2.0.6, © Copyright IBM Corp. 2016, 2018, licensed under the MIT License, which is bundled at META-INF/licenses/jsonata-LICENSE.txt.
