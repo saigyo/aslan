@@ -11,6 +11,11 @@ sealed interface AslNode {
     val usePsi: PsiElement
 }
 
+/**
+ * A YAML mapping or JSON object. Entries contributed by a YAML merge key are marked [AslEntry.viaMerge]. A merge key that could not be
+ * applied (its value is not an alias, or list of aliases, to a mapping, or it leads back into itself) stays an
+ * ordinary entry with key `<<`, so an object can contain such an entry.
+ */
 class AslObject(override val psi: PsiElement, override val usePsi: PsiElement, val entries: List<AslEntry>) : AslNode {
     /** The first entry with [key], or null. */
     operator fun get(key: String): AslEntry? = entries.firstOrNull { it.key == key }
@@ -21,7 +26,8 @@ class AslObject(override val psi: PsiElement, override val usePsi: PsiElement, v
 
 /**
  * One key and its value. [entryPsi] is the `YAMLKeyValue` or `JsonProperty`, [keyPsi] its key element.
- * [viaMerge] is true for an entry contributed by a YAML merge key (`<<`).
+ * [viaMerge] is true for an entry contributed by a YAML merge key (`<<`). A merge key that could not be applied
+ * is itself an entry with key `<<` and `viaMerge = false`.
  */
 class AslEntry(val key: String, val keyPsi: PsiElement, val entryPsi: PsiElement, val value: AslNode, val viaMerge: Boolean)
 

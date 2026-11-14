@@ -92,6 +92,30 @@ class AslTreeTest : AslTestCase() {
         assertEquals(listOf("A", "B", "C", "D", "E", "F"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
     }
 
+    fun `test exponent floats signed hex and timestamps are ambiguous`() {
+        val r = root(
+            "K: 1e3\nL: 1E5\nM: 1.0e3\nN: 2e-3\nO: -0x1F\nP: +0x1F\nQ: 2026-11-14\nR: 2026-11-14T10:00:00Z\n" +
+                "S: 1.0e+3\nT: 0x1F\nU: 1.5\nV: -7",
+        )
+        assertEquals(listOf("K", "L", "M", "N", "O", "P", "Q", "R"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
+    }
+
+    fun `test tagged plain scalars are ambiguous`() {
+        val r = root("A: !!str 12\nB: !Ref Timeout\nC: !x text\nD: 12\nE: text")
+        assertEquals(listOf("A", "B", "C"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
+        assertEquals("Timeout", r["B"]!!.value.scalar().text)
+    }
+
+    fun `test block scalar indicator ignores anchor tag and comment`() {
+        fun text(source: String) =
+            (AslTree.root(myFixture.configureByText("test.asl.yaml", source)) as AslObject)["A"]!!.value.scalar().text
+        assertEquals("{% 1 %}", text("A: &no-retry >\n  {% 1 %}"))
+        assertEquals("{% 1 %}", text("A: !to-text >\n  {% 1 %}"))
+        assertEquals("{% 1 %}", text("A: > # see a-b\n  {% 1 %}"))
+        assertEquals("{% 1 %}", text("A: >- # trimmed\n  {% 1 %}\n"))
+        assertEquals("{% 1 %}\n", text("A: &no-retry >\n  {% 1 %}\n"))
+    }
+
     fun `test clipped block scalar at end of file without line break`() {
         val r = AslTree.root(myFixture.configureByText("test.asl.yaml", "A: >\n  {% 1 %}")) as AslObject
         assertEquals("{% 1 %}", r["A"]!!.value.scalar().text)
