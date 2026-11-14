@@ -564,6 +564,76 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(setOf(NAME_IN_REGION, MERGE_KEY_CLASH), assertRenameConflict(text, "film"))
     }
 
+    /**
+     * Store's `Assign` merges [merge] and has its own `reel: 2`, the key renamed. `Parameters` (`&defaults`) holds
+     * `reel: 1` (written as [defaultsKey]), `Result` (`&more`) holds `shelf: 3` and, with [nested], merges `defaults`.
+     */
+    private fun mergedInto(merge: String, defaultsKey: String = "reel", nested: Boolean = false): String = """
+        StartAt: Store
+        States:
+          Store:
+            Type: Pass
+            Parameters: &defaults
+              DEFAULTS_KEY: 1
+            Result: &more
+              NESTED
+              shelf: 3
+            Assign:
+              <<: MERGE
+              re<caret>el: 2
+            Next: Show
+          Show:
+            Type: Pass
+            InputPath: §reel
+            End: true
+    """.trimIndent()
+        .replace("DEFAULTS_KEY", defaultsKey)
+        .replace(if (nested) "NESTED" else "      NESTED\n", if (nested) "<<: *defaults" else "")
+        .replace("MERGE", merge)
+
+    fun `test a rename refuses next to an inline or unresolved merge`() {
+        // the value tree leaves such a merge key unapplied, so the machine is open as well
+        for (merge in listOf("{reel: 1}", "[{reel: 1}, *more]", "*missing", "[*more, plain]")) {
+            assertEquals(merge, setOf(REGION_OPEN, MERGE_KEY_CLASH), assertRenameConflict(mergedInto(merge), "film"))
+        }
+    }
+
+    fun `test a rename refuses next to a key merged through aliases`() {
+        // a list of two aliases, the second bringing in reel
+        assertEquals(setOf(MERGE_KEY_CLASH), assertRenameConflict(mergedInto("[*more, *defaults]"), "film"))
+        // a nested merge: Assign merges Result, which merges Parameters, which holds reel
+        val nested = mergedInto("*more", nested = true)
+        assertTrue(nested, "      <<: *defaults\n      shelf: 3" in nested)
+        assertEquals(setOf(MERGE_KEY_CLASH), assertRenameConflict(nested, "film"))
+        // a merged key written with an escape compares by its decoded name
+        val e = "\\" + "u0065"
+        val escaped = mergedInto("*defaults", defaultsKey = "\"r${e}el\"")
+        assertTrue(escaped, "\"r" + e + "el\": 1" in escaped)
+        assertEquals(setOf(MERGE_KEY_CLASH), assertRenameConflict(escaped, "film"))
+    }
+
+    fun `test a rename refuses where another mapping merges the renamed key's mapping`() {
+        val text = """
+            StartAt: Store
+            States:
+              Store:
+                Type: Pass
+                Parameters: &defaults
+                  reel: 1
+                Assign: &assign
+                  re<caret>el: 2
+                Next: Show
+              Show:
+                Type: Pass
+                Assign:
+                  <<: [*assign, *defaults]
+                InputPath: §reel
+                End: true
+        """.trimIndent()
+        // in Show, the renamed key would no longer mask the reel of Parameters
+        assertEquals(setOf(MERGE_KEY_CLASH), assertRenameConflict(text, "film"))
+    }
+
     fun `test an alias that every use reads the variable through is renamed once`() {
         val before = jsonataMachine(
             """
