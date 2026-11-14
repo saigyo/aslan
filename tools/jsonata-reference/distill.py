@@ -21,7 +21,7 @@ MAX_MUTATED = 300
 
 def main():
     checkout = sys.argv[1]
-    repo = os.getcwd()
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     groups = os.path.join(checkout, "test", "test-suite", "groups")
     suite = []
     for group in sorted(os.listdir(groups)):
