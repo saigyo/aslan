@@ -6,6 +6,8 @@ import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector.Access
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.NavigationItem
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -14,7 +16,10 @@ import com.intellij.usageView.UsageInfo
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.jsonata.refs.JsonataVariableReference
+import io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory
 import io.github.saigyo.aslan.refs.AslVariableReadReference
+import io.github.saigyo.aslan.refs.AslVariableTarget
+import io.github.saigyo.aslan.refs.AslVariableTargets
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -143,6 +148,19 @@ class VariableNavigationTest : VariableTestCase() {
         assertTrue(detector.isDeclarationWriteAccess(catcher))
         val accesses = usages.map { usage -> usage.reference?.let { detector.getReferenceAccess(catcher, it) } ?: detector.getExpressionAccess(usage.element!!) }
         assertEquals(expected.map { if (it.first == "reel") Access.Write else Access.Read }, accesses)
+    }
+
+    fun `test a go-to target from an older model stands for no variable`() {
+        configure(archive)
+        val entry = entryAt(offsetsOf("shelf:").single())
+        val target = AslVariableTarget(AslVariableTargets.variablesAt(entry).single(), entry, "Load")
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(hostFile())!!
+            document.insertString(document.textLength, "\n# shelved\n")
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        assertEmpty(AslVariableTargets.variablesAt(target))
+        assertNull(AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(target, false))
     }
 
     fun `test a local JSONata variable is not affected`() {

@@ -129,6 +129,52 @@ class VariableHighlightingTest : VariableTestCase() {
         assertEquals(listOf("reel" to true, "\$reel" to false), highlightedAccesses())
     }
 
+    fun `test a second configured file is highlighted too`() {
+        configure("  reel: none", "  re<caret>el: none")
+        assertEquals(reelHighlights, highlightedAccesses())
+        configure("{% §reel & §shelf", "{% §re<caret>el & §shelf")
+        assertEquals(reelHighlights, highlightedAccesses())
+    }
+
+    fun `test reads in multi-line quoted and folded scalars`() {
+        val text = """
+            QueryLanguage: JSONata
+            StartAt: Load
+            States:
+              Load:
+                Type: Pass
+                Assign:
+                  re<caret>el: 1
+                Output:
+                  quoted: "{% §reel &
+                    §reel %}"
+                  folded: >-
+                    {% §reel
+                    & §reel %}
+                End: true
+        """.trimIndent().replace("§", "$")
+        yaml(text)
+        assertEquals(listOf("reel" to true) + List(4) { "\$reel" to false }, highlightedAccesses())
+    }
+
+    fun `test the dollar suffix of a JSONPath key is not highlighted`() {
+        val text = """
+            StartAt: Load
+            States:
+              Load:
+                Type: Pass
+                Assign:
+                  re<caret>el.§: §.reel
+                Next: Show
+              Show:
+                Type: Pass
+                InputPath: §reel
+                End: true
+        """.trimIndent().replace("§", "$")
+        yaml(text)
+        assertEquals(listOf("reel" to true, "\$reel" to false), highlightedAccesses())
+    }
+
     fun `test a local JSONata variable keeps stage 2's highlighting`() {
         configure("§total := 1", "§to<caret>tal := 1")
         val handled = HighlightUsagesHandler.createCustomHandler<PsiElement>(myFixture.editor, myFixture.file)

@@ -33,10 +33,13 @@ abstract class AslTestCase : BasePlatformTestCase() {
 
     /** Like [highlightedUsages], each text with `true` for a write highlight (the write colour of search results). */
     protected fun highlightedAccesses(): List<Pair<String, Boolean>> {
-        HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)
         val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+        val manager = HighlightManager.getInstance(project) as HighlightManagerImpl
+        // the platform clears instead of highlighting when a leftover highlighter contains the caret
+        for (highlighter in manager.getHighlighters(editor)) manager.removeSegmentHighlighter(editor, highlighter)
+        HighlightUsagesHandler.invoke(project, myFixture.editor, myFixture.file)
         val text = editor.document.charsSequence
-        return (HighlightManager.getInstance(project) as HighlightManagerImpl).getHighlighters(editor)
+        return manager.getHighlighters(editor)
             .sortedBy { it.startOffset }
             .map { text.subSequence(it.startOffset, it.endOffset).toString() to (it.textAttributesKey == EditorColors.WRITE_SEARCH_RESULT_ATTRIBUTES) }
     }
