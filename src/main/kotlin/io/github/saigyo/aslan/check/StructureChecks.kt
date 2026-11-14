@@ -201,7 +201,7 @@ internal object StructureChecks {
     private fun skipped(state: AslState): Boolean = state.typeName?.let(Placeholders::contains) == true
 
     /** Placeholders, ambiguous scalars and unresolved aliases are never checked for kind. */
-    private fun exemptFromKind(node: AslNode): Boolean = when (node) {
+    internal fun exemptFromKind(node: AslNode): Boolean = when (node) {
         is AslUnresolved -> true
         is AslScalar -> node.ambiguous || Placeholders.contains(node.text)
         else -> false
@@ -210,10 +210,10 @@ internal object StructureChecks {
     private fun isJsonata(scalar: AslScalar) = scalar.type == ScalarType.STRING && scalar.text.startsWith("{%")
 
     /** `End` counts as possibly true unless it is the Boolean `false`; a placeholder or ambiguous value stays possible. */
-    private fun mayEnd(end: AslEntry?): Boolean {
+    internal fun mayEnd(end: AslEntry?): Boolean {
         val value = end?.value ?: return false
         return !(value is AslScalar && value.type == ScalarType.BOOLEAN && !value.ambiguous && value.text.equals("false", ignoreCase = true))
     }
 
-    private fun hasUnappliedMerge(o: AslObject) = o.entries.any(::isUnappliedMerge)
+    internal fun hasUnappliedMerge(o: AslObject) = o.entries.any(::isUnappliedMerge)
 }
