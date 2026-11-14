@@ -41,6 +41,8 @@
         <completion.contributor language="AslJsonata" order="first" implementationClass="io.github.saigyo.aslan.jsonata.completion.JsonataCompletionContributor"/>
         <completion.contributor language="yaml" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
+        <lang.documentationProvider language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.docs.JsonataDocumentationProvider"/>
+        <codeInsight.parameterInfo language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.docs.JsonataParameterInfoHandler"/>
         <lang.documentationProvider language="yaml" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
         <lang.documentationProvider language="JSON" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
         <psi.referenceContributor language="yaml" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>

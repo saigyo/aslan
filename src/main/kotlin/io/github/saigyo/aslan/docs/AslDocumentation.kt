@@ -127,7 +127,11 @@ object AslDocumentation {
      * [definition] and [facts] are already escaped; [description] and [url] come from the reference data and are escaped
      * here. Internal so that a test can check the escaping with hostile input.
      */
-    internal fun page(definition: String, facts: String?, description: String, url: String?): String = buildString {
+    internal fun page(definition: String, facts: String?, description: String, url: String?): String =
+        page(definition, facts, description, url, "AWS documentation")
+
+    /** As above, with [linkText] for the link. */
+    internal fun page(definition: String, facts: String?, description: String, url: String?, linkText: String): String = buildString {
         append(DocumentationMarkup.DEFINITION_START).append(definition).append(DocumentationMarkup.DEFINITION_END)
         append(DocumentationMarkup.CONTENT_START)
         if (!facts.isNullOrEmpty()) append("<i>").append(facts).append("</i><br>")
@@ -135,10 +139,10 @@ object AslDocumentation {
         append(DocumentationMarkup.CONTENT_END)
         if (url != null) {
             append(DocumentationMarkup.SECTIONS_START)
-            append("<p><a href=\"").append(esc(url)).append("\">AWS documentation</a>")
+            append("<p><a href=\"").append(esc(url)).append("\">").append(esc(linkText)).append("</a>")
             append(DocumentationMarkup.SECTIONS_END)
         }
     }
 
-    private fun esc(text: String): String = StringUtil.escapeXmlEntities(text)
+    internal fun esc(text: String): String = StringUtil.escapeXmlEntities(text)
 }
