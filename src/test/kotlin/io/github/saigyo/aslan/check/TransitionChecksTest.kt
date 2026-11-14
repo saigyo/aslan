@@ -190,4 +190,41 @@ class TransitionChecksTest : CheckTestCase() {
         )
         for ((name, text) in cases) assertTrue(name, flow(text))
     }
+
+    // Guards of errors (C15)
+
+    private fun noTerminal(text: String) = found(text).filter { it.first == NO_TERMINAL_STATE }
+
+    fun `test no terminal state is not judged when a state is not a mapping`() = assertEquals(
+        emptyList<Any>(),
+        noTerminal(edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    Next: Inspect\n", "  Rejected:\n    Type: Fail\n" to "  Rejected: later\n")),
+    )
+
+    fun `test no terminal state is not judged when a state has an unapplied merge`() = assertEquals(
+        emptyList<Any>(),
+        noTerminal(edit(
+            "  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    Next: Inspect\n",
+            "  Rejected:\n    Type: Fail\n" to "  Rejected:\n    <<: *missing\n    Type: Pass\n    Next: Inspect\n",
+        )),
+    )
+
+    fun `test merged states are not counted for duplicate names and name length`() {
+        val long = "L".repeat(81)
+        val text = """
+            StartAt: Both
+            States:
+              Both:
+                Type: Parallel
+                Branches:
+                  - StartAt: $long
+                    States: &first
+                      $long:
+                        Type: Succeed
+                  - StartAt: $long
+                    States:
+                      <<: *first
+                End: true
+        """.trimIndent() + "\n"
+        assertEquals(listOf(STATE_NAME_TOO_LONG to long), found(text))
+    }
 }

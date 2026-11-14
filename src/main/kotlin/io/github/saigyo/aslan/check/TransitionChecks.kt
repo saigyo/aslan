@@ -56,7 +56,7 @@ internal object TransitionChecks {
             val type = state.type ?: return
             if (type.terminal) return
             val o = state.obj ?: return
-            if (StructureChecks.hasUnappliedMerge(o) || StructureChecks.mayEnd(o["End"])) return
+            if (StructureChecks.uncertain(o) || StructureChecks.mayEnd(o["End"])) return
         }
         out += AslFinding(NO_TERMINAL_STATE, key, "No state ends the state machine")
     }
@@ -76,8 +76,8 @@ internal object TransitionChecks {
 /**
  * True when the file does not say enough to judge which states of this machine can be reached: the machine is open,
  * `StartAt` or any transition target is missing, a placeholder, uncertain or names no state, or a state's way on is
- * not fully known (no `Next` or `End: true`, an uncertain `End`, a state that is not a mapping, an unapplied merge,
- * or `Choices` or `Catch` that cannot be read as lists of mappings).
+ * not fully known (no `Next` or `End: true`, an uncertain `End`, a state that is not a mapping, an unapplied merge
+ * or a placeholder key, or `Choices` or `Catch` that cannot be read as lists of fully known mappings).
  */
 internal fun AslStateMachine.hasUnknownFlow(): Boolean {
     if (open) return true
@@ -94,10 +94,10 @@ private fun AslStateMachine.stateFlowUnknown(state: AslState): Boolean {
         if (state(name) == null) return true
     }
     val o = state.obj ?: return true
-    if (StructureChecks.hasUnappliedMerge(o)) return true
+    if (StructureChecks.uncertain(o)) return true
     for (key in listOf("Choices", "Catch")) {
         val value = o[key]?.value ?: continue
-        if (value !is AslArray || value.items.any { it !is AslObject || StructureChecks.hasUnappliedMerge(it) }) return true
+        if (value !is AslArray || value.items.any { it !is AslObject || StructureChecks.uncertain(it) }) return true
     }
     val type = state.type
     if (type == null || !type.needsTransition || o["Next"] != null) return false

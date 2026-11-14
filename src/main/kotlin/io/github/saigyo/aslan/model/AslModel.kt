@@ -14,7 +14,6 @@ import io.github.saigyo.aslan.tree.AslEntry
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.AslTree
-import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
 import java.util.IdentityHashMap
 
@@ -28,20 +27,25 @@ object AslModel {
     private fun build(file: PsiFile): AslDocument? {
         if (!AslFiles.isAslFile(file)) return null
         val rootNode = AslTree.root(file)
-        val rootObj = rootNode as? AslObject ?: return AslDocument(file, rootNode, null, SchemaIndex.EMPTY)
-        val builder = Builder(QueryLanguageSetting.of(rootObj["QueryLanguage"]))
+        val rootObj = rootNode as? AslObject ?: return AslDocument(file, rootNode, null, SchemaIndex.EMPTY, QueryLanguage.JSONPATH, true)
+        val topLevel = QueryLanguageSetting.of(rootObj["QueryLanguage"])
+        val builder = Builder(topLevel)
         val root = builder.machine(rootObj, null)
-        val topLevel = builder.topLevel.language ?: QueryLanguage.JSONPATH
-        return AslDocument(file, rootNode, root, SchemaIndex.build(root, topLevel, builder.machines))
+        val language = topLevel.language ?: QueryLanguage.JSONPATH
+        return AslDocument(file, rootNode, root, SchemaIndex.build(root, language, builder.machines), language, !topLevel.uncertain)
     }
 
-    /** A `QueryLanguage` field as written: the language it names, if any, and whether it contains a placeholder. */
-    private class QueryLanguageSetting(val language: QueryLanguage?, val placeholder: Boolean) {
+    /**
+     * A `QueryLanguage` field as written: the language it names, and whether it leaves the language open. Any value other
+     * than exactly `JSONPath` or `JSONata` (a placeholder, a value being typed, a value of another kind) leaves it open.
+     */
+    private class QueryLanguageSetting(val language: QueryLanguage?, val uncertain: Boolean) {
         companion object {
             fun of(entry: AslEntry?): QueryLanguageSetting {
-                val scalar = entry?.value as? AslScalar ?: return QueryLanguageSetting(null, false)
-                val language = QueryLanguage.entries.firstOrNull { scalar.type == ScalarType.STRING && it.text == scalar.text }
-                return QueryLanguageSetting(language, Placeholders.contains(scalar.text))
+                if (entry == null) return QueryLanguageSetting(null, false)
+                val scalar = entry.value as? AslScalar
+                val language = QueryLanguage.entries.firstOrNull { scalar?.type == ScalarType.STRING && !scalar.ambiguous && it.text == scalar.text }
+                return QueryLanguageSetting(language, language == null)
             }
         }
     }
@@ -65,7 +69,7 @@ object AslModel {
             val type = typeName?.let { AslSpec.stateType(it) }
             val own = QueryLanguageSetting.of(obj?.get("QueryLanguage"))
             val language = own.language ?: topLevel.language ?: QueryLanguage.JSONPATH
-            val known = own.language != null || (!own.placeholder && !topLevel.placeholder)
+            val known = own.language != null || (!own.uncertain && !topLevel.uncertain)
             val children = ArrayList<AslStateMachine>()
             val transitions = ArrayList<AslTransition>()
             val state = AslState(entry.key, entry, obj, machine, typeName, type, language, known, children, transitions)

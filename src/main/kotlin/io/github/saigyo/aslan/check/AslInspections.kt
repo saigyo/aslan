@@ -41,6 +41,7 @@ class AslMissingTransitionTargetInspection : AslProblemInspection(AslProblem.MIS
 class AslNoTerminalStateInspection : AslProblemInspection(AslProblem.NO_TERMINAL_STATE)
 class AslDuplicateStateNameInspection : AslProblemInspection(AslProblem.DUPLICATE_STATE_NAME)
 class AslStateNameTooLongInspection : AslProblemInspection(AslProblem.STATE_NAME_TOO_LONG)
+class AslDuplicateMapLabelInspection : AslProblemInspection(AslProblem.DUPLICATE_MAP_LABEL)
 class AslUnknownFieldInspection : AslProblemInspection(AslProblem.UNKNOWN_FIELD)
 class AslMisplacedFieldInspection : AslProblemInspection(AslProblem.MISPLACED_FIELD)
 class AslValueOutOfRangeInspection : AslProblemInspection(AslProblem.VALUE_OUT_OF_RANGE)
@@ -58,6 +59,8 @@ class AslInvalidTimestampInspection : AslProblemInspection(AslProblem.INVALID_TI
 class AslInvalidMapLabelInspection : AslProblemInspection(AslProblem.INVALID_MAP_LABEL)
 class AslIncompleteConfigurationInspection : AslProblemInspection(AslProblem.INCOMPLETE_CONFIGURATION)
 class AslInapplicableFieldInspection : AslProblemInspection(AslProblem.INAPPLICABLE_FIELD)
+class AslNullValueInspection : AslProblemInspection(AslProblem.NULL_VALUE)
+class AslMisplacedJsonataDelimiterInspection : AslProblemInspection(AslProblem.MISPLACED_JSONATA_DELIMITER)
 class AslChoiceWithoutDefaultInspection : AslProblemInspection(AslProblem.CHOICE_WITHOUT_DEFAULT)
 
 object AslInspections {
@@ -76,6 +79,7 @@ object AslInspections {
         AslNoTerminalStateInspection(),
         AslDuplicateStateNameInspection(),
         AslStateNameTooLongInspection(),
+        AslDuplicateMapLabelInspection(),
         AslUnknownFieldInspection(),
         AslMisplacedFieldInspection(),
         AslValueOutOfRangeInspection(),
@@ -93,6 +97,8 @@ object AslInspections {
         AslInvalidMapLabelInspection(),
         AslIncompleteConfigurationInspection(),
         AslInapplicableFieldInspection(),
+        AslNullValueInspection(),
+        AslMisplacedJsonataDelimiterInspection(),
         AslChoiceWithoutDefaultInspection(),
     )
 }

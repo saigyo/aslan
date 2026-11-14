@@ -14,9 +14,18 @@ import io.github.saigyo.aslan.tree.ScalarType
 
 /**
  * The typed view of one ASL file: its state machines, states and transitions. [rootNode] is the value tree as read;
- * [root] is null when that is not a mapping.
+ * [root] is null when that is not a mapping. [queryLanguage] is the language the top-level `QueryLanguage` sets
+ * (JSONPath when absent); [queryLanguageKnown] is false when that field is present but names neither language exactly,
+ * and [queryLanguage] then holds the fallback.
  */
-class AslDocument(val file: PsiFile, val rootNode: AslNode?, val root: AslStateMachine?, val schema: SchemaIndex) {
+class AslDocument(
+    val file: PsiFile,
+    val rootNode: AslNode?,
+    val root: AslStateMachine?,
+    val schema: SchemaIndex,
+    val queryLanguage: QueryLanguage,
+    val queryLanguageKnown: Boolean,
+) {
     private val machines: List<AslStateMachine> by lazy { root?.let { collectMachines(it, ArrayList()) } ?: emptyList() }
     private val states: List<AslState> by lazy { root?.let { collectStates(it, ArrayList()) } ?: emptyList() }
     private val statesByEntry: Map<PsiElement, AslState> by lazy {
@@ -80,8 +89,9 @@ class AslStateMachine(
 
 /**
  * One state. [obj] is null when the state's value is not a mapping. [type] is null when [typeName] is missing or not
- * an ASL state type. [queryLanguage] is the effective query language; [queryLanguageKnown] is false when a
- * placeholder decides it, and [queryLanguage] then holds the fallback.
+ * an ASL state type. [queryLanguage] is the effective query language; [queryLanguageKnown] is false when the
+ * `QueryLanguage` that decides it names neither language exactly (a placeholder, a typo), and [queryLanguage] then
+ * holds the fallback.
  */
 class AslState(
     val name: String,

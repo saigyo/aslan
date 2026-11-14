@@ -69,6 +69,8 @@
                          displayName="Duplicate state name" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslStateNameTooLong" implementationClass="io.github.saigyo.aslan.check.AslStateNameTooLongInspection"
                          displayName="State name too long" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslDuplicateMapLabel" implementationClass="io.github.saigyo.aslan.check.AslDuplicateMapLabelInspection"
+                         displayName="Map label used twice" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslUnknownField" implementationClass="io.github.saigyo.aslan.check.AslUnknownFieldInspection"
                          displayName="Unknown field" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslMisplacedField" implementationClass="io.github.saigyo.aslan.check.AslMisplacedFieldInspection"
@@ -103,6 +105,10 @@
                          displayName="Incomplete Map configuration" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslInapplicableField" implementationClass="io.github.saigyo.aslan.check.AslInapplicableFieldInspection"
                          displayName="Reader field that does not apply to the input type" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslNullValue" implementationClass="io.github.saigyo.aslan.check.AslNullValueInspection"
+                         displayName="Field without a value" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslMisplacedJsonataDelimiter" implementationClass="io.github.saigyo.aslan.check.AslMisplacedJsonataDelimiterInspection"
+                         displayName="JSONata delimiters that do not wrap the whole value" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>

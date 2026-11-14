@@ -2,6 +2,7 @@ package io.github.saigyo.aslan.check
 
 import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.check.AslProblem.CHOICE_WITHOUT_DEFAULT
+import io.github.saigyo.aslan.check.AslProblem.DUPLICATE_MAP_LABEL
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_LIST
 import io.github.saigyo.aslan.check.AslProblem.EXCLUSIVE_FIELDS
 import io.github.saigyo.aslan.check.AslProblem.HEARTBEAT_NOT_BELOW_TIMEOUT
@@ -58,12 +59,15 @@ internal object WarningChecks {
         /** The `Label` values of Map states, by the element they are written in, so an aliased state counts once. */
         private val labels = LinkedHashMap<PsiElement, AslScalar>()
 
-        fun run() = obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(root), root.obj.anchorPsi)
+        fun run() = obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context.topLevel(doc), root.obj.anchorPsi)
 
-        /** A Map label must be unique in the definition; every use after the first is reported. */
+        /**
+         * A Map label must be unique in the definition; every use after the first is reported. AWS documents this as a
+         * rejection, so unlike the rest of this walk it is an error.
+         */
         fun duplicateLabels() {
             for (group in labels.values.sortedBy { it.psi.textRange.startOffset }.groupBy { it.text }.values) {
-                for (label in group.drop(1)) report(INVALID_MAP_LABEL, label.psi, "Label '${label.text}' is already used by another Map state")
+                for (label in group.drop(1)) report(DUPLICATE_MAP_LABEL, label.psi, "Label '${label.text}' is already used by another Map state")
             }
         }
 
@@ -216,7 +220,7 @@ internal object WarningChecks {
                 }
             }
             // A rule written for JSONata is reported as such, not as a malformed JSONPath rule.
-            if (uncertain(rule) || rule.entries.any { CHOICE_RULE.field(it.key)?.mode == Mode.JSONATA }) return
+            if (StructureChecks.uncertain(rule) || rule.entries.any { CHOICE_RULE.field(it.key)?.mode == Mode.JSONATA }) return
             val combinations = rule.entries.count { it.key in COMBINATIONS }
             val operators = rule.entries.count { it.key in COMPARISONS }
             val variable = rule["Variable"] != null
@@ -237,7 +241,7 @@ internal object WarningChecks {
                     if (certain(o, "Mode") == "DISTRIBUTED" && o["ExecutionType"] == null) "Distributed mode needs 'ExecutionType'" else null
                 else -> readerConfig(o)
             }
-            if (missing != null && !uncertain(o)) report(INCOMPLETE_CONFIGURATION, anchor, missing)
+            if (missing != null && !StructureChecks.uncertain(o)) report(INCOMPLETE_CONFIGURATION, anchor, missing)
         }
 
         /** Returns what a ReaderConfig misses, and reports the fields that do not apply to its input type. */
@@ -307,7 +311,7 @@ internal object WarningChecks {
             val o = state.obj ?: return
             if (state.typeName?.let(Placeholders::contains) == true) return
             obj(o, AslSpec.structure(state.type?.structure ?: StructureId.STATE), Context.of(state), state.entry.keyPsi)
-            if (state.type?.structure == StructureId.CHOICE && o["Default"] == null && !StructureChecks.hasUnappliedMerge(o)) {
+            if (state.type?.structure == StructureId.CHOICE && o["Default"] == null && !StructureChecks.uncertain(o)) {
                 report(CHOICE_WITHOUT_DEFAULT, state.entry.keyPsi, "Input that no rule accepts fails the execution with States.NoChoiceMatched")
             }
         }
@@ -337,9 +341,6 @@ internal object WarningChecks {
         (node as? AslScalar)?.takeIf { it.type == ScalarType.STRING && !StructureChecks.exemptFromKind(it) }?.text
 
     private fun certain(o: AslObject, key: String): String? = certain(o[key]?.value)
-
-    /** Whether the file leaves open which fields [o] has: an unapplied merge or a placeholder key. */
-    private fun uncertain(o: AslObject) = o.entries.any { isUnappliedMerge(it) || Placeholders.contains(it.key) }
 
     private fun forbiddenInLabel(c: Char) = c.isWhitespace() || c.code <= 0x1f || c.code in 0x7f..0x9f || c in LABEL_FORBIDDEN
 

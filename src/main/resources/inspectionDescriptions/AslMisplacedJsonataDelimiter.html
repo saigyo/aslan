@@ -1,0 +1,6 @@
+<html>
+<body>
+<p>Reports a string in a JSONata state that contains <code>{%</code> or <code>%}</code> but does not start with <code>{%</code>, where Step Functions evaluates JSONata: as the value of a field that accepts a JSONata expression and anywhere inside free-form data such as <code>Arguments</code>, <code>Output</code> or <code>Assign</code>. Step Functions only evaluates a string that is wrapped in the delimiters as a whole, so text in front of <code>{%</code>, a space included, makes the whole value plain text.</p>
+<p>It is only a warning, because such a string is a valid text value. A string that contains a placeholder is not checked.</p>
+</body>
+</html>
