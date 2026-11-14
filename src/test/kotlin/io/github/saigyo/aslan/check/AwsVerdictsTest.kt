@@ -67,14 +67,17 @@ class AwsVerdictsTest : CheckTestCase() {
         assertEquals(listOf("r9-p-unknown-function"), reportedOn(AslProblem.UNKNOWN_JSONATA_FUNCTION))
     }
 
-    /** Each expression check is an error exactly on the probes of round 9 that AWS rejects for that reason. */
+    /** Each expression check is an error exactly on the probes of rounds 9 and 10 that AWS rejects for that reason. */
     fun `test the JSONata checks agree with AWS probe by probe`() {
-        fun reportedOn(problem: AslProblem, prefix: String) = probes.filter { it.name.startsWith(prefix) && problem in problems(it.name) }.map { it.name }.toSet()
-        fun rejectedFor(text: String, prefix: String) = probes.filter { p -> p.name.startsWith(prefix) && p.diagnostics.any { text in it } }.map { it.name }.toSet()
+        fun reportedOn(problem: AslProblem, among: (String) -> Boolean) = probes.filter { among(it.name) && problem in problems(it.name) }.map { it.name }.toSet()
+        fun rejectedFor(text: String, among: (String) -> Boolean) = probes.filter { p -> among(p.name) && p.diagnostics.any { text in it } }.map { it.name }.toSet()
+        val fields = { name: String -> name.startsWith("r9-") || name.startsWith("r10-") }
+        // r10-d- are rejected for their delimiters, a check of stage 1
+        val inputs = { name: String -> name.startsWith("r9-p-") || (name.startsWith("r10-") && !name.startsWith("r10-d-")) }
 
-        assertEquals(rejectedFor("does not exist", "r9-") - "r9-p-context-unknown", reportedOn(AslProblem.STATES_FIELD_UNAVAILABLE, "r9-"))
-        assertEquals(rejectedFor("is not supported", "r9-p-"), reportedOn(AslProblem.JSONATA_WITHOUT_INPUT, "r9-p-"))
-        assertEquals(setOf("r9-p-elvis", "r9-p-coalesce"), reportedOn(AslProblem.NEWER_JSONATA_OPERATOR, "r9-"))
+        assertEquals(rejectedFor("does not exist", fields) - "r9-p-context-unknown", reportedOn(AslProblem.STATES_FIELD_UNAVAILABLE, fields))
+        assertEquals(rejectedFor("is not supported", inputs), reportedOn(AslProblem.JSONATA_WITHOUT_INPUT, inputs))
+        assertEquals(setOf("r9-p-elvis", "r9-p-coalesce"), reportedOn(AslProblem.NEWER_JSONATA_OPERATOR) { it.startsWith("r9-") })
         assertTrue(probes.first { it.name == "r9-p-elvis" }.accepted.not() && probes.first { it.name == "r9-p-coalesce" }.accepted.not())
     }
 

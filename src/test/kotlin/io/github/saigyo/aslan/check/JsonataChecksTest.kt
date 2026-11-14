@@ -159,10 +159,29 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(nothing, expr("\$states"))
     }
 
-    fun `test a local variable named states is not checked`() {
-        assertEquals(nothing, task("Arguments", "(\$states := {\"result\": 1}; \$states.result)"))
-        assertEquals(nothing, expr("function(\$states){ \$states.nope }({\"nope\": 1})"))
+    fun `test a local variable named states is checked like the built-in`() {
+        assertEquals(field("result"), task("Arguments", "(\$states := {\"result\": 1}; \$states.result)"))
+        assertEquals(field("nope"), expr("function(\$states){ \$states.nope }({\"nope\": 1})"))
     }
+
+    fun `test the field below a step on states`() {
+        assertEquals(field("result"), task("Arguments", "\$states.result[0]"))
+        assertEquals(field("nope"), task("Arguments", "\$states.nope[0]"))
+        assertEquals(field("result"), task("Arguments", "\$states.result@\$r.a"))
+        assertEquals(field("result"), task("Arguments", "\$states.result#\$i.a"))
+        assertEquals(field("result"), task("Arguments", "\$states.result^(a)"))
+        assertEquals(field("result"), task("Arguments", "\$states.result{\"a\": 1}"))
+        assertEquals(nothing, task("Output", "\$states.result[0]"))
+        assertEquals(nothing, task("Arguments", "\$states.input[0]"))
+    }
+
+    fun `test a wildcard on states`() {
+        assertEquals(field("*"), task("Arguments", "\$states.*"))
+        assertEquals(nothing, task("Arguments", "\$states.**"))
+    }
+
+    fun `test a block around states is not the variable`() =
+        assertEquals(nothing, task("Arguments", "(\$states).result"))
 
     fun `test an anchored expression is reported when one of its uses is wrong`() {
         val task = "    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Arguments:\n      FunctionName: catalog-reel\n"
@@ -206,6 +225,9 @@ class JsonataChecksTest : CheckTestCase() {
             "\$map(\$states.input.items, function(\$v){ foo })" to "foo", "foo ? 1 : 2" to "foo", "-foo" to "foo",
             "foo & \"x\"" to "foo", "foo.bar[baz > 1]" to "foo", "\$states.input.items[\$\$.a]" to "\$\$",
             "and" to "and", "or.x" to "or", "`reel title`" to "`reel title`",
+            "foo[0]" to "foo", "foo^(a)" to "foo", "foo{\"a\": 1}" to "foo", "foo@\$f.id" to "foo", "foo#\$i.id" to "foo",
+            "(\$x := foo; 1)" to "foo", "\$states.input ~> foo" to "foo", "[foo..3]" to "foo", "[1..foo]" to "foo",
+            "foo ~> |a|{}|" to "foo",
         )
         for ((expression, text) in reported) assertEquals(expression, noInput(text), expr(expression))
     }
@@ -217,6 +239,8 @@ class JsonataChecksTest : CheckTestCase() {
             "\$states.input ~> |items|{\"a\": b}|", "\$states.input.orders.items.%.id", "\$states.input.*", "\$states.input.**.id",
             "\$states.input.items#\$i.{\"n\": \$i, \"v\": name}", "\$states.input.items@\$it.{\"v\": \$it.name}",
             "\$states.input.name ~> \$uppercase() ~> \$trim()", "\$substring(?, 0, 2)(\"hello\")", "\$states.input.`reel title`",
+            "**", "**.id", "*.id", "\$states.input.[a, b]", "(\$states.input).a", "\$states.input.items[0]",
+            "\$states.input.items{\"a\": b}", "\$states.input.items^(>b)",
         )
         for (expression in silent) assertEquals(expression, nothing, expr(expression))
     }
