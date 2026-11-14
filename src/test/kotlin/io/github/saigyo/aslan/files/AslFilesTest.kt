@@ -40,4 +40,20 @@ class AslFilesTest : AslTestCase() {
         assertFalse(AslFiles.isAslFile(yaml("services: {}", "docker-compose.yaml")))
         assertFalse(AslFiles.isAslFile(myFixture.configureByText("notes.asl.txt", "StartAt: A")))
     }
+
+    fun `test a pattern change applies at once and a loaded state is matched too`() {
+        val settings = AslSettings.getInstance()
+        settings.extraPatterns = listOf("*.sm.yaml")
+        assertTrue(AslFiles.isAslFileName("intake.sm.yaml"))
+        settings.extraPatterns = listOf("*.flow.yaml")
+        assertFalse(AslFiles.isAslFileName("intake.sm.yaml"))
+        settings.loadState(AslSettings.State().apply { extraPatterns = mutableListOf("*.sm.yaml") })
+        assertTrue(AslFiles.isAslFileName("intake.sm.yaml"))
+        assertEquals(listOf("*.sm.yaml"), settings.extraPatterns)
+    }
+
+    fun `test a file that is not an ASL file gets no model`() {
+        assertNull(io.github.saigyo.aslan.model.AslModel.of(yaml("StartAt: A", "plain.yaml")))
+        assertNotNull(io.github.saigyo.aslan.model.AslModel.of(yaml("StartAt: A")))
+    }
 }

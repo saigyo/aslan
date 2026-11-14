@@ -2,7 +2,6 @@ package io.github.saigyo.aslan.files
 
 import com.intellij.json.JsonLanguage
 import com.intellij.psi.PsiFile
-import com.intellij.util.PatternUtil
 import io.github.saigyo.aslan.settings.AslSettings
 import org.jetbrains.yaml.YAMLLanguage
 
@@ -12,9 +11,7 @@ object AslFiles {
 
     fun isAslFileName(name: String): Boolean {
         if (suffixes.any { name.endsWith(it, ignoreCase = true) }) return true
-        return AslSettings.getInstance().extraPatterns
-            .filter { it.isNotBlank() }
-            .any { PatternUtil.fromMask(it.trim()).matcher(name).matches() }
+        return AslSettings.getInstance().matchesExtraPattern(name)
     }
 
     fun isAslFile(file: PsiFile): Boolean {
