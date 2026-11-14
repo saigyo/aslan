@@ -52,7 +52,9 @@ sealed interface CompletionContext {
  * - First line under a key whose value is still empty (`A:\n    <caret>`, `Arguments:\n      <caret>`): a plain
  *   scalar that is the value of that `YAMLKeyValue`, on a later line than the key. The model then sees a scalar, not
  *   an object, so the structure comes from the key: a state name gives the generic state structure, a field of kind
- *   `Struct` the structure it names.
+ *   `Struct` the structure it names. A scalar on a later line that is not indented deeper than the key would be a new
+ *   key beside it; the parser in fact makes that the sibling-keys shape above (`Resource:\n    <caret>`), and the
+ *   column comparison keeps it right if that changes.
  * - Value position on the key's line (`QueryLanguage: <caret>`, `Type: Ta<caret>`): the same `YAMLKeyValue` value
  *   scalar, on the key's line; a `YAMLQuotedText` when inside quotes.
  * - First line of a block list item (`Retry:\n      - <caret>`): a plain scalar in a `YAMLSequenceItem` of a
@@ -103,8 +105,13 @@ object CompletionContexts {
 
         private fun valueOf(keyValue: YAMLKeyValue, scalar: YAMLScalar): CompletionContext? {
             val key = keyValue.key ?: return null
-            val between = keyValue.containingFile.text.subSequence(key.textRange.endOffset, scalar.textRange.startOffset)
-            if (!between.contains('\n')) return value(doc, key)
+            val text = keyValue.containingFile.viewProvider.contents
+            val start = scalar.textRange.startOffset
+            val scalarLineStart = lineStart(text, start)
+            if (scalarLineStart <= key.textRange.endOffset) return value(doc, key)
+            // On a later line but not indented deeper than the key: a new key next to it, not its value.
+            val keyStart = key.textRange.startOffset
+            if (start - scalarLineStart <= keyStart - lineStart(text, keyStart)) return keyIn(doc, keyValue.parentMapping, position)
             // The value is still empty and the caret is on the first line under the key: the first key of the value.
             doc.schema.stateNameKey(key)?.let { state ->
                 return CompletionContext.Key(ObjectInfo(AslSpec.structure(StructureId.STATE), state.queryLanguage, state), emptySet())
@@ -115,6 +122,13 @@ object CompletionContexts {
                 is ValueKind.ListOf, ValueKind.StatesMap, ValueKind.FreeForm -> null
                 else -> value(doc, key)
             }
+        }
+
+        /** The offset at which the line holding [offset] starts. */
+        private fun lineStart(text: CharSequence, offset: Int): Int {
+            var i = offset
+            while (i > 0 && text[i - 1] != '\n') i--
+            return i
         }
 
         private fun listItem(item: YAMLSequenceItem): CompletionContext? {
