@@ -22,7 +22,7 @@ internal val mapStructures = listOf(
             description = "Deprecated name of ItemProcessor: the steps to run for each item. Use ItemProcessor instead.",
             docUrl = Doc.MAP_INLINE),
         FieldSpec("Items", ValueKind.FreeForm, Mode.JSONATA, jsonata = true,
-            description = "JSONata only. Supplies the collection to iterate over, written out or computed by a {% %} expression; Distributed mode also takes an object.",
+            description = "JSONata only. Supplies the collection to iterate over, written out or computed by a {% %} expression.",
             docUrl = Doc.MAP_INLINE),
         FieldSpec("ItemsPath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. Points into the input at the collection to iterate over; \$ when absent.",

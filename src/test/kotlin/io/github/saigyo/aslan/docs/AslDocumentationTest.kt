@@ -63,8 +63,10 @@ class AslDocumentationTest : AslTestCase() {
     }
     fun `test unknown type value gives nothing`() =
         assertNull(docAtCaret("StartAt: A\nStates:\n  A:\n    Type: Ts<caret>ak"))
-    fun `test text from the file is escaped`() {
-        val html = docAtCaret("StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: x\n    Retry:\n      - ErrorEquals: [\"<b>\"]\n        Jitter<caret>Strategy: FULL")!!
-        assertFalse("<b>" in html)
+    fun `test description and link are escaped`() {
+        val html = AslDocumentation.page("Name", null, "Use <script>x</script> & more", "https://example.com/?a=\"><b>")
+        assertFalse(html, "<script>" in html)
+        assertFalse(html, "\"><b>" in html)
+        assertTrue(html, "&lt;script&gt;" in html && "&amp; more" in html)
     }
 }

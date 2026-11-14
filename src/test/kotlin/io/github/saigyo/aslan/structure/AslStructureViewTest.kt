@@ -4,6 +4,8 @@ import com.intellij.ide.structureView.StructureViewTreeElement
 import com.intellij.testFramework.PlatformTestUtil
 import io.github.saigyo.aslan.AslIcons
 import io.github.saigyo.aslan.AslTestCase
+import com.intellij.json.psi.JsonFile
+import org.jetbrains.yaml.psi.YAMLFile
 
 class AslStructureViewTest : AslTestCase() {
     private fun tree(): String {
@@ -127,8 +129,12 @@ class AslStructureViewTest : AslTestCase() {
     }
 
     fun `test a file that is not a state machine yet keeps the default structure view`() {
-        yaml("- a\n- b")
-        assertNotNull(tree())
+        val factory = AslYamlStructureViewFactory()
+        assertNull(factory.getStructureViewBuilder(yaml("- a\n- b") as YAMLFile))
+        assertNull(factory.getStructureViewBuilder(yaml("") as YAMLFile))
+        assertNull(factory.getStructureViewBuilder(yaml("StartAt: A\nStates:\n  A:\n    Type: Succeed", "plain.yaml") as YAMLFile))
+        assertNotNull(factory.getStructureViewBuilder(yaml("StartAt: A\nStates:\n  A:\n    Type: Succeed") as YAMLFile))
+        assertNull(AslJsonStructureViewFactory().getStructureViewBuilder(json("[1]") as JsonFile))
     }
 
     fun `test incomplete definitions do not break the tree`() {

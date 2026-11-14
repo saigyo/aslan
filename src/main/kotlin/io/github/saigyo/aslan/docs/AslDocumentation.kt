@@ -123,8 +123,11 @@ object AslDocumentation {
         is ValueKind.ListOf -> "list of " + kindText(kind.element)
     }
 
-    /** [definition] and [facts] are already escaped; [description] and [url] come from the reference data and are escaped here. */
-    private fun page(definition: String, facts: String?, description: String, url: String?): String = buildString {
+    /**
+     * [definition] and [facts] are already escaped; [description] and [url] come from the reference data and are escaped
+     * here. Internal so that a test can check the escaping with hostile input.
+     */
+    internal fun page(definition: String, facts: String?, description: String, url: String?): String = buildString {
         append(DocumentationMarkup.DEFINITION_START).append(definition).append(DocumentationMarkup.DEFINITION_END)
         append(DocumentationMarkup.CONTENT_START)
         if (!facts.isNullOrEmpty()) append("<i>").append(facts).append("</i><br>")
