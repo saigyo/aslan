@@ -329,9 +329,11 @@ internal object WarningChecks {
             val state = machine.state(name) ?: continue
             for (t in state.transitions) t.targetName?.let(queue::addLast)
         }
+        val targeted = machine.states.flatMapTo(HashSet()) { state -> state.transitions.mapNotNull { it.targetName } }
         for (state in machine.states) {
             if (state.name !in reached && !state.entry.viaMerge) {
-                out += AslFinding(UNREACHABLE_STATE, state.entry.keyPsi, "No transition leads to '${state.name}'")
+                val message = if (state.name in targeted) "Only unreachable states lead to '${state.name}'" else "No transition leads to '${state.name}'"
+                out += AslFinding(UNREACHABLE_STATE, state.entry.keyPsi, message)
             }
         }
     }

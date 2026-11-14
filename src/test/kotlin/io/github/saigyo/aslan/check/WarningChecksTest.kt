@@ -71,6 +71,15 @@ class WarningChecksTest : CheckTestCase() {
     fun `test unreachable state`() =
         assertEquals(listOf(UNREACHABLE_STATE to "Orphan"), found(BASE + "  Orphan:\n    Type: Succeed\n"))
 
+    fun `test a reachable state whose name needs quotes`() =
+        assertEquals(emptyList<Any>(), found(edit("Default: Rejected" to "Default: \"Needs: review\"") + "  \"Needs: review\":\n    Type: Succeed\n"))
+
+    fun `test a state that only unreachable states lead to says so`() {
+        val text = BASE + "  Orphan:\n    Type: Pass\n    Next: Behind\n  Behind:\n    Type: Succeed\n"
+        val messages = AslChecker.findings(myFixture.configureByText("test.asl.yaml", text)).map { it.problem to it.message }
+        assertEquals(listOf(UNREACHABLE_STATE to "No transition leads to 'Orphan'", UNREACHABLE_STATE to "Only unreachable states lead to 'Behind'"), messages)
+    }
+
     fun `test no reachability verdict with a placeholder target`() =
         assertEquals(emptyList<Any>(), found(edit("Next: Decide" to "Next: ${dollar}{NextState}")))
 
