@@ -241,7 +241,7 @@ The rule that follows from the anti-goals:
 | File is not a mapping, or `StartAt` or `States` is missing | schema validation |
 | State without `Type`, or with an unknown type | schema validation |
 | Required field missing: `Resource` on Task, `Choices` on Choice (or empty), `Branches` on Parallel, `ItemProcessor` on Map, `ErrorEquals` in a Retrier or Catcher, `Next` in a Catcher or Choice rule, `Condition` in a JSONata Choice rule, a time field on Wait | schema validation |
-| A state that needs a transition has neither `Next` nor `End: true` | missing end state, schema validation |
+| A state that needs a transition has neither `Next` nor `End` | schema validation |
 | `StartAt`, `Next` or `Default` names a state that does not exist in the same `States` object | missing transition target |
 | No terminal state in a `States` object | missing end state |
 | Duplicate state name anywhere in the machine; name longer than 80 characters | duplicate / invalid state name |
@@ -267,6 +267,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 | Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End: true` | rejection unconfirmed |
 | A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts` | rejection unconfirmed |
 | State that no transition reaches | deploys |
+| `End: false` without `Next` | the validation API accepts it as long as another state ends the machine |
 | `States.ALL` combined with other names, or not in the last Retrier or Catcher | rejection unconfirmed |
 | `HeartbeatSeconds` not smaller than `TimeoutSeconds` | rejection unconfirmed |
 | Choice state without `Default` (weak warning) | fails only at run time, and only if no rule matches |

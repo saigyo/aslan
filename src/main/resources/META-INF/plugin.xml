@@ -94,6 +94,8 @@
                          displayName="Unreachable state" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslUnknownServiceIntegration" implementationClass="io.github.saigyo.aslan.check.AslUnknownServiceIntegrationInspection"
                          displayName="Unknown service integration" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslEndFalseWithoutNext" implementationClass="io.github.saigyo.aslan.check.AslEndFalseWithoutNextInspection"
+                         displayName="End: false without Next" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslEmptyList" implementationClass="io.github.saigyo.aslan.check.AslEmptyListInspection"
                          displayName="Empty list where one entry is needed" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslUnknownPredefinedError" implementationClass="io.github.saigyo.aslan.check.AslUnknownPredefinedErrorInspection"

@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a Task, Pass, Wait, Parallel or Map state that has neither <code>Next</code> nor <code>End: true</code>.</p>
-<p>AWS documents that it rejects such a definition, so this is reported as an error. An <code>End</code> whose value is a placeholder or reads differently in YAML 1.1 and 1.2 counts as possibly true.</p>
+<p>Reports a Task, Pass, Wait, Parallel or Map state that has neither <code>Next</code> nor <code>End</code>.</p>
+<p>AWS documents that it rejects such a definition, so this is reported as an error. A state with <code>End: false</code> and no <code>Next</code> is accepted by AWS and reported by a separate inspection as a warning.</p>
 </body>
 </html>

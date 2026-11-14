@@ -2,6 +2,7 @@ package io.github.saigyo.aslan.check
 
 import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
+import io.github.saigyo.aslan.check.AslProblem.END_FALSE_WITHOUT_NEXT
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
 import io.github.saigyo.aslan.check.AslProblem.MISPLACED_JSONATA_DELIMITER
@@ -192,8 +193,15 @@ internal object StructureChecks {
             obj(o, AslSpec.structure(state.type?.structure ?: StructureId.STATE), ctx, state.entry.keyPsi)
 
             val type = state.type
-            if (type != null && type.needsTransition && !uncertain(o) && o["Next"] == null && !mayEnd(o["End"])) {
-                report(MISSING_TRANSITION, state.entry.keyPsi, "A ${type.name} state needs 'Next' or 'End: true'")
+            if (type != null && type.needsTransition && !uncertain(o) && o["Next"] == null) {
+                val end = o["End"]
+                if (end == null) {
+                    report(MISSING_TRANSITION, state.entry.keyPsi, "A ${type.name} state needs 'Next' or 'End: true'")
+                } else if (!mayEnd(end)) {
+                    // AWS accepts this as long as another state ends the machine, so it is not an error.
+                    val element = if (end.viaMerge) state.entry.keyPsi else end.value.psi
+                    report(END_FALSE_WITHOUT_NEXT, element, "With 'End: false' and no 'Next', the state neither ends the execution nor continues")
+                }
             }
             if (topLevelJsonata && state.queryLanguageKnown) {
                 val language = o["QueryLanguage"]?.takeIf { !it.viaMerge }?.value as? AslScalar
