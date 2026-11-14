@@ -27,8 +27,8 @@ open class JsonataElement(node: ASTNode) : ASTWrapperPsiElement(node) {
  * has a reference, to that first declaration; the use scope is the file, since every expression is its own world.
  */
 class JsonataVariableRef(node: ASTNode) : JsonataElement(node), PsiNameIdentifierOwner {
-    /** The name without the leading `$`. */
-    val variableName: String get() = text.removePrefix("$")
+    /** The name without the leading `$`, decoded from the host's escapes. */
+    val variableName: String get() = JsonataPsi.decodedText(this).removePrefix("$")
 
     override fun getName(): String = variableName
 

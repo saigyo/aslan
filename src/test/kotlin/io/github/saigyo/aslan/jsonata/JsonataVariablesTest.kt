@@ -532,6 +532,37 @@ class JsonataVariablesTest : JsonataTestCase() {
         )
     }
 
+    fun `test a transform refers to a later assignment like a function`() {
+        // jsonata-js 2.0.6: ($t := |$|{"x": $a}|; $a := 1; $t({})) gives {"x": 1}
+        val variables = variables(jsonata("(\$t := |\$|{\"x\": \$a}|; \$a := 1; \$t({}))"))
+        val a = variables.filter { it.name == "a" }
+        assertEquals(a[1], a[0].reference!!.resolve())
+        assertRenameConflict(hostText("(\$t := |\$|{\"x\": \$a}|; \$<caret>a := 1; \$t({}))"), "b")
+    }
+
+    fun `test an assignment that may not run blocks the rename`() {
+        // jsonata-js 2.0.6: (false ? $sum := 0 : 1; $sum([1, 2])) gives 3
+        assertRenameConflict(hostText("(false ? \$s<caret>um := 0 : 1; \$sum([1, 2]))"), "total")
+        // in the first step of a path that binds with #, the assignment binds in the block: ([$a := 1]#$i.$; $a) gives 1
+        val variables = variables(jsonata("([\$a := 1]#\$i.\$; \$a)"))
+        assertEquals(variables[0], variables.last().reference!!.resolve())
+        assertRenameConflict(hostText("([\$<caret>a := 1]#\$i.\$; \$a)"), "b")
+        // renaming another variable to a name assigned that way is refused too
+        assertRenameConflict(hostText("(\$<caret>b := 2; [\$a := 1]#\$i.\$; \$b)"), "a")
+        // an assignment that is a statement, or the right side of one, is certain
+        assertRename(hostText("(\$x := \$<caret>y := 1; \$y + \$x)"), hostText("(\$x := \$sum2 := 1; \$sum2 + \$x)"))
+    }
+
+    fun `test a name written with an escape is the same name`() {
+        val u = "\\" + "u0061"
+        val json = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% (${'$'}<caret>a := 1; ${'$'}""" + u + """) %}","End":true}}}"""
+        myFixture.configureByText("escaped.asl.json", json)
+        val variables = variables(myFixture.file)
+        assertEquals(listOf("a", "a"), variables.map { it.name })
+        assertEquals(variables[0], variables[1].reference!!.resolve())
+        assertRename(json, json.replace("<caret>", "").replace("${'$'}a", "${'$'}sum2").replace("${'$'}$u", "${'$'}sum2"), "escaped.asl.json")
+    }
+
     fun `test a focus or index binding ends with its path`() {
         assertRename(
             hostText("(\$states.input.items@\$s<caret>um.name; \$sum([1, 2]))"),

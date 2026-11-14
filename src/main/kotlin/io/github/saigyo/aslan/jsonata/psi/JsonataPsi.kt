@@ -49,6 +49,17 @@ object JsonataPsi {
         return true
     }
 
+    /**
+     * The text of [element] as Step Functions reads it: decoded from the host's escapes (`$a` in JSON is `$a`).
+     * Text without a backslash is returned as it is, since a name holds no other escape.
+     */
+    fun decodedText(element: PsiElement): String {
+        val text = element.text
+        if ('\\' !in text) return text
+        val manager = InjectedLanguageManager.getInstance(element.project)
+        return if (manager.isInjectedFragment(element.containingFile)) manager.getUnescapedText(element) else text
+    }
+
     /** The sites of the host of [file], one per state that uses it; empty for any file that is not injected JSONata. */
     fun sites(file: PsiFile): List<JsonataSite> {
         if (file !is JsonataFile) return emptyList()

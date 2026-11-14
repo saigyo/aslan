@@ -163,8 +163,10 @@ class JsonataVariableRenameProcessor : RenamePsiElementProcessor() {
  * - a name read in the expression that is no local variable (a built-in function that is called, a state machine
  *   variable or an undeclared name, which the renamed variable would capture); a built-in name the expression does not
  *   use is free;
- * - any name, when the old name or the new one is used inside a function that may run before the variable it refers
- *   to is assigned ([JsonataScopes.earlyUses]): what that use reads then depends on when the function runs;
+ * - any name, when the old name or the new one is used inside a function or transform that may run before the
+ *   variable it refers to is assigned ([JsonataScopes.earlyUses]): what that use reads then depends on when it runs;
+ * - any name, when the old name or the new one is first assigned where the assignment may not run
+ *   ([JsonataScopes.uncertainDeclarations]): where it does not, the uses read the name from further out;
  * - a name under which any occurrence of the expression, renamed or not, would refer to another variable than before,
  *   such as one declared later in the scope (found by reading the renamed expression).
  *
@@ -177,6 +179,7 @@ internal class JsonataRenameConflicts private constructor(
     private val locals: Set<String>,
     private val reads: Set<String>,
     private val early: Set<String>,
+    private val uncertain: Set<String>,
     /** The decoded text of the expression in pieces, and which pieces are names of occurrences of the renamed variable. */
     private val pieces: List<Pair<String, Boolean>>,
     private val meanings: List<String>,
@@ -189,6 +192,8 @@ internal class JsonataRenameConflicts private constructor(
         newName in reads -> "\$$newName is read in this expression and would then refer to the renamed variable"
         oldName in early || newName in early ->
             "\$${if (oldName in early) oldName else newName} is used in a function that may run before it is assigned, so the rename could change what that use reads"
+        oldName in uncertain || newName in uncertain ->
+            "\$${if (oldName in uncertain) oldName else newName} is first assigned where the assignment may not run, so the rename could change what its uses read"
         meanings(newName).let { it != null && it != meanings } -> "After the rename some uses of \$$newName would refer to another variable"
         else -> null
     }
@@ -208,7 +213,8 @@ internal class JsonataRenameConflicts private constructor(
             val file = variable.containingFile as JsonataFile
             val reads = JsonataScopes.variables(file).filter { JsonataScopes.declarations(it).isEmpty() }.mapTo(HashSet()) { it.name }
             val early = JsonataScopes.earlyUses(file).mapTo(HashSet()) { it.name }
-            return JsonataRenameConflicts(variable.project, variable.name, locals, reads, early, pieces(variable, file), meaningsOf(file))
+            val uncertain = JsonataScopes.uncertainDeclarations(file).mapTo(HashSet()) { it.name }
+            return JsonataRenameConflicts(variable.project, variable.name, locals, reads, early, uncertain, pieces(variable, file), meaningsOf(file))
         }
 
         /** The leaves of [file] as Step Functions reads them, each marked when it is the name token of an occurrence of [variable]. */
