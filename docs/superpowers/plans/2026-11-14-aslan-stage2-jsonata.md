@@ -239,7 +239,7 @@ fun `test the operators of JSONata 2_1 are tokens and no syntax error`()   // "\
 fun `test the tree built before an error is kept`()          // "\$sum(\$states.input." -> an error, and the root has a CALL containing a PATH
 fun `test a missing operand is an error at the end`()        // "1 +", "1 =", "\$states.", "(", "" and " ": S0207, with an empty range at the end of the text
 fun `test text after a complete expression is an error`()    // "Account.Order[0].Product;" and "1 2": S0201 at the first extra token
-fun `test the syntax of a regular expression is not checked`()   // "/[^]/", "/a{/", "/a{2,1}/", "/(/": no error
+fun `test the syntax of a regular expression is not checked`()   // "/[^]/" and "/a{2,1}/": no error; "/a{/" and "/(/": S0302, the tokenizer finds no closing "/" outside brackets
 fun `test the shape of a tree`()                             // dump of ScanNode types for "(\$t := 1; \$f(\$t, ?).a[0])"
 ```
 Lexical errors with their codes: `"abc` S0101, `10e1000` S0102, `"\y"` S0103, `"\u12"` S0104, `` `abc `` S0105, `/* abc` S0106, `//` S0301, `/abc` S0302.
