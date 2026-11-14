@@ -16,6 +16,10 @@ import io.github.saigyo.aslan.tree.ScalarType
 /** AWS limit on the length of a state name, in Unicode code points. */
 private const val MAX_STATE_NAME_CODE_POINTS = 80
 
+/** A string without placeholder that is certainly meant as a state name; null for anything the file leaves uncertain. */
+private fun certainName(scalar: AslScalar?): String? =
+    scalar?.takeIf { it.type == ScalarType.STRING && !it.ambiguous && !Placeholders.contains(it.text) }?.text
+
 /** The checks of transitions and state names whose failure AWS documents as a rejection. */
 internal object TransitionChecks {
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
@@ -27,10 +31,6 @@ internal object TransitionChecks {
         }
         names(doc, out)
     }
-
-    /** A string without placeholder that is certainly meant as a state name; null for anything the file leaves uncertain. */
-    private fun certainName(scalar: AslScalar?): String? =
-        scalar?.takeIf { it.type == ScalarType.STRING && !it.ambiguous && !Placeholders.contains(it.text) }?.text
 
     private fun startAt(machine: AslStateMachine, out: MutableList<AslFinding>) {
         val value = machine.startAt?.value as? AslScalar ?: return
@@ -82,7 +82,7 @@ internal object TransitionChecks {
 internal fun AslStateMachine.hasUnknownFlow(): Boolean {
     if (open) return true
     val start = startAt?.value as? AslScalar ?: return true
-    val startName = start.takeIf { it.type == ScalarType.STRING && !it.ambiguous && !Placeholders.contains(it.text) }?.text
+    val startName = certainName(start)
     if (startName == null || state(startName) == null) return true
     return states.any { stateFlowUnknown(it) }
 }
@@ -90,7 +90,8 @@ internal fun AslStateMachine.hasUnknownFlow(): Boolean {
 private fun AslStateMachine.stateFlowUnknown(state: AslState): Boolean {
     for (t in state.transitions) {
         val target = t.target ?: return true
-        if (target.type != ScalarType.STRING || target.ambiguous || Placeholders.contains(target.text) || state(target.text) == null) return true
+        val name = certainName(target) ?: return true
+        if (state(name) == null) return true
     }
     val o = state.obj ?: return true
     if (StructureChecks.hasUnappliedMerge(o)) return true
