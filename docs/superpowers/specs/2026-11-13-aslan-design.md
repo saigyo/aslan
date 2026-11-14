@@ -248,7 +248,7 @@ The rule that follows from the anti-goals:
 | Duplicate state name anywhere in the machine; name longer than 80 characters | validation |
 | A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state | validation, for every such field |
 | A JSONPath state in a machine whose top level is JSONata | validation |
-| A value of the wrong basic kind, such as text where a number is required, or a number with a fraction where a whole number is required; `5.0` only in a JSON file, since tools that convert YAML differ on it | validation |
+| A value of the wrong basic kind, such as text where a number is required, or a number with a fraction where a whole number is required; a whole value written as `5.0` or `1e2` only in a JSON file, since tools that convert YAML differ on it; a mapping or list as the value of a key that ends in `.$` | validation |
 | `null` in an optional field with a fixed kind of value, and in `Assign`, `Items`, `Credentials` and the `Parameters` or `Arguments` of a Task, ItemReader or ResultWriter; AWS accepts it in the paths, in `Error` of a Fail state and in `CSVDelimiter` | validation |
 | Field name that ASL does not define, outside free-form data | validation; the plugin's field names were compared with AWS in every position |
 | Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | validation |
