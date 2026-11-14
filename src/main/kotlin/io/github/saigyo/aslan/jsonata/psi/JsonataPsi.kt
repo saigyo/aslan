@@ -5,6 +5,8 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiLanguageInjectionHost
+import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.JsonataSite
 
@@ -14,6 +16,31 @@ object JsonataPsi {
     fun injectedFile(host: PsiElement): JsonataFile? {
         if (host !is PsiLanguageInjectionHost || !host.isValid) return null
         return InjectedLanguageManager.getInstance(host.project).getInjectedPsiFiles(host)?.firstNotNullOfOrNull { it.first as? JsonataFile }
+    }
+
+    /**
+     * Whether the expression in [file] is to be checked. It is not when it holds a deployment-time placeholder outside a
+     * string literal: a `PLACEHOLDER` token, or the two characters `${` anywhere outside a `STRING` token, whatever
+     * follows them (`${ssm:/path}`, `${opt:stage, 'dev'}`, `${file(./x.yml):k}` and `${jsonencode(x)}` are replaced
+     * by deployment tools, so the expression AWS sees differs from the text). A placeholder inside a string literal
+     * changes nothing.
+     */
+    fun judged(file: JsonataFile): Boolean {
+        val leaves = ArrayList<PsiElement>()
+        var leaf: PsiElement? = PsiTreeUtil.firstChild(file)
+        while (leaf != null) {
+            if (leaf.firstChild == null && leaf.textLength > 0) leaves += leaf
+            leaf = PsiTreeUtil.nextLeaf(leaf)
+        }
+        if (leaves.any { it.node.elementType == JsonataTokens.PLACEHOLDER }) return false
+        val strings = leaves.filter { it.node.elementType == JsonataTokens.STRING }.map { it.textRange }
+        val text = file.text
+        var at = text.indexOf("\${")
+        while (at >= 0) {
+            if (strings.none { it.startOffset <= at && at + 1 < it.endOffset }) return false
+            at = text.indexOf("\${", at + 1)
+        }
+        return true
     }
 
     /** The sites of the host of [file], one per state that uses it; empty for any file that is not injected JSONata. */

@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.check
 
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiErrorElement
@@ -11,7 +12,6 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.JsonataSites
-import io.github.saigyo.aslan.tree.Placeholders
 
 /**
  * Reports the syntax error of each JSONata expression, on the characters inside the host string where the scanner gave
@@ -21,42 +21,30 @@ import io.github.saigyo.aslan.tree.Placeholders
 internal object JsonataChecks {
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
         val hosts = LinkedHashSet<PsiElement>()
-        for (site in doc.jsonataSites.all) hosts += site.scalar.psi
+        val values = HashMap<PsiElement, String>()
+        for (site in doc.jsonataSites.all) {
+            hosts += site.scalar.psi
+            values[site.scalar.psi] = site.scalar.text
+        }
         for (host in hosts) {
             val file = JsonataPsi.injectedFile(host)
             if (file == null) {
-                emptyExpression(host, out)
+                emptyExpression(host, values.getValue(host), out)
                 continue
             }
             val error = PsiTreeUtil.findChildOfType(file, PsiErrorElement::class.java) ?: continue
-            if (hasPlaceholderOutsideString(file)) continue
+            if (!JsonataPsi.judged(file)) continue
             out += finding(host, file, error)
         }
     }
 
-    /** `{%%}` has no injected file; the error is reported on its closing `%}`. */
-    private fun emptyExpression(host: PsiElement, out: MutableList<AslFinding>) {
-        if (host.text.trim('\'', '"') != JsonataSites.OPEN + JsonataSites.CLOSE) return
+    /** An empty expression has no injected file; the error is reported on the closing `%}` found in the host's text. */
+    private fun emptyExpression(host: PsiElement, value: String, out: MutableList<AslFinding>) {
+        if (value.length < JsonataSites.OPEN.length + JsonataSites.CLOSE.length) return
+        if (value.substring(JsonataSites.OPEN.length, value.length - JsonataSites.CLOSE.length).isNotBlank()) return
         val close = host.text.lastIndexOf(JsonataSites.CLOSE)
-        if (close < 0) return
-        out += AslFinding(AslProblem.JSONATA_SYNTAX_ERROR, host, message("S0207", null), TextRange(close, close + JsonataSites.CLOSE.length))
-    }
-
-    private fun hasPlaceholderOutsideString(file: JsonataFile): Boolean {
-        val leaves = leaves(file)
-        if (leaves.any { it.node.elementType == JsonataTokens.PLACEHOLDER }) return true
-        val strings = leaves.filter { it.node.elementType == JsonataTokens.STRING }.map { it.textRange }
-        return Placeholders.ranges(file.text).any { p -> strings.none { it.startOffset <= p.first && p.last < it.endOffset } }
-    }
-
-    private fun leaves(file: JsonataFile): List<PsiElement> {
-        val out = ArrayList<PsiElement>()
-        var leaf = PsiTreeUtil.firstChild(file)
-        while (true) {
-            if (leaf.firstChild == null && leaf.textLength > 0) out += leaf
-            leaf = PsiTreeUtil.nextLeaf(leaf) ?: break
-        }
-        return out
+        val range = if (close < 0) null else TextRange(close, close + JsonataSites.CLOSE.length)
+        out += AslFinding(AslProblem.JSONATA_SYNTAX_ERROR, host, message("S0207", null), range)
     }
 
     private fun finding(host: PsiElement, file: JsonataFile, error: PsiErrorElement): AslFinding {
@@ -65,7 +53,7 @@ internal object JsonataChecks {
         val tokenRange = token?.textRange ?: TextRange(0, file.textLength)
         val range = JsonataPsi.rangeInHost(file, tokenRange)
             ?.takeIf { it.first == host && !it.second.isEmpty && it.second.endOffset <= host.textLength }?.second
-        return AslFinding(AslProblem.JSONATA_SYNTAX_ERROR, host, message(JsonataParser.codeOf(error), next?.text), range)
+        return AslFinding(AslProblem.JSONATA_SYNTAX_ERROR, host, message(JsonataParser.codeOf(error), next?.let { InjectedLanguageManager.getInstance(file.project).getUnescapedText(it) }), range)
     }
 
     /** The nearest leaf from [from] on, in the given direction, that is neither whitespace nor a comment. */
@@ -98,7 +86,7 @@ internal object JsonataChecks {
             "S0208" -> "Parameter of a function definition must be a variable name starting with \$"
             "S0209" -> "A predicate cannot follow a grouping expression in a step"
             "S0210" -> "Each step can have only one grouping expression"
-            "S0211" -> "Symbol$at cannot be used as a unary operator"
+            "S0211" -> "Symbol${shown?.let { " $it" }.orEmpty()} cannot be used as a unary operator"
             "S0212" -> "The left side of := must be a variable name starting with \$"
             "S0213" -> "A literal value cannot be a step in a path"
             "S0214" -> "The right side of the operator must be a variable name starting with \$"

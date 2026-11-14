@@ -51,8 +51,24 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), marked(pass("'{% 1 + /* \${X} */ %}'")))
     }
 
-    fun `test a placeholder inside a string changes nothing`() =
+    fun `test a placeholder inside a string changes nothing`() {
         assertEquals(listOf(err("+")), marked(pass("'{% \"\${Bucket}\" + %}'")))
+        assertEquals(listOf(err("+")), marked(pass("'{% \"\${ssm:/catalog/limit}\" + %}'"), "inside.asl.yaml"))
+    }
+
+    fun `test deployment tool forms of placeholders are not judged`() {
+        val forms = listOf("\${ssm:/catalog/limit} + 1", "\${opt:stage, ''dev''} + ", "\${jsonencode(x)} + ", "prefix\${X} + ", "\${file(./x.yml):k} + ")
+        forms.forEachIndexed { i, form ->
+            assertEquals(form, emptyList<Any>(), marked(pass("'{% $form %}'"), "form$i.asl.yaml"))
+        }
+    }
+
+    fun `test an empty expression on a later line is reported`() {
+        assertEquals(listOf(err("%}")), marked(pass(">-\n      {%%}"), "block.asl.yaml"))
+        val quoted = marked(pass("'{%\n      %}'"), "quoted.asl.yaml")
+        assertEquals(1, quoted.size)
+        assertEquals(JSONATA_SYNTAX_ERROR, quoted.single().first)
+    }
 
     fun `test the operators of JSONata 2_1 are no syntax error`() {
         assertEquals(emptyList<Any>(), marked(pass("'{% \$a ?: \$b %}'")))
@@ -72,7 +88,7 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(1, myFixture.doHighlighting(HighlightSeverity.ERROR).size)
     }
 
-    fun `test the large clean definition is checked in reasonable time`() {
+    fun `test the findings of the large clean definition are cached and hold no syntax error`() {
         val file = myFixture.configureByText("film-archive-intake.asl.yaml", File("src/test/testData/clean/film-archive-intake.asl.yaml").readText())
         val first = AslChecker.findings(file)
         assertEquals(emptyList<AslProblem>(), first.filter { it.problem == JSONATA_SYNTAX_ERROR }.map { it.problem })
