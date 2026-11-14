@@ -26,6 +26,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <fileType name="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.JsonataFileType" fieldName="INSTANCE" language="AslJsonata"/>
         <lang.parserDefinition language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.parser.JsonataParserDefinition"/>
+        <multiHostInjector implementation="io.github.saigyo.aslan.jsonata.inject.JsonataInjector"/>
         <completion.contributor language="yaml" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <lang.documentationProvider language="yaml" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>

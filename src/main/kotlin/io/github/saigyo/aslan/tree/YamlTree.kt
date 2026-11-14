@@ -162,8 +162,9 @@ internal object YamlTree {
         }
 
         /**
-         * A clipped block scalar (no `-` or `+` in its indicator) that ends at the end of the file without a
-         * final line break has no trailing line break, but `getTextValue()` appends one.
+         * A clipped block scalar (no `-` or `+` in its indicator) ends with exactly one line break, unless it ends at the
+         * end of the file without one. `getTextValue()` appends one in that case, and leaves it out of a literal (`|`)
+         * scalar with a single line of content.
          */
         private fun blockText(scalar: YAMLScalar, text: String): String {
             // The scalar's element also holds any tag, anchor and header comment; the indicator is its own
@@ -173,9 +174,14 @@ internal object YamlTree {
                 .firstOrNull { it.startsWith('>') || it.startsWith('|') }
                 ?: return text
             if (indicator.contains('-') || indicator.contains('+')) return text
-            if (scalar.text.endsWith('\n')) return text
             val contents = scalar.containingFile.viewProvider.contents
-            return if (contents.indexOf('\n', scalar.textRange.endOffset) >= 0) text else text.removeSuffix("\n")
+            val lineBreakFollows = scalar.text.endsWith('\n') || contents.indexOf('\n', scalar.textRange.endOffset) >= 0
+            return when {
+                !lineBreakFollows -> text.removeSuffix("\n")
+                // The YAML plugin drops the line break of a `|` scalar with a single line of content.
+                text.isNotEmpty() && !text.endsWith('\n') -> text + "\n"
+                else -> text
+            }
         }
     }
 }

@@ -226,6 +226,16 @@ class AslTreeTest : AslTestCase() {
         assertEquals("{% 1 %}\n", text("A: &no-retry >\n  {% 1 %}\n"))
     }
 
+    fun `test clipped literal block scalar with one line keeps its line break`() {
+        fun text(source: String) =
+            (AslTree.root(myFixture.configureByText("test.asl.yaml", source)) as AslObject)["A"]!!.value.scalar().text
+        assertEquals("{% 1 %}\n", text("A: |\n  {% 1 %}\nB: x"))
+        assertEquals("{% 1 %}\n", text("A: |\n  {% 1 %}\n"))
+        assertEquals("{% 1\n+ 2 %}\n", text("A: |\n  {% 1\n  + 2 %}\nB: x"))
+        assertEquals("{% 1 %}", text("A: |-\n  {% 1 %}\nB: x"))
+        assertEquals("{% 1 %}", text("A: |\n  {% 1 %}"))
+    }
+
     fun `test clipped block scalar at end of file without line break`() {
         val r = AslTree.root(myFixture.configureByText("test.asl.yaml", "A: >\n  {% 1 %}")) as AslObject
         assertEquals("{% 1 %}", r["A"]!!.value.scalar().text)
