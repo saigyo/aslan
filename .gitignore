@@ -1,1 +1,7 @@
 .superpowers/
+.gradle/
+build/
+.intellijPlatform/
+.kotlin/
+.idea/
+/private-fixtures/
