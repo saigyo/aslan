@@ -90,3 +90,25 @@ data class StateTypeSpec(
     val description: String,
     val docUrl: String,
 )
+
+/** A function usable in a JSONata expression. */
+class JsonataFunction(
+    /** Without the `$`. */
+    val name: String,
+    val parameters: List<JsonataParameter>,
+    val category: String,
+    val description: String,
+    val url: String,
+    /** Added by Step Functions; not part of JSONata. */
+    val stepFunctionsOnly: Boolean = false,
+    /** Whether Step Functions runs it. */
+    val supported: Boolean = true,
+)
+
+class JsonataParameter(val name: String, val optional: Boolean = false)
+
+/** The fields of the reserved `$states` variable. */
+enum class StatesField(val text: String) { INPUT("input"), RESULT("result"), ERROR_OUTPUT("errorOutput"), CONTEXT("context") }
+
+/** A field of the context object (`$states.context`), with the fields nested in it. */
+class ContextField(val name: String, val description: String, val children: List<ContextField> = emptyList())
