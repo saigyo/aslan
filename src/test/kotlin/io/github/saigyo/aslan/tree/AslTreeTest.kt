@@ -107,6 +107,14 @@ class AslTreeTest : AslTestCase() {
         assertEquals("\uD83D\uDE00a", values("A: \"\\U0001F600\\\n  a\"").single())
     }
 
+    fun `test multi-line double-quoted value with a tag in front`() =
+        assertEquals("a b", values("A: !!str \"a\n  b\"").single())
+
+    fun `test empty lines after an escaped line break become line feeds`() {
+        assertEquals("a\nb", values("A: \"a\\\n\n  b\"").single())
+        assertEquals("a\n\nb", values("A: \"a\\\n\n\n  b\"").single())
+    }
+
     fun `test an unknown escape is kept`() = assertEquals("\\q", values("A: \"\\q\"").single())
 
     fun `test multi-line quoted value is decoded again after an edit in the same file`() {

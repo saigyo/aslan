@@ -261,7 +261,15 @@ internal object QuotedScalars {
             return i
         }
         when (e) {
-            '\n' -> { while (i < body.length && (body[i] == ' ' || body[i] == '\t')) i++ }
+            '\n' -> {
+                // Leading white space of the next line is dropped; each empty line after the break is a line feed.
+                while (i < body.length && (body[i] == ' ' || body[i] == '\t')) i++
+                while (i < body.length && body[i] == '\n') {
+                    sb.append('\n')
+                    i++
+                    while (i < body.length && (body[i] == ' ' || body[i] == '\t')) i++
+                }
+            }
             '0' -> sb.append('\u0000')
             'a' -> sb.append('\u0007')
             'b' -> sb.append('\b')
