@@ -33,7 +33,7 @@ internal object StateTargets {
     }
 
     /** The range of the name inside [element]: between any quotes, and after any tag or anchor in front of it. */
-    private fun valueRange(element: PsiElement): TextRange {
+    internal fun valueRange(element: PsiElement): TextRange {
         val range = ElementManipulators.getValueTextRange(element)
         if (element !is YAMLScalar) return range
         val start = YamlScalars.contentStart(element)
@@ -110,7 +110,7 @@ internal object StateTargets {
     private fun startScalar(machine: AslStateMachine): AslScalar? = machine.startAt?.value as? AslScalar
 
     /** The key of the entry whose value is [element]. */
-    private fun keyOf(element: PsiElement): PsiElement? = when (val parent = element.parent) {
+    internal fun keyOf(element: PsiElement): PsiElement? = when (val parent = element.parent) {
         is YAMLKeyValue -> parent.key?.takeIf { parent.value === element }
         is JsonProperty -> parent.nameElement.takeIf { parent.value === element }
         else -> null
