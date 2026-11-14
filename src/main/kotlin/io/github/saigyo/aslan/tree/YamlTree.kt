@@ -1,6 +1,7 @@
 package io.github.saigyo.aslan.tree
 
 import com.intellij.psi.PsiElement
+import org.jetbrains.yaml.YAMLTokenTypes
 import org.jetbrains.yaml.psi.YAMLAlias
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLKeyValue
@@ -70,52 +71,10 @@ internal object YamlTree {
             return result
         }
 
-        /**
-         * The decoded value of a one-line quoted scalar, read from its own text: the platform's `textValue` has been
-         * seen to keep `''` undecoded after an incremental reparse. Multi-line scalars keep the platform's folding.
-         */
-        private fun quotedText(raw: String, platform: String): String = when {
-            raw.contains('\n') || raw.length < 2 -> platform
-            raw.startsWith("'") && raw.endsWith("'") -> raw.substring(1, raw.length - 1).replace("''", "'")
-            raw.startsWith("\"") && raw.endsWith("\"") -> unescapeDoubleQuoted(raw.substring(1, raw.length - 1))
-            else -> platform
-        }
-
         /** The decoded text of a key: quotes removed and, for quoted keys, escapes resolved. */
         private fun keyText(keyValue: YAMLKeyValue): String {
             val raw = keyValue.key?.text?.trim() ?: return keyValue.keyText
-            if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) return raw.substring(1, raw.length - 1).replace("''", "'")
-            if (raw.length >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) return unescapeDoubleQuoted(raw.substring(1, raw.length - 1))
-            return keyValue.keyText
-        }
-
-        private fun unescapeDoubleQuoted(body: String): String {
-            val sb = StringBuilder()
-            var i = 0
-            while (i < body.length) {
-                val c = body[i++]
-                if (c != '\\' || i >= body.length) { sb.append(c); continue }
-                val e = body[i++]
-                val digits = when (e) { 'x' -> 2; 'u' -> 4; 'U' -> 8; else -> 0 }
-                if (digits > 0) {
-                    val code = body.substring(i, minOf(i + digits, body.length)).toIntOrNull(16)
-                    if (code != null && i + digits <= body.length && Character.isValidCodePoint(code)) {
-                        sb.appendCodePoint(code); i += digits
-                    } else {
-                        sb.append('\\').append(e)
-                    }
-                    continue
-                }
-                when (e) {
-                    '0' -> sb.append('\u0000'); 'a' -> sb.append('\u0007'); 'b' -> sb.append('\b'); 't', '\t' -> sb.append('\t')
-                    'n' -> sb.append('\n'); 'v' -> sb.append('\u000B'); 'f' -> sb.append('\u000C'); 'r' -> sb.append('\r')
-                    'e' -> sb.append('\u001B'); ' ' -> sb.append(' '); '"' -> sb.append('"'); '/' -> sb.append('/')
-                    '\\' -> sb.append('\\'); 'N' -> sb.append('\u0085'); '_' -> sb.append('\u00A0')
-                    'L' -> sb.append('\u2028'); 'P' -> sb.append('\u2029')
-                    else -> sb.append('\\').append(e)
-                }
-            }
-            return sb.toString()
+            return if (QuotedScalars.isQuoted(raw)) QuotedScalars.decode(raw) else keyValue.keyText
         }
 
         private fun entry(keyValue: YAMLKeyValue): AslEntry {
@@ -157,9 +116,21 @@ internal object YamlTree {
                 )
                 is YAMLScalarText, is YAMLScalarList ->
                     AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text))
-                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar.text, text))
+                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text)
                 else -> AslScalar(scalar, usePsi, ScalarType.STRING, text)
             }
+        }
+
+        /**
+         * The decoded value of a quoted scalar, read from its quote-delimited content token alone, so that a tag or
+         * an anchor in front never leaks into it and the platform's own decoding (which keeps a stale quote style
+         * after an incremental reparse and truncates some escapes) is not used. Null when there is no such token.
+         */
+        private fun quotedText(scalar: YAMLScalar): String? {
+            val token = generateSequence(scalar.node.firstChildNode) { it.treeNext }
+                .firstOrNull { it.elementType == YAMLTokenTypes.SCALAR_STRING || it.elementType == YAMLTokenTypes.SCALAR_DSTRING }
+                ?: return null
+            return QuotedScalars.decode(token.text)
         }
 
         /**
@@ -242,5 +213,74 @@ internal object YamlScalars {
         numbers.matches(text) -> Yaml11Kind.NUMBER
         yaml11Timestamp.matches(text) -> Yaml11Kind.TIMESTAMP
         else -> Yaml11Kind.STRING
+    }
+}
+
+/** Decodes quoted YAML scalars (YAML 1.2): quote removal, line folding and escapes. */
+internal object QuotedScalars {
+    fun isQuoted(raw: String): Boolean =
+        raw.length >= 2 && (raw[0] == '\'' && raw.last() == '\'' || raw[0] == '"' && raw.last() == '"')
+
+    /** [raw] is the whole quoted token including its quotes; it may span lines. */
+    fun decode(raw: String): String {
+        val double = raw[0] == '"'
+        val body = raw.substring(1, raw.length - 1).replace("\r\n", "\n").replace('\r', '\n')
+        val sb = StringBuilder()
+        var keep = 0 // sb[0 until keep] is not trailing white space that a line break may drop
+        var i = 0
+        while (i < body.length) {
+            val c = body[i++]
+            when {
+                c == '\n' -> {
+                    while (sb.length > keep && (sb.last() == ' ' || sb.last() == '\t')) sb.setLength(sb.length - 1)
+                    var breaks = 1
+                    while (i < body.length && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n')) {
+                        if (body[i] == '\n') breaks++
+                        i++
+                    }
+                    if (breaks == 1) sb.append(' ') else repeat(breaks - 1) { sb.append('\n') }
+                    keep = sb.length
+                }
+                !double && c == '\'' && i < body.length && body[i] == '\'' -> { sb.append('\''); i++; keep = sb.length }
+                double && c == '\\' && i < body.length -> i = escape(body, i, sb).also { keep = sb.length }
+                else -> sb.append(c)
+            }
+        }
+        return sb.toString()
+    }
+
+    /** Appends the escape that starts at [start] (just after the backslash) and returns the index after it. */
+    private fun escape(body: String, start: Int, sb: StringBuilder): Int {
+        var i = start
+        val e = body[i++]
+        val digits = when (e) { 'x' -> 2; 'u' -> 4; 'U' -> 8; else -> 0 }
+        if (digits > 0) {
+            val code = if (i + digits <= body.length) body.substring(i, i + digits).toIntOrNull(16) else null
+            if (code != null && Character.isValidCodePoint(code)) { sb.appendCodePoint(code); return i + digits }
+            sb.append('\\').append(e)
+            return i
+        }
+        when (e) {
+            '\n' -> { while (i < body.length && (body[i] == ' ' || body[i] == '\t')) i++ }
+            '0' -> sb.append('\u0000')
+            'a' -> sb.append('\u0007')
+            'b' -> sb.append('\b')
+            't', '\t' -> sb.append('\t')
+            'n' -> sb.append('\n')
+            'v' -> sb.append('\u000B')
+            'f' -> sb.append('\u000C')
+            'r' -> sb.append('\r')
+            'e' -> sb.append('\u001B')
+            ' ' -> sb.append(' ')
+            '"' -> sb.append('"')
+            '/' -> sb.append('/')
+            '\\' -> sb.append('\\')
+            'N' -> sb.append('\u0085')
+            '_' -> sb.append('\u00A0')
+            'L' -> sb.append('\u2028')
+            'P' -> sb.append('\u2029')
+            else -> sb.append('\\').append(e)
+        }
+        return i
     }
 }

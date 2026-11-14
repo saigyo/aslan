@@ -154,6 +154,11 @@ class TransitionChecksTest : CheckTestCase() {
         return io.github.saigyo.aslan.model.AslModel.of(file)!!.root!!.hasUnknownFlow()
     }
 
+    fun `test a target with an anchor in front is found`() {
+        assertEquals(emptyList<Any>(), found(edit("Next: Decide" to "Next: &n 'Decide'")))
+        assertEquals(emptyList<Any>(), found(edit("Next: Decide" to "Next: !!str \"Decide\"")))
+    }
+
     fun `test hasUnknownFlow is false for BASE`() = assertFalse(flow(BASE))
 
     fun `test hasUnknownFlow cases`() {
@@ -170,6 +175,17 @@ class TransitionChecksTest : CheckTestCase() {
             "End placeholder" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    End: ${dollar}{E}\n"),
             "End ambiguous" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    Type: Pass\n    End: yes\n"),
             "state not a mapping" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted: ${dollar}{Whole}\n"),
+            "state with unapplied merge" to edit("  Accepted:\n    Type: Succeed\n" to "  Accepted:\n    <<: *missing\n    Type: Succeed\n"),
+            "Choices not a list" to edit("    Choices:\n      - Condition: '{% ${dollar}states.input.ok %}'\n        Next: Accepted\n" to "    Choices: ${dollar}{C}\n"),
+            "Choices item not a mapping" to edit("      - Condition: '{% ${dollar}states.input.ok %}'\n        Next: Accepted\n" to "      - plain\n"),
+            "Catch item not a mapping" to edit("      - ErrorEquals: [States.ALL]\n        Next: Rejected\n" to "      - plain\n"),
+            "Choices item with unapplied merge" to edit("        Next: Accepted\n" to "        Next: Accepted\n        <<: *missing\n"),
+            "Catch item with unapplied merge" to edit("        Next: Rejected\n" to "        Next: Rejected\n        <<: *missing\n"),
+            "StartAt ambiguous" to edit("StartAt: Inspect" to "StartAt: yes"),
+            "StartAt not a string" to edit("StartAt: Inspect" to "StartAt: 5"),
+            "ambiguous target" to edit("Next: Decide" to "Next: yes"),
+            "target not a string" to edit("Next: Decide" to "Next: 5"),
+            "unresolved alias target" to edit("Next: Decide" to "Next: *missing"),
             "Catch not a list" to edit("    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: Rejected\n" to "    Catch: ${dollar}{C}\n"),
         )
         for ((name, text) in cases) assertTrue(name, flow(text))
