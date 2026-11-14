@@ -27,6 +27,14 @@ class JsonataSpecTest : TestCase() {
         for (field in StatesField.entries) assertTrue(field.text, AslSpec.statesFieldDoc(field).description.isNotBlank())
     }
 
+    fun `test only the functions that take no argument have no parameters`() {
+        // Bound without arguments in jsonata.js 2.0.6: millis. The Step Functions function $uuid takes none either.
+        // $now and $random take optional arguments; $random's seed is a Step Functions addition.
+        assertEquals(listOf("millis", "uuid"), AslSpec.jsonataFunctions.filter { it.parameters.isEmpty() }.map { it.name }.sorted())
+        assertTrue(AslSpec.jsonataFunction("random")!!.parameters.single().optional)
+        assertEquals(listOf("str"), AslSpec.jsonataFunction("base64encode")!!.parameters.map { it.name })
+    }
+
     fun `test the context object`() {
         val names = AslSpec.contextFields.map { it.name }
         assertTrue(names.toString(), names.containsAll(listOf("Execution", "State", "StateMachine", "Task", "Map")))
