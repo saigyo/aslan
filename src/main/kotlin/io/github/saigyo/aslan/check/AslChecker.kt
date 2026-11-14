@@ -31,6 +31,7 @@ object AslChecker {
             val doc = AslModel.of(file) ?: return emptyList()
             StructureChecks.check(doc, out)
             TransitionChecks.check(doc, out)
+            WarningChecks.check(doc, out)
         } catch (e: Exception) {
             // The checks run on every keystroke over half-typed files: a bug in one must not break the editor.
             if (e is ControlFlowException) throw e
