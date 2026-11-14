@@ -85,8 +85,10 @@ object AslModel {
 
         private fun state(entry: AslEntry, machine: AslStateMachine): AslState {
             val obj = entry.value as? AslObject
-            val typeName = (obj?.get("Type")?.value as? AslScalar)?.takeIf { it.type != ScalarType.NULL }?.text
-            val type = typeName?.let { AslSpec.stateType(it) }
+            val typeScalar = (obj?.get("Type")?.value as? AslScalar)?.takeIf { it.type != ScalarType.NULL }
+            val typeName = typeScalar?.text
+            // A Type with a deployment tag (`!Ref Kind`) is whatever the tag resolves to, so it decides no state type.
+            val type = typeName?.takeIf { !typeScalar.dynamic }?.let { AslSpec.stateType(it) }
             val own = QueryLanguageSetting.of(obj)
             val language = own.language ?: topLevel.language ?: QueryLanguage.JSONPATH
             val known = own.language != null || (!own.uncertain && !topLevel.uncertain)

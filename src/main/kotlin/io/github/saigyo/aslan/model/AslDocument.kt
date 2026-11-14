@@ -88,8 +88,8 @@ class AslStateMachine(
 }
 
 /**
- * One state. [obj] is null when the state's value is not a mapping. [type] is null when [typeName] is missing or not
- * an ASL state type. [queryLanguage] is the effective query language; [queryLanguageKnown] is false when the
+ * One state. [obj] is null when the state's value is not a mapping. [type] is null when [typeName] is missing, is not
+ * an ASL state type, or is written with a deployment tag. [queryLanguage] is the effective query language; [queryLanguageKnown] is false when the
  * `QueryLanguage` that decides it names neither language exactly (a placeholder, a typo), and [queryLanguage] then
  * holds the fallback.
  */

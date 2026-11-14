@@ -195,6 +195,11 @@ class AslTreeTest : AslTestCase() {
         assertEquals(listOf("K", "L", "M", "N", "O", "P", "Q", "R"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
     }
 
+    fun `test a tag other than the string tag makes a scalar dynamic`() {
+        val r = root("A: !Ref Done\nB: !!str Done\nC: !<tag:yaml.org,2002:str> Done\nD: Done\nE: !Sub 'x'\nF: !!int \"12\"")
+        assertEquals(listOf(true, false, false, false, true, true), listOf("A", "B", "C", "D", "E", "F").map { r[it]!!.value.scalar().dynamic })
+    }
+
     fun `test tagged plain scalars are ambiguous`() {
         val r = root("A: !!str 12\nB: !Ref Timeout\nC: !x text\nD: 12\nE: text")
         assertEquals(listOf("A", "B", "C"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
