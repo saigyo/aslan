@@ -200,10 +200,20 @@ class AslTreeTest : AslTestCase() {
         assertEquals(listOf(true, false, false, false, true, true), listOf("A", "B", "C", "D", "E", "F").map { r[it]!!.value.scalar().dynamic })
     }
 
-    fun `test tagged plain scalars are ambiguous`() {
-        val r = root("A: !!str 12\nB: !Ref Timeout\nC: !x text\nD: 12\nE: text")
+    fun `test plain scalars with a tag other than the string tag are ambiguous`() {
+        val r = root("A: !!int 12\nB: !Ref Timeout\nC: !x text\nD: 12\nE: text")
         assertEquals(listOf("A", "B", "C"), r.entries.filter { it.value.scalar().ambiguous }.map { it.key })
         assertEquals("Timeout", r["B"]!!.value.scalar().text)
+    }
+
+    fun `test the string tag makes a certain string`() {
+        val r = root("A: !!str 12\nB: !!str yes\nC: !<tag:yaml.org,2002:str> true\nD: !!str \"x\"\nE: !!str text")
+        for (entry in r.entries) {
+            val scalar = entry.value.scalar()
+            assertEquals(entry.key, ScalarType.STRING, scalar.type)
+            assertFalse(entry.key, scalar.ambiguous || scalar.dynamic)
+        }
+        assertEquals(listOf("12", "yes", "true", "x", "text"), r.entries.map { it.value.scalar().text })
     }
 
     fun `test block scalar indicator ignores anchor tag and comment`() {

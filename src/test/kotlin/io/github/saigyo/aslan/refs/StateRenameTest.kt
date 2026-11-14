@@ -152,6 +152,19 @@ class StateRenameTest : AslTestCase() {
         assertEquals("StartAt: !!str Finished", renameDone("!!str Done"))
     }
 
+    fun `test an anchored target that is aliased outside a transition is a conflict`() {
+        val texts = mapOf(
+            "Pass" to "StartAt: &kind Pass\nStates:\n  Pass:\n    Type: *kind\n    End: true\n",
+            "Go" to "StartAt: &s Go\nStates:\n  Go:\n    Type: Pass\n    Comment: *s\n    End: true\n",
+            "Run" to "StartAt: &s Run\nStates:\n  Run:\n    Type: Pass\n    Result:\n      first: *s\n    End: true\n",
+        )
+        for ((name, text) in texts) {
+            myFixture.configureByText("test.asl.yaml", text)
+            val entry = AslModel.of(myFixture.file)!!.root!!.state(name)!!.entry.entryPsi
+            assertTrue(text, conflicts { myFixture.renameElement(entry, "Done") }.isNotEmpty())
+        }
+    }
+
     fun `test an anchor that names the renamed state itself is no conflict`() {
         myFixture.configureByText("test.asl.yaml", """
             StartAt: A

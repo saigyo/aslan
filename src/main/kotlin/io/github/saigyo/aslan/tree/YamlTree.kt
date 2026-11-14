@@ -122,21 +122,24 @@ internal object YamlTree {
             }
         }
 
-        /** A tag (`!!int "12"`, `!Sub '...'`) may give any scalar another type or value, so a tagged scalar is always ambiguous. */
+        /**
+         * The string tag says only that the scalar is a string, so `!!str 12` is certainly the string "12". Any other
+         * tag (`!!int "12"`, `!Sub '...'`) may give the scalar another type or value, so it is ambiguous and dynamic.
+         */
         private fun scalar(scalar: YAMLScalar, usePsi: PsiElement): AslScalar {
             val text = scalar.textValue
             val tag = scalar.tag?.text
-            val tagged = tag != null
-            val dynamic = tagged && tag !in STRING_TAGS
+            val string = tag in STRING_TAGS
+            val dynamic = tag != null && !string
             return when (scalar) {
                 is YAMLPlainTextImpl -> AslScalar(
-                    scalar, usePsi, YamlScalars.type(text), text,
-                    ambiguous = tagged || YamlScalars.isAmbiguous(text), dynamic = dynamic,
+                    scalar, usePsi, if (string) ScalarType.STRING else YamlScalars.type(text), text,
+                    ambiguous = dynamic || (!string && YamlScalars.isAmbiguous(text)), dynamic = dynamic,
                 )
                 is YAMLScalarText, is YAMLScalarList ->
-                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text), ambiguous = tagged, dynamic = dynamic)
-                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text, ambiguous = tagged, dynamic = dynamic)
-                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text, ambiguous = tagged, dynamic = dynamic)
+                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text), ambiguous = dynamic, dynamic = dynamic)
+                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text, ambiguous = dynamic, dynamic = dynamic)
+                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text, ambiguous = dynamic, dynamic = dynamic)
             }
         }
 

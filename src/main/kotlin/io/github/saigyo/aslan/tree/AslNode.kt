@@ -35,9 +35,10 @@ class AslArray(override val psi: PsiElement, override val usePsi: PsiElement, va
 
 /**
  * A scalar value. [text] is the decoded value. [ambiguous] is true for a plain YAML scalar that YAML 1.1
- * and YAML 1.2 type differently, and for any tagged YAML scalar, so no check may judge its kind. [dynamic] is true
- * for a YAML scalar with a tag other than the string tag (`!Ref Name`, `!Sub '...'`, `!!int "12"`): whatever handles
- * the tag decides the value, so [text] is not a name the file gives.
+ * and YAML 1.2 type differently, and for a dynamic one, so no check may judge its kind. [dynamic] is true for a YAML
+ * scalar with a tag other than the string tag (`!Ref Name`, `!Sub '...'`, `!!int "12"`): whatever handles the tag
+ * decides the value, so [text] is not a name the file gives. A scalar with the string tag (`!!str 12`) is a certain
+ * string.
  */
 class AslScalar(
     override val psi: PsiElement,

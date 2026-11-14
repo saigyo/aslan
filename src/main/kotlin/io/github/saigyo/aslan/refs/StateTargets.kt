@@ -4,6 +4,7 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiElement
+import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.files.AslFiles
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslModel
@@ -12,6 +13,7 @@ import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
+import org.jetbrains.yaml.psi.YAMLAlias
 import org.jetbrains.yaml.psi.YAMLQuotedText
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -83,6 +85,21 @@ internal object StateTargets {
                 scalar.text == state.name && (machine === state.machine) != (scalar.psi in renamed)
             }.map { it.usePsi }
         }.distinct()
+    }
+
+    /**
+     * The aliases that a rename of [state] would change although they name no state: each alias of a value the rename
+     * rewrites (`StartAt: &kind Pass`, then `Type: *kind`) that the model does not read as the `StartAt` of a machine
+     * or the target of a transition.
+     */
+    fun otherAliasesOfRenamedValues(document: AslDocument, state: AslState): List<PsiElement> {
+        val renamed = referencesTo(document, state).map { it.element }.toSet()
+        if (renamed.isEmpty()) return emptyList()
+        val asTarget = document.allMachines().flatMap { namedTargets(it) }.filter { it.psi in renamed }.map { it.usePsi }.toSet()
+        return PsiTreeUtil.findChildrenOfType(document.file, YAMLAlias::class.java).filter { alias ->
+            val aliased: PsiElement? = alias.reference?.resolve()?.markedValue
+            alias !in asTarget && aliased != null && aliased in renamed
+        }
     }
 
     /**

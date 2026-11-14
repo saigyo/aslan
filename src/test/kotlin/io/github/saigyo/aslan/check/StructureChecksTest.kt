@@ -90,6 +90,17 @@ class StructureChecksTest : CheckTestCase() {
     fun `test a Type with the string tag is read as written`() =
         assertEquals(listOf(MISSING_TRANSITION to "A"), found("StartAt: A\nStates:\n  A:\n    Type: !!str Pass\n  B:\n    Type: Succeed\n").filter { it.first == MISSING_TRANSITION })
 
+    fun `test a QueryLanguage with the string tag is read as written`() {
+        val text = "QueryLanguage: !!str JSONata\nStartAt: A\nStates:\n$jsonataTask"
+        assertEquals(emptyList<Any>(), found(text))
+        assertEquals(listOf(WRONG_QUERY_LANGUAGE_FIELD to "Parameters"), found(text.replace("Arguments", "Parameters")))
+    }
+
+    fun `test a number with the string tag is a string`() = assertEquals(
+        listOf(WRONG_VALUE_KIND to "!!str 12"),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: !!str 12\n")),
+    )
+
     fun `test empty Choices`() = assertEquals(
         listOf(EMPTY_CHOICES to "Choices"),
         found(edit("    Choices:\n      - Condition: $condition\n        Next: Accepted\n" to "    Choices: []\n",
