@@ -10,7 +10,7 @@ internal val stateMachineStructures = listOf(
         startAtField(Doc.STRUCTURE),
         statesField(Doc.STRUCTURE),
         commentField(Doc.STRUCTURE, "the state machine"),
-        FieldSpec("Version", ValueKind.Text,
+        FieldSpec("Version", ValueKind.Text, lenient = true,
             description = "The version of the Amazon States Language the definition is written in; \"1.0\" when absent.",
             docUrl = Doc.STRUCTURE),
         FieldSpec("TimeoutSeconds", ValueKind.Integer, min = 1.0,

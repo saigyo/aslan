@@ -141,7 +141,6 @@ internal val mapStructures = listOf(
             description = "Fixed data added to every batch, next to its items, as the input of each child execution.",
             docUrl = Doc.ITEM_BATCHER),
     ),
-        oneOfRequired = listOf(setOf("MaxItemsPerBatch", "MaxItemsPerBatchPath", "MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath")),
         exclusive = listOf(setOf("MaxItemsPerBatch", "MaxItemsPerBatchPath"), setOf("MaxInputBytesPerBatch", "MaxInputBytesPerBatchPath"))),
 
     StructureSpec(StructureId.RESULT_WRITER, listOf(
@@ -152,7 +151,7 @@ internal val mapStructures = listOf(
         parametersField(Doc.RESULT_WRITER, "the Amazon S3 write action"),
         FieldSpec("WriterConfig", ValueKind.Struct(StructureId.WRITER_CONFIG),
             description = "How the results are shaped and formatted before they are returned or stored.", docUrl = Doc.RESULT_WRITER),
-    ), oneOfRequired = listOf(setOf("Resource", "WriterConfig"))),
+    )),
 
     StructureSpec(StructureId.WRITER_CONFIG, listOf(
         FieldSpec("Transformation", values(Doc.RESULT_WRITER,
