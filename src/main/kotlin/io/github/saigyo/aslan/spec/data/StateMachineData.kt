@@ -13,7 +13,7 @@ internal val stateMachineStructures = listOf(
         FieldSpec("Version", ValueKind.Text, lenient = true,
             description = "Which revision of the States Language this definition follows; 1.0, the only one so far, is assumed when absent.",
             docUrl = Doc.STRUCTURE),
-        FieldSpec("TimeoutSeconds", ValueKind.Integer, min = 1.0,
+        FieldSpec("TimeoutSeconds", ValueKind.Integer, min = 0.0, max = 99_999_999.0,
             description = "A limit in seconds on the whole execution; going past it fails the execution with States.Timeout.",
             docUrl = Doc.STRUCTURE),
         FieldSpec("QueryLanguage", ValueKind.OneOf(queryLanguageValues),

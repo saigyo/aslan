@@ -227,30 +227,46 @@ Four stages **(decided, in this order)**. Each is planned and delivered separate
 
 The rule that follows from the anti-goals:
 
-- A problem is an **error** only if AWS documents that it rejects the definition at deployment, or if the text is not valid JSONata and so cannot be evaluated at all.
-- Anything that deploys but is probably a mistake, and anything whose rejection at deployment could not be confirmed, is a **warning** at most.
+- A problem is an **error** only if AWS rejects the definition at deployment, or if the text is not valid JSONata and so cannot be evaluated at all.
+- Anything that deploys but is probably a mistake is a **warning** at most.
 - Every check has its own entry in the IDE's inspection settings, so it can be switched off or changed in severity without affecting the others.
-- When later evidence shows that AWS rejects something currently reported as a warning, it is promoted.
 
-**(my call)** The tables below are the minimum, not the complete set. Stage 1 includes going through the ASL specification and the Step Functions guide rule by rule and classifying every rule that can be checked from the file with the rule above. A rule that the specification states as mandatory, but for which no AWS source documents a rejection, is a warning.
+**Evidence.** The checks of stage 1 were compared with the definition validation of Step Functions (`aws stepfunctions validate-state-machine-definition`) on 2026-11-14, with about 900 small definitions that each hold one condition or one set of candidate field names. AWS documents that an error from this validation prevents creating or updating the state machine. The recorded answers are committed as test data, and two tests hold the checks to them: no error on a definition AWS accepts, and an error on every definition AWS rejects, apart from a short list of gaps that the test names with their reasons. The rules below marked "validation" rest on these answers.
 
 ### Errors
 
 | Problem | Basis |
 |---|---|
-| File is not a mapping, or `StartAt` or `States` is missing | schema validation |
-| State without `Type`, or with an unknown type | schema validation |
-| Required field missing: `Resource` on Task, `Choices` on Choice (or empty), `Branches` on Parallel, `ItemProcessor` on Map, `ErrorEquals` in a Retrier or Catcher, `Next` in a Catcher or Choice rule, `Condition` in a JSONata Choice rule, a time field on Wait | schema validation |
-| A state that needs a transition has neither `Next` nor `End` | schema validation |
-| `StartAt`, `Next` or `Default` names a state that does not exist in the same `States` object | missing transition target |
-| No terminal state in a `States` object | missing end state |
-| Duplicate state name anywhere in the machine; name longer than 80 characters | duplicate / invalid state name |
-| A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state | documented as invalid |
-| A JSONPath state in a machine whose top level is JSONata | documented restriction |
-| A value of the wrong basic kind, such as text where a number is required | schema validation |
-| The `Resource` of a Task state does not have the form of an ARN | invalid resource |
-| The `RoleArn` in the `Credentials` of a Task state does not have the form of an IAM role ARN, `arn:partition:iam::account:role/name` | schema validation; observed from the validation API |
-| A string that starts with `{%` but is not closed by `%}` at its end | documented validation error |
+| File is not a mapping, or `StartAt` or `States` is missing | validation |
+| State without `Type`, or with an unknown type | validation |
+| Required field missing: `Resource` on Task, `Choices` on Choice (or empty), `Branches` on Parallel (or empty), `ItemProcessor` on Map, `ErrorEquals` in a Retrier or Catcher, `Next` in a Catcher or Choice rule, `Condition` in a JSONata Choice rule, a time field on Wait, `RoleArn` in `Credentials` | validation |
+| A Task that calls a service integration has neither `Parameters` nor `Arguments`, even when the call takes no parameters | validation |
+| A state that needs a transition has neither `Next` nor `End` | validation |
+| `StartAt`, `Next` or `Default` names a state that does not exist in the same `States` object, or is empty | validation |
+| No terminal state in a `States` object | validation |
+| A state that no transition names | validation |
+| Duplicate state name anywhere in the machine; name longer than 80 characters | validation |
+| A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state | validation, for every such field |
+| A JSONPath state in a machine whose top level is JSONata | validation |
+| A value of the wrong basic kind, such as text where a number is required, or a number with a fraction where a whole number is required; `5.0` only in a JSON file, since tools that convert YAML differ on it | validation |
+| `null` in an optional field with a fixed kind of value, and in `Assign`, `Items`, `Credentials` and the `Parameters` or `Arguments` of a Task | validation |
+| Field name that ASL does not define, outside free-form data | validation; the plugin's field names were compared with AWS in every position |
+| Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | validation |
+| A value that is not one of the values a field takes, such as an unknown `JitterStrategy` | validation; the plugin's lists match the ones AWS reports |
+| Value outside the range AWS applies, such as a negative `MaxAttempts`, a `BackoffRate` below 1 or a `TimeoutSeconds` above 99999999 | validation |
+| Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End`, whatever its value | validation |
+| A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts`; not in `Comment` | validation |
+| `States.ALL` combined with other names, or not in the last Retrier or Catcher | validation |
+| An empty `ErrorEquals`, `And`, `Or` or `CSVHeaders` list | validation |
+| A JSONPath Choice rule that is neither one combination nor a `Variable` with exactly one operator | validation |
+| A path that does not start with `$`; a `ResultPath` that is not a reference path; a key ending in `.$` whose value is neither a path nor an intrinsic function | validation |
+| A timestamp that is not an RFC 3339 date and time that exists, with a time zone | validation |
+| A Map `Label` that is empty, longer than 40 characters, or holds whitespace or a forbidden character; a label used twice | validation |
+| A Map setting that lacks a field it needs, such as distributed mode without `ExecutionType` or a CSV reader without `CSVHeaderLocation` | validation |
+| A field that does not apply where it is used, such as `CSVDelimiter` for a JSON input, or `Credentials` with an activity | validation |
+| The `Resource` of a Task state is not a service integration, a Lambda ARN or an activity ARN, or is an AWS SDK integration of the wrong form | validation |
+| The `RoleArn` in the `Credentials` of a Task state is not an IAM role ARN, `arn:partition:iam::account:role/name` | validation |
+| A string in a JSONata state that holds `{%` or `%}` but is not wrapped in them as a whole, where JSONata is evaluated | validation |
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
 
@@ -260,16 +276,12 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 
 | Problem | Why not an error |
 |---|---|
-| Field name that ASL does not define, outside free-form data | rejection unconfirmed, and AWS adds fields over time |
-| The `Resource` of a Task state is written as a service integration (`arn:aws:states:::…`) that is not in the plugin's list, or as an AWS SDK integration of the wrong form | AWS adds integrations over time, so the list can be behind |
-| Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | rejection unconfirmed |
-| Value outside its documented range, such as a negative `MaxAttempts` or a `BackoffRate` below 1 | rejection unconfirmed |
-| Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End: true` | rejection unconfirmed |
-| A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts` | rejection unconfirmed |
-| State that no transition reaches | deploys |
-| `End: false` without `Next` | the validation API accepts it as long as another state ends the machine |
-| `States.ALL` combined with other names, or not in the last Retrier or Catcher | rejection unconfirmed |
-| `HeartbeatSeconds` not smaller than `TimeoutSeconds` | rejection unconfirmed |
+| The `Resource` of a Task state is written as a service integration (`arn:aws:states:::…`) that is not in the plugin's list | AWS rejects an integration it does not recognise, but it adds integrations over time and not every region has each, so the list can be behind |
+| State that only unreached states lead to | deploys |
+| `End: false` without `Next` | deploys as long as another state ends the machine |
+| An `ItemBatcher` without a limit, or a `ResultWriter` with neither `Resource` nor `WriterConfig` | deploys |
+| `HeartbeatSeconds` not smaller than `TimeoutSeconds` | deploys |
+| A name in `ErrorEquals` that starts with `States.` but is not predefined | deploys |
 | Choice state without `Default` (weak warning) | fails only at run time, and only if no rule matches |
 | Read of a variable with no assignment in any visible scope | fails at run time |
 | Variable assigned but never read (weak warning) | harmless |
@@ -282,8 +294,9 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 
 - Placeholders in any position.
 - YAML anchors, aliases and merge keys.
-- Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax. The one exception is the `RoleArn` in `Credentials`.
-- The `Resource` of an ItemReader or ResultWriter, beyond being a string; and in the `Resource` of a Task state, anything beyond the form of an ARN and the list of service integrations: whether a function, activity, region or account exists cannot be known from the file. The same holds for a `RoleArn` beyond the form of an IAM role ARN, and a role given under `RoleArn.$` is not judged at all.
+- Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax and keys that end in `.$`. AWS checks the parameter names of a service call; the plugin does not, because it has no list of them.
+- The `Resource` of an ItemReader or ResultWriter, beyond being a string. In the `Resource` of a Task state and in a `RoleArn`, whether the function, activity, role, region or account exists cannot be known from the file. The services and actions of an AWS SDK integration are not checked either.
+- `Version`: YAML reads `1.0` as a number, and how AWS takes that is not confirmed.
 
 ## 8. Testing and verification
 
@@ -292,6 +305,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - **A large synthetic definition** is committed as the main test case. It is written in an invented English domain and must be comparable to a real production file: over 1,000 lines and 40 states; all eight state types; a Map with an inline processor of several states; a Parallel with two branches; retry rules shared through YAML anchors and aliases; placeholders in all four positions; JSONata in every scalar style, including blocks of twenty lines with lambdas, regular expressions, predicates, sorting and nested object construction; a variable with at least fifteen assignments; a Choice state that dispatches on a variable; comments throughout. It must show no errors and no warnings.
 - **Small definitions** each plant one problem from section 7 and assert that exactly that problem is reported. A JSON definition and a JSONPath-mode definition are included.
 - **(my call)** The build cannot prove that the synthetic definition deploys. It is cross-checked once with the open-source `asl-validator`. The commissioner can also run it through the AWS command line validation.
+- **Recorded AWS answers.** `src/test/testData/aws` holds the definitions sent to the AWS validation and its answers, as described in section 7. They are re-recorded with the AWS command line when the rules of AWS may have changed.
 - **A private file check.** The commissioner has a real definition from a closed-source project. It must never be committed, and neither its names nor its comments may appear in the repository. A test that runs only when a local setting points at such files asserts that they show no errors. It is not part of any shared build.
 - **In a running IDE.** Each stage ends with the plugin started in a sandbox IDE and exercised on the synthetic definition, since editor behaviour and the diagram cannot be fully covered by automated tests.
 - **Compatibility.** The JetBrains plugin verifier runs against 2026.2 and 2026.3.

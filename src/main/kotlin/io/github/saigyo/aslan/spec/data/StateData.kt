@@ -148,12 +148,12 @@ internal val stateStructures = listOf(
             description = "The ARN or URI of the work to run: an activity, a Lambda function, a service integration or an HTTP task.",
             docUrl = Doc.TASK),
         argumentsField(Doc.TASK, "the resource"),
-        FieldSpec("TimeoutSeconds", ValueKind.Integer, jsonata = true, min = 1.0,
+        FieldSpec("TimeoutSeconds", ValueKind.Integer, jsonata = true, min = 1.0, max = 99_999_999.0,
             description = "A time budget in seconds for this task; when it is used up, the state fails with States.Timeout. Must be a positive integer.",
             docUrl = Doc.TASK),
         FieldSpec("TimeoutSecondsPath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. A reference path to a positive integer in the input to use as TimeoutSeconds.", docUrl = Doc.TASK),
-        FieldSpec("HeartbeatSeconds", ValueKind.Integer, jsonata = true, min = 1.0,
+        FieldSpec("HeartbeatSeconds", ValueKind.Integer, jsonata = true, min = 1.0, max = 99_999_999.0,
             description = "If the worker sends no heartbeat for this many seconds, the task fails with States.Timeout; keep it below TimeoutSeconds.",
             docUrl = Doc.TASK),
         FieldSpec("HeartbeatSecondsPath", ValueKind.Text, Mode.JSONPATH,
@@ -197,7 +197,7 @@ internal val stateStructures = listOf(
     StructureSpec(StructureId.SUCCEED, stateFields(Doc.SUCCEED, Shared(io = true), emptyList())),
 
     StructureSpec(StructureId.FAIL, stateFields(Doc.FAIL, Shared(), listOf(
-        FieldSpec("Error", ValueKind.Text, jsonata = true,
+        FieldSpec("Error", ValueKind.Text, jsonata = true, nullable = true,
             description = "The name to fail with; a Catch on an enclosing Parallel or Map state can match on it.",
             docUrl = Doc.FAIL),
         FieldSpec("ErrorPath", ValueKind.Text, Mode.JSONPATH,

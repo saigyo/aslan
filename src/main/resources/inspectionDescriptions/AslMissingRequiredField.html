@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports an object that lacks a field it must have: <code>StartAt</code> or <code>States</code> of a state machine, <code>Type</code> of a state, <code>Resource</code> of a Task, <code>ErrorEquals</code> of a retrier or catcher, <code>Next</code> of a catcher or of a top-level Choice rule, <code>Condition</code> of a JSONata Choice rule, a time field of a Wait state, and similar.</p>
-<p>AWS documents that it rejects such a definition, so this is reported as an error. An object that holds a YAML merge key that could not be applied is not reported, because the merge may supply the field.</p>
+<p>Reports an object that lacks a field it must have: <code>StartAt</code> or <code>States</code> of a state machine, <code>Type</code> of a state, <code>Resource</code> of a Task, <code>Parameters</code> or <code>Arguments</code> of a Task that calls a service integration, <code>RoleArn</code> in <code>Credentials</code>, <code>ErrorEquals</code> of a retrier or catcher, <code>Next</code> of a catcher or of a top-level Choice rule, <code>Condition</code> of a JSONata Choice rule, a time field of a Wait state, and similar.</p>
+<p>AWS rejects such a definition, so this is reported as an error. A service integration needs its parameters even when the call takes none; an empty mapping is enough then. An object that holds a placeholder key or a YAML merge key that could not be applied is not reported, because either may supply the field.</p>
 </body>
 </html>

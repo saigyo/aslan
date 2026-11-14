@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a state that no transition reaches from the <code>StartAt</code> of its state machine.</p>
-<p>It is only a warning: such a definition deploys; the state simply never runs.</p>
+<p>Reports a state that some transition names, but that no chain of transitions reaches from the <code>StartAt</code> of its state machine: only states that are themselves never reached lead to it.</p>
+<p>It is only a warning: such a definition deploys; the state simply never runs. A state that no transition names at all is rejected by AWS and reported by the inspection "State that no transition names" as an error.</p>
 </body>
 </html>

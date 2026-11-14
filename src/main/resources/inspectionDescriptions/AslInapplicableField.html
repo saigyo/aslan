@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a <code>ReaderConfig</code> field that the developer guide allows only with another input: <code>CSVDelimiter</code> or <code>CSVHeaderLocation</code> when <code>InputType</code> is neither <code>CSV</code> nor <code>MANIFEST</code>, <code>ItemsPointer</code> when <code>InputType</code> is not <code>JSON</code>, and <code>InputType</code> together with <code>ManifestType: S3_INVENTORY</code>.</p>
-<p>It is only a warning: no AWS source documents that such a definition is rejected when it is created.</p>
+<p>Reports a field that does not apply where it is used: in a <code>ReaderConfig</code>, <code>CSVDelimiter</code>, <code>CSVHeaderLocation</code> or <code>CSVHeaders</code> when <code>InputType</code> is neither <code>CSV</code> nor <code>MANIFEST</code>, <code>ItemsPointer</code> when <code>InputType</code> is not <code>JSON</code>, <code>InputType</code> together with <code>ManifestType: S3_INVENTORY</code>, and <code>Transformation</code> when the reader gets a single object; on a Task state, <code>Credentials</code> when the resource is an activity.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error.</p>
 </body>
 </html>

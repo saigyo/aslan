@@ -1,0 +1,69 @@
+package io.github.saigyo.aslan.check
+
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.intellij.codeHighlighting.HighlightDisplayLevel
+import java.io.File
+
+/**
+ * Compares the checks with what AWS answered. `src/test/testData/aws/verdicts.json` holds small definitions, each with
+ * the result of `aws stepfunctions validate-state-machine-definition` recorded on 2026-11-14: `OK` means the definition
+ * can be deployed, `FAIL` that it cannot.
+ */
+class AwsVerdictsTest : CheckTestCase() {
+    private class Probe(val name: String, val accepted: Boolean, val diagnostics: List<String>, val definition: String)
+
+    private val probes: List<Probe> by lazy {
+        val gson = GsonBuilder().setPrettyPrinting().serializeNulls().create()
+        JsonParser.parseString(File("src/test/testData/aws/verdicts.json").readText()).asJsonObject.entrySet().map { (name, value) ->
+            val o = value as JsonObject
+            Probe(name, o["aws"].asString == "OK", o["diagnostics"].asJsonArray.map { it.asString }, gson.toJson(o["definition"]))
+        }
+    }
+
+    private fun errors(probe: Probe): List<AslProblem> =
+        AslChecker.findings(myFixture.configureByText("probe.asl.json", probe.definition)).map { it.problem }.filter { it.level == HighlightDisplayLevel.ERROR }
+
+    /** Rejected definitions that the checks do not mark as an error, by name or by the start of the name, each with the reason. */
+    private val gaps: Map<String, String> = mapOf(
+        "r3-AH-" to "the parameters of a service call are not known to the plugin",
+        "r2-F-empty-parameters-" to "the parameters of a service call are not known to the plugin",
+        "r2-F-unknown-parameter-" to "the parameters of a service call are not known to the plugin",
+        "r2-J-parameters" to "the parameters of a service call are not known to the plugin",
+        "r3-AC-jsonata-arguments-key" to "the parameters of a service call are not known to the plugin",
+        "r2-G-sdk-unknown-" to "the plugin has no list of the AWS SDK services and actions",
+        "r1-W-integration-unknown" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
+        "r2-G-lambda-sync" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
+        "r3-W-state-machine" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
+        "r3-W-states-other-kind" to "an unknown service integration is a warning, since the plugin's list can be behind AWS",
+        "r3-AC-parameters-unknown-intrinsic" to "the name of an intrinsic function is not checked, so that a new one is never a false error",
+        "r3-AC-parameters-dollar-word" to "variables are checked in a later stage",
+        "r3-AI-dollar-word-InputPath" to "variables are checked in a later stage",
+        "r3-AI-dollar-word-ItemsPath" to "variables are checked in a later stage",
+        "r3-AI-dollar-word-OutputPath" to "variables are checked in a later stage",
+        "r3-AI-dollar-word-TimeoutSecondsPath" to "variables are checked in a later stage",
+        "r3-AI-dollar-word-Variable" to "variables are checked in a later stage",
+        "r2-C-version" to "Version is not checked: YAML reads 1.0 as a number, and how AWS takes that is not confirmed",
+        "r2-I-unknown-version" to "Version is not checked: YAML reads 1.0 as a number, and how AWS takes that is not confirmed",
+    )
+
+    private fun gap(name: String): String? = gaps.entries.firstOrNull { name.startsWith(it.key) }?.value
+
+    fun `test no error on a definition that AWS accepts`() {
+        val wrong = probes.filter { it.accepted }.mapNotNull { p -> errors(p).takeIf { it.isNotEmpty() }?.let { "${p.name}: $it" } }
+        assertEquals("false errors", "", wrong.joinToString("\n"))
+    }
+
+    fun `test an error on every definition that AWS rejects, apart from the known gaps`() {
+        val missed = probes.filter { !it.accepted && gap(it.name) == null }.filter { errors(it).isEmpty() }
+            .map { "${it.name}: ${it.diagnostics.joinToString(" || ").take(200)}" }
+        assertEquals("rejected by AWS, no error in the plugin", "", missed.joinToString("\n"))
+    }
+
+    fun `test every known gap is still a gap`() {
+        val closed = probes.filter { !it.accepted && gap(it.name) != null && errors(it).isNotEmpty() }.map { it.name }
+        assertEquals("these are reported as errors now, so they are no gaps any more", emptyList<String>(), closed)
+        for (key in gaps.keys) assertTrue("no probe for $key", probes.any { it.name.startsWith(key) })
+    }
+}

@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a number outside its documented range, such as a negative <code>MaxAttempts</code> or a <code>BackoffRate</code> below 1.</p>
-<p>It is only a warning: AWS does not document that it rejects such a definition.</p>
+<p>Reports a number outside the range AWS accepts, such as a negative <code>MaxAttempts</code>, a <code>BackoffRate</code> below 1 or a <code>TimeoutSeconds</code> above 99999999.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error. The bounds are the ones AWS applies; it accepts 0 for <code>IntervalSeconds</code>, the batch limits of an <code>ItemBatcher</code> and the <code>TimeoutSeconds</code> of the state machine.</p>
 </body>
 </html>

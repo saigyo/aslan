@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a field name that the Amazon States Language does not define. Free-form data such as <code>Arguments</code> is not looked into.</p>
-<p>It is only a warning: AWS does not document that it rejects unknown fields, and it adds new fields over time.</p>
+<p>Reports a field name that the Amazon States Language does not define. Free-form data such as <code>Arguments</code> is not looked into; <code>Credentials</code> is, since it only takes <code>RoleArn</code>.</p>
+<p>The definition validation of Step Functions rejects an unknown field with "Field is not supported", so this is reported as an error. The field names the plugin knows were compared with AWS in every position of a definition. Should AWS add a field that the plugin does not know yet, the level of this inspection can be lowered here until the plugin is updated.</p>
 </body>
 </html>

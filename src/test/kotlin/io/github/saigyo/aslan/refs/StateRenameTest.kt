@@ -102,7 +102,7 @@ class StateRenameTest : AslTestCase() {
                 Next: T
               T:
                 Type: Task
-                Resource: arn:aws:states:::sns:publish
+                Resource: arn:aws:lambda:us-east-1:123456789012:function:Notify
                 Catch: *handlers
                 End: true
               B: { Type: Succeed }
@@ -117,14 +117,14 @@ class StateRenameTest : AslTestCase() {
             States:
               T:
                 Type: Task
-                Resource: arn:aws:states:::sns:publish
+                Resource: arn:aws:lambda:us-east-1:123456789012:function:Notify
                 Catch: &handlers
                   - ErrorEquals: [States.ALL]
                     Next: B
                 Next: U
               U:
                 Type: Task
-                Resource: arn:aws:states:::sns:publish
+                Resource: arn:aws:lambda:us-east-1:123456789012:function:Notify
                 Catch: *handlers
                 End: true
               B: { Type: Succeed }

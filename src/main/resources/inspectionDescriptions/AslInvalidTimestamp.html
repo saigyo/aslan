@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a <code>Timestamp</code> of a Wait state, or the value of a timestamp comparison in a Choice rule, that is not an RFC 3339 date and time with upper-case <code>T</code> and <code>Z</code>, such as <code>2026-03-14T01:59:00Z</code>.</p>
-<p>It is only a warning: the specification and the developer guide state the format, but no AWS source documents that another format is rejected when the definition is created.</p>
+<p>Reports a <code>Timestamp</code> of a Wait state, or the value of a timestamp comparison in a Choice rule, that is not an RFC 3339 date and time that exists, such as <code>2026-03-14T01:59:00Z</code>. A time zone is required: <code>Z</code> or an offset such as <code>+01:00</code>.</p>
+<p>The definition validation of Step Functions rejects such a definition, which means the state machine cannot be created or updated, so this is reported as an error. AWS accepts <code>T</code> and <code>Z</code> in lower case and a time without seconds, so these are not reported.</p>
 </body>
 </html>

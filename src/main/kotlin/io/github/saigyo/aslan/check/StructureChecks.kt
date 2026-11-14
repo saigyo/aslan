@@ -1,7 +1,12 @@
 package io.github.saigyo.aslan.check
 
+import com.intellij.json.psi.JsonFile
 import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
+import io.github.saigyo.aslan.check.AslProblem.EXCLUSIVE_FIELDS
+import io.github.saigyo.aslan.check.AslProblem.INAPPLICABLE_FIELD
+import io.github.saigyo.aslan.check.AslProblem.INVALID_PATH
+import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_FIELD
 import io.github.saigyo.aslan.check.AslProblem.END_FALSE_WITHOUT_NEXT
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
@@ -42,6 +47,15 @@ import java.util.IdentityHashMap
 internal object StructureChecks {
     private const val CREDENTIALS = "Credentials"
     private const val ROLE_ARN = "RoleArn"
+    private const val ROLE_ARN_PATH = "RoleArn.$"
+    private val PAYLOAD_FIELDS = listOf("Parameters", "Arguments")
+
+    /** Free-form fields for which AWS rejects `null`; it accepts `null` in the others, such as `Output` and `ResultSelector`. */
+    private val NEVER_NULL = setOf("Assign", "Items")
+
+    /** JSONPath fields whose keys that end in `.$` are evaluated. */
+    private val PAYLOAD_TEMPLATES = setOf("Parameters", "ResultSelector", "ItemSelector")
+    private val INTRINSIC_CALL = Regex("""^States\.\w+\(""")
 
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
         val rootNode = doc.rootNode ?: return
@@ -102,33 +116,95 @@ internal object StructureChecks {
                     continue
                 }
                 if (field.lenient) continue
+                if (field.kind == ValueKind.FreeForm) freeForm(entry, structure, ctx)
                 value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o, optional = !field.required && field.kind != ValueKind.StateName)
                 if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
-                    val resource = ResourceChecks.certainText(entry.value, ctx)
-                    if (resource != null && !ResourceChecks.isArn(resource)) {
-                        report(INVALID_RESOURCE_ARN, entry.value.psi, "Not an ARN; a Task needs the ARN of a service integration, a Lambda function or an activity")
-                    }
+                    ResourceChecks.certainText(entry.value, ctx)?.let(ResourceChecks::resourceProblem)?.let { report(INVALID_RESOURCE_ARN, entry.value.psi, it) }
                 }
-                if (structure.id == StructureId.TASK && field.name == CREDENTIALS) roleArn(entry.value, ctx)
             }
+            if (structure.id == StructureId.TASK) task(o, ctx, anchor)
+        }
+
+        /** Rules on a Task state that depend on its `Resource`. */
+        private fun task(o: AslObject, ctx: Context, anchor: PsiElement) {
+            val resource = o["Resource"]?.value?.let { ResourceChecks.certainText(it, ctx) }
+            if (resource != null && ctx.known && !uncertain(o) && ResourceChecks.needsParameters(resource) && PAYLOAD_FIELDS.none { o[it] != null }) {
+                val name = if (ctx.ql == QueryLanguage.JSONATA) "Arguments" else "Parameters"
+                report(MISSING_REQUIRED_FIELD, anchor, "A service integration needs '$name', even when the call takes no parameters")
+            }
+            val credentials = o[CREDENTIALS]?.takeIf { !it.viaMerge } ?: return
+            if (resource != null && ResourceChecks.isActivity(resource)) {
+                report(INAPPLICABLE_FIELD, credentials.keyPsi, "'Credentials' cannot be used with an activity")
+            }
+            credentials(credentials, ctx)
         }
 
         /**
-         * Checks the literal `RoleArn` of [credentials]. A path or an intrinsic function goes under `RoleArn.$`, which is
-         * another key and not judged.
+         * `Credentials` is a mapping with the role under `RoleArn`, or in a JSONPath state with a path or an intrinsic
+         * function under `RoleArn.$`.
          */
-        private fun roleArn(credentials: AslNode, ctx: Context) {
-            val entry = (credentials as? AslObject)?.entries?.firstOrNull { it.key == ROLE_ARN && !it.viaMerge } ?: return
-            val role = ResourceChecks.certainText(entry.value, ctx) ?: return
-            if (!ResourceChecks.isRoleArn(role)) {
-                report(INVALID_ROLE_ARN, entry.value.psi, "Not an IAM role ARN; a role is written arn:partition:iam::account:role/name")
+        private fun credentials(entry: AslEntry, ctx: Context) {
+            val node = entry.value
+            if (exemptFromKind(node) || (node is AslScalar && ctx.jsonataPossible && isJsonata(node))) return
+            if (node is AslScalar && node.type == ScalarType.NULL) return report(NULL_VALUE, node.psi, "The field is present but has no value")
+            if (node !is AslObject) return wrongKind(node, "a mapping with the role under 'RoleArn'")
+            for (field in node.entries) {
+                if (field.viaMerge || isUnappliedMerge(field) || Placeholders.contains(field.key) || field.key == ROLE_ARN || field.key == ROLE_ARN_PATH) continue
+                report(UNKNOWN_FIELD, field.keyPsi, "Unknown field '${field.key}'; 'Credentials' only takes 'RoleArn'")
+            }
+            val role = node[ROLE_ARN]
+            val rolePath = node[ROLE_ARN_PATH]
+            if (role == null && rolePath == null && !uncertain(node)) report(MISSING_REQUIRED_FIELD, entry.keyPsi, "Missing required field 'RoleArn'")
+            if (role != null && rolePath != null && !rolePath.viaMerge) {
+                report(EXCLUSIVE_FIELDS, rolePath.keyPsi, "'$ROLE_ARN_PATH' cannot be used together with '$ROLE_ARN'")
+            }
+            if (role != null && !role.viaMerge) roleArn(role.value, ctx)
+            if (rolePath != null && !rolePath.viaMerge && ctx.known && ctx.ql == QueryLanguage.JSONPATH) pathOrIntrinsic(rolePath)
+        }
+
+        private fun roleArn(node: AslNode, ctx: Context) {
+            if (exemptFromKind(node) || (node is AslScalar && ctx.jsonataPossible && isJsonata(node))) return
+            if (node !is AslScalar || node.type != ScalarType.STRING) return wrongKind(node, "a string")
+            if (!ResourceChecks.isRoleArn(node.text)) {
+                report(INVALID_ROLE_ARN, node.psi, "Not an IAM role ARN; a role is written arn:partition:iam::account:role/name")
+            }
+        }
+
+        /** The value of a key that ends in `.$` is evaluated, so it must be a path or the call of an intrinsic function. */
+        private fun pathOrIntrinsic(entry: AslEntry) {
+            val node = entry.value
+            if (exemptFromKind(node) || node !is AslScalar) return
+            if (node.type != ScalarType.STRING) return wrongKind(node, "a string with a path or an intrinsic function")
+            if (!node.text.startsWith("$") && !INTRINSIC_CALL.containsMatchIn(node.text)) {
+                report(INVALID_PATH, node.psi, "The value of '${entry.key}' must be a path that starts with $ or an intrinsic function such as States.Format(...)")
+            }
+        }
+
+        /** Rules on fields whose content is free-form data. */
+        private fun freeForm(entry: AslEntry, structure: StructureSpec, ctx: Context) {
+            val node = entry.value
+            val rejectsNull = entry.key in NEVER_NULL || (structure.id == StructureId.TASK && entry.key in PAYLOAD_FIELDS)
+            if (rejectsNull && node is AslScalar && node.type == ScalarType.NULL && !node.ambiguous) {
+                report(NULL_VALUE, node.psi, "The field is present but has no value")
+            }
+            if (ctx.known && ctx.ql == QueryLanguage.JSONPATH && entry.key in PAYLOAD_TEMPLATES) payloadTemplate(node)
+        }
+
+        private fun payloadTemplate(node: AslNode) {
+            when (node) {
+                is AslObject -> for (entry in node.entries) {
+                    if (entry.viaMerge || isUnappliedMerge(entry) || Placeholders.contains(entry.key)) continue
+                    if (entry.key.endsWith(".$")) pathOrIntrinsic(entry) else payloadTemplate(entry.value)
+                }
+                is AslArray -> for (item in node.items) payloadTemplate(item)
+                else -> {}
             }
         }
 
         /**
          * Checks that [node] fits [kind] and, if it does, descends into it. [jsonata] tells whether the field evaluates
          * JSONata; [owner] is the object holding the field. [optional] is true for the direct value of a field that is
-         * neither required nor a transition target, where a null value is only a warning.
+         * neither required nor a transition target, where a null value is reported as such and not as a wrong kind.
          */
         private fun value(
             node: AslNode, kind: ValueKind, nullable: Boolean, jsonata: Boolean, ctx: Context, anchor: PsiElement, owner: AslObject,
@@ -152,6 +228,7 @@ internal object StructureChecks {
                 return
             }
             if (node is AslScalar && jsonata && ctx.evaluatesJsonata) misplaced(node)
+            if (kind == ValueKind.Integer && node is AslScalar && notWhole(node)) wrongKind(node, "a whole number, written without a decimal point")
             when (kind) {
                 is ValueKind.Struct -> obj(node as AslObject, AslSpec.structure(kind.id), ctx, anchor)
                 is ValueKind.ListOf ->
@@ -159,6 +236,17 @@ internal object StructureChecks {
                 ValueKind.StatesMap -> machines[owner]?.let(::states)
                 else -> {}
             }
+        }
+
+        /**
+         * AWS takes only a number without a decimal point as a whole number, so it rejects `1.5` and also `5.0`. A JSON
+         * file reaches AWS as it is written. A YAML file is converted first, and the tools differ: some turn `5.0` into
+         * `5`, others keep it. So in YAML only a number with a real fraction is certain to be rejected.
+         */
+        private fun notWhole(scalar: AslScalar): Boolean {
+            if ('.' !in scalar.text) return false
+            val fraction = scalar.text.toBigDecimalOrNull()?.let { it.stripTrailingZeros().scale() > 0 } ?: return false
+            return fraction || scalar.psi.containingFile is JsonFile
         }
 
         private fun expectedText(kind: ValueKind): String = when (kind) {
