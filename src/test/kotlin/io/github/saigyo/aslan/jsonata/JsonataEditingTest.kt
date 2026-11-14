@@ -234,6 +234,9 @@ class JsonataEditingTest : JsonataTestCase() {
         myFixture.type("\"")
         myFixture.type("\"")
         assertEquals(yamlScalarHost("\"{% \$a & \\\"\\\"\$b & \\\"\\\"\$c %}\""), hostDocText())
+        // nothing is remembered after the keystrokes
+        assertFalse(com.intellij.codeInsight.editorActions.TypedHandlerDelegate.EP_NAME.extensionList
+            .filterIsInstance<io.github.saigyo.aslan.jsonata.edit.JsonataTypedHandler>().single().remembersDecision())
         assertEquals(1, siteCount())
         assertEquals(" \$a & \"\"\$b & \"\"\$c ", decoded())
     }
