@@ -57,6 +57,22 @@ class JsonataCompletionTest : JsonataTestCase() {
         myFixture.checkResult(hostText("\$substringBefore($caret)"))
     }
 
+    fun `test choosing a function by typing an opening bracket inserts one pair`() {
+        myFixture.configureByText("test.asl.yaml", hostText("\$substr$caret"))
+        myFixture.completeBasic()
+        val lookup = myFixture.lookup as com.intellij.codeInsight.lookup.impl.LookupImpl
+        lookup.currentItem = myFixture.lookupElements!!.first { it.lookupString == "\$substringBefore" }
+        // the fixture's finishLookup looks in the host editor; the lookup is in the injected one
+        com.intellij.openapi.command.CommandProcessor.getInstance().executeCommand(project, { lookup.finishLookup('(') }, null, null)
+        myFixture.checkResult(hostText("\$substringBefore($caret)"))
+    }
+
+    fun `test context fields after a path segment written with an escape`() {
+        val c = "\\" + "u0063"
+        val json = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% ${'$'}states.""" + c + """ontext.$caret %}","End":true}}}"""
+        assertTrue(complete(json, "test.asl.json").containsAll(listOf("Execution", "State")))
+    }
+
     fun `test a function hidden by a local variable is not offered`() {
         val items = inOutput("(\$sum := 1; \$su$caret)")
         assertEquals(items.toString(), 1, items.count { it == "\$sum" })

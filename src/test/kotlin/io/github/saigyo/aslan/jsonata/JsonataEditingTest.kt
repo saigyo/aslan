@@ -141,6 +141,15 @@ class JsonataEditingTest : JsonataTestCase() {
         assertTrue(result, result.contains("{% \$x & '' %}"))
     }
 
+    fun `test a quote in a comment after a block scalar header is not the host quote`() {
+        val text = machineText(
+            "Type: Task\nResource: arn:aws:states:::lambda:invoke\nArguments:\n  FunctionName: catalog-reel\n" +
+                "Output: |- # \"\n  {% \$x & <caret> %}\nEnd: true",
+        )
+        val result = typeIn(text, "comment.asl.yaml", "\"")
+        assertTrue(result, result.contains("{% \$x & \"\" %}"))
+    }
+
     /** Toggles the line comment with the caret at [at] in the host, and returns the host text. */
     private fun toggle(at: Int): String {
         InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).caretModel.moveToOffset(at)

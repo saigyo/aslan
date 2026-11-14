@@ -72,6 +72,8 @@ class JsonataCompletionContributor : CompletionContributor() {
     }
 
     private fun brackets(empty: Boolean) = InsertHandler<LookupElement> { context, _ ->
+        // the brackets are written here, so a `(` typed to choose the item is not typed as well
+        if (context.completionChar == '(') context.setAddCompletionChar(false)
         val document = context.document
         val tail = context.tailOffset
         if (document.charsSequence.getOrNull(tail) == '(') {
@@ -89,7 +91,7 @@ class JsonataCompletionContributor : CompletionContributor() {
         val names = ArrayList<String>()
         var left: PsiElement? = path.lhs
         while (left is JsonataPath) {
-            names += left.rhs?.text ?: return
+            names += left.rhs?.let { JsonataPsi.decodedText(it) } ?: return
             left = left.lhs
         }
         if (left !is JsonataVariableRef || left.node.elementType != JsonataElements.VARIABLE_REF || left.variableName != "states") return

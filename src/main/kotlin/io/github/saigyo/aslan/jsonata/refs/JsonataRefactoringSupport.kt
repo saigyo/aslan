@@ -103,8 +103,16 @@ class JsonataInplaceRenamer(element: PsiNamedElement, editor: Editor, initialNam
     override fun createInplaceRenamerToRestart(variable: PsiNamedElement, editor: Editor, initialName: String): VariableInplaceRenamer =
         JsonataInplaceRenamer(variable, editor, initialName, myOldName)
 
-    private fun afterDollar(element: PsiElement): TextRange? =
-        if (element.textLength > 1 && element.text.startsWith("$")) TextRange(1, element.textLength) else null
+    /** The range of the name after its `$`, which the host may write as an escape (`$` in JSON, `\x24` in YAML). */
+    private fun afterDollar(element: PsiElement): TextRange? {
+        val text = element.text
+        val dollar = DOLLARS.firstOrNull { text.startsWith(it) }?.length ?: return null
+        return if (text.length > dollar) TextRange(dollar, text.length) else null
+    }
+
+    private companion object {
+        val DOLLARS = listOf("$", "\\u0024", "\\x24", "\\U00000024")
+    }
 }
 
 /**

@@ -8,6 +8,8 @@ import com.intellij.testFramework.utils.parameterInfo.MockCreateParameterInfoCon
 import com.intellij.testFramework.utils.parameterInfo.MockUpdateParameterInfoContext
 import io.github.saigyo.aslan.jsonata.docs.JsonataDocumentationProvider
 import io.github.saigyo.aslan.jsonata.docs.JsonataParameterInfoHandler
+import io.github.saigyo.aslan.jsonata.psi.JsonataCall
+import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.docs.AslDocumentation
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.StatesField
@@ -117,6 +119,27 @@ class JsonataDocumentationTest : JsonataTestCase() {
         assertTrue(function, substring.url in function)
         val result = ideDoc("b.asl.json", jsonHost("\"{% \$states.res<caret>ult %}\""))!!
         assertTrue(result, AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description) in result)
+    }
+
+    fun `test documentation for names written with an escape in a JSON host`() {
+        val i = "\\" + "u0069"
+        val s = "\\" + "u0073"
+        val input = AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.INPUT).description)
+        val field = ideDoc("a.asl.json", jsonHost("\"{% \$states.$i<caret>nput %}\""))
+        assertTrue(field.toString(), field != null && input in field)
+        val behind = ideDoc("b.asl.json", jsonHost("\"{% \$${s}tates.inp<caret>ut %}\""))
+        assertTrue(behind.toString(), behind != null && input in behind)
+        val states = ideDoc("c.asl.json", jsonHost("\"{% \$${s}ta<caret>tes.input %}\""))
+        assertTrue(states.toString(), states != null && "reserved variable" in states)
+    }
+
+    fun `test parameter info closes when the caret moves into another call`() {
+        val file = jsonata("\$substring(\$join([\"a\"], <caret>\",\"), 1)")
+        val handler = JsonataParameterInfoHandler()
+        val outer = PsiTreeUtil.findChildrenOfType(file, JsonataCall::class.java).first { it.text.startsWith("\$substring") }
+        val update = MockUpdateParameterInfoContext(myFixture.editor, file)
+        update.parameterOwner = outer
+        assertNull(handler.findElementForUpdatingParameterInfo(update))
     }
 
     fun `test the documentation of a key outside an expression is the stage 1 one`() {

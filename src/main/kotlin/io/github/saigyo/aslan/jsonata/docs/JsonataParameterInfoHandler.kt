@@ -31,8 +31,16 @@ class JsonataParameterInfoHandler : ParameterInfoHandler<JsonataCall, JsonataFun
         context.showHint(element, element.textRange.startOffset, this)
     }
 
-    override fun findElementForUpdatingParameterInfo(context: UpdateParameterInfoContext): JsonataCall? =
-        callAt(context.file, context.offset)
+    /** The call the hint was opened for, while the caret is in its arguments; a hint for another call is closed. */
+    override fun findElementForUpdatingParameterInfo(context: UpdateParameterInfoContext): JsonataCall? {
+        val call = callAt(context.file, context.offset)
+        val owner = context.parameterOwner
+        if (call == null || (owner != null && owner !== call)) {
+            context.removeHint()
+            return null
+        }
+        return call
+    }
 
     override fun updateParameterInfo(parameterOwner: JsonataCall, context: UpdateParameterInfoContext) {
         context.setCurrentParameter(argumentIndex(parameterOwner, context.offset))
