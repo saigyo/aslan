@@ -103,8 +103,10 @@ internal object YamlTree {
         private fun scalar(scalar: YAMLScalar, usePsi: PsiElement): AslScalar {
             val text = scalar.textValue
             return when (scalar) {
-                is YAMLPlainTextImpl ->
-                    AslScalar(scalar, usePsi, YamlScalars.type(text), text, YamlScalars.isAmbiguous(text))
+                is YAMLPlainTextImpl -> AslScalar(
+                    scalar, usePsi, YamlScalars.type(text), text,
+                    ambiguous = scalar.tag != null || YamlScalars.isAmbiguous(text),
+                )
                 is YAMLScalarText, is YAMLScalarList ->
                     AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text))
                 is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, text)
@@ -113,54 +115,84 @@ internal object YamlTree {
         }
 
         /**
-         * A clipped block scalar (no `-` or `+` in its header) that ends at the end of the file without a
+         * A clipped block scalar (no `-` or `+` in its indicator) that ends at the end of the file without a
          * final line break has no trailing line break, but `getTextValue()` appends one.
          */
         private fun blockText(scalar: YAMLScalar, text: String): String {
-            val header = scalar.text.substringBefore('\n')
-            if (header.contains('-') || header.contains('+')) return text
+            // The scalar's element also holds any tag, anchor and header comment; the indicator is its own
+            // token, the first child starting with `>` or `|`.
+            val indicator = generateSequence(scalar.node.firstChildNode) { it.treeNext }
+                .map { it.text }
+                .firstOrNull { it.startsWith('>') || it.startsWith('|') }
+                ?: return text
+            if (indicator.contains('-') || indicator.contains('+')) return text
             if (scalar.text.endsWith('\n')) return text
-            val fileText = scalar.containingFile.text
-            val rest = fileText.substring(scalar.textRange.endOffset)
+            val rest = scalar.containingFile.text.substring(scalar.textRange.endOffset)
             return if (rest.contains('\n')) text else text.removeSuffix("\n")
         }
     }
 }
 
-/** Types plain YAML scalars by the YAML 1.2 core schema, and tells where YAML 1.1 types them differently. */
+/**
+ * Types plain YAML scalars by the YAML 1.2 core schema, and tells where YAML 1.1 types them differently.
+ * YAML 1.1 is checked both as its type repository defines it and as PyYAML's resolver applies it.
+ */
 internal object YamlScalars {
     private val nullPattern = Regex("|~|null|Null|NULL")
     private val booleanPattern = Regex("true|True|TRUE|false|False|FALSE")
-    private val numberPatterns = listOf(
-        Regex("[-+]?[0-9]+"),
-        Regex("0o[0-7]+"),
-        Regex("0x[0-9a-fA-F]+"),
-        Regex("[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?"),
-        Regex("[-+]?\\.(inf|Inf|INF)"),
-        Regex("\\.(nan|NaN|NAN)"),
+    private val numberPattern = Regex(
+        "[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+" +
+            "|[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?" +
+            "|[-+]?\\.(inf|Inf|INF)|\\.(nan|NaN|NAN)",
     )
 
-    private val ambiguousPatterns = listOf(
-        // YAML 1.1 booleans
-        Regex("y|Y|yes|Yes|YES|n|N|no|No|NO|on|On|ON|off|Off|OFF"),
-        // YAML 1.1 numbers with `_` separators
-        Regex("(?=.*_)[-+]?(0b[01_]+|0x[0-9a-fA-F_]+|[0-9][0-9_]*(\\.[0-9_]*)?([eE][-+]?[0-9]+)?|\\.[0-9][0-9_]*([eE][-+]?[0-9]+)?)"),
-        // YAML 1.1 sexagesimal numbers
-        Regex("[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+(\\.[0-9_]*)?"),
-        // YAML 1.1 octal with a leading 0
-        Regex("[-+]?0[0-9_]+"),
-        // YAML 1.1 binary
-        Regex("[-+]?0b[01_]+"),
-        // YAML 1.2 octal
-        Regex("0o[0-7]+"),
+    private enum class Yaml11Kind { NULL, BOOLEAN, NUMBER, TIMESTAMP, STRING }
+
+    private val yaml11Booleans = Regex("y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF")
+    private val pyYamlBooleans = Regex("yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF")
+    private val yaml11Int = "[-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?(0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+|[-+]?[1-9][0-9_]*(:[0-5]?[0-9])+"
+    private val yaml11Infinity = "[-+]?\\.(inf|Inf|INF)|\\.(nan|NaN|NAN)"
+    private val yaml11Numbers = Regex(
+        "$yaml11Int|[-+]?([0-9][0-9_]*)?\\.[0-9.]*([eE][-+][0-9]+)?|[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\\.[0-9_]*|$yaml11Infinity",
     )
+    private val pyYamlNumbers = Regex(
+        "$yaml11Int|[-+]?[0-9][0-9_]*\\.[0-9_]*([eE][-+][0-9]+)?|\\.[0-9][0-9_]*([eE][-+][0-9]+)?" +
+            "|[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\\.[0-9_]*|$yaml11Infinity",
+    )
+    private val yaml11Timestamp = Regex(
+        "[0-9]{4}-[0-9]{2}-[0-9]{2}" +
+            "|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt]|[ \\t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(\\.[0-9]*)?" +
+            "([ \\t]*(Z|[-+][0-9]{1,2}(:[0-9]{2})?))?",
+    )
+
+    /** Leading-zero octal: an integer under both versions, but with a different value. */
+    private val leadingZeroOctal = Regex("[-+]?0[0-7]+")
 
     fun type(text: String): ScalarType = when {
         nullPattern.matches(text) -> ScalarType.NULL
         booleanPattern.matches(text) -> ScalarType.BOOLEAN
-        numberPatterns.any { it.matches(text) } -> ScalarType.NUMBER
+        numberPattern.matches(text) -> ScalarType.NUMBER
         else -> ScalarType.STRING
     }
 
-    fun isAmbiguous(text: String): Boolean = ambiguousPatterns.any { it.matches(text) }
+    /** True when YAML 1.1 types or reads [text] differently from YAML 1.2. */
+    fun isAmbiguous(text: String): Boolean {
+        val yaml12 = when (type(text)) {
+            ScalarType.NULL -> Yaml11Kind.NULL
+            ScalarType.BOOLEAN -> Yaml11Kind.BOOLEAN
+            ScalarType.NUMBER -> Yaml11Kind.NUMBER
+            ScalarType.STRING -> Yaml11Kind.STRING
+        }
+        return yaml11Kind(text, yaml11Booleans, yaml11Numbers) != yaml12 ||
+            yaml11Kind(text, pyYamlBooleans, pyYamlNumbers) != yaml12 ||
+            leadingZeroOctal.matches(text)
+    }
+
+    private fun yaml11Kind(text: String, booleans: Regex, numbers: Regex): Yaml11Kind = when {
+        nullPattern.matches(text) -> Yaml11Kind.NULL
+        booleans.matches(text) -> Yaml11Kind.BOOLEAN
+        numbers.matches(text) -> Yaml11Kind.NUMBER
+        yaml11Timestamp.matches(text) -> Yaml11Kind.TIMESTAMP
+        else -> Yaml11Kind.STRING
+    }
 }
