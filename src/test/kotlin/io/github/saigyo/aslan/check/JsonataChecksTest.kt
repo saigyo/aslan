@@ -221,6 +221,12 @@ class JsonataChecksTest : CheckTestCase() {
         for (expression in silent) assertEquals(expression, nothing, expr(expression))
     }
 
+    fun `test a re-bound context reference is not reported`() {
+        assertEquals(nothing, expr("(\$\$ := \$states.input; \$\$.a)"))
+        assertEquals(nothing, expr("function(\$\$){ \$\$ }(1)"))
+        assertEquals(noInput("\$\$"), expr("(\$x := \$states.input; \$\$.a)"))
+    }
+
     fun `test nothing in an expression with a syntax error but the error`() =
         assertEquals(listOf(JSONATA_SYNTAX_ERROR to "+"), expr("foo + \$nope(1) +"))
 
