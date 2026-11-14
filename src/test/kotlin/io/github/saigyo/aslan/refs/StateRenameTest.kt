@@ -89,6 +89,52 @@ class StateRenameTest : AslTestCase() {
         assertTrue(conflicts { myFixture.renameElement(entry, "Finish") }.isNotEmpty())
     }
 
+    fun `test a target inside an aliased catcher list in free-form data is a conflict`() {
+        myFixture.configureByText("test.asl.yaml", """
+            StartAt: A
+            States:
+              A:
+                Type: Pass
+                Result:
+                  handlers: &handlers
+                    - ErrorEquals: [States.ALL]
+                      Next: B
+                Next: T
+              T:
+                Type: Task
+                Resource: arn:aws:states:::sns:publish
+                Catch: *handlers
+                End: true
+              B: { Type: Succeed }
+        """.trimIndent())
+        val entry = AslModel.of(myFixture.file)!!.root!!.state("B")!!.entry.entryPsi
+        assertTrue(conflicts { myFixture.renameElement(entry, "Finish") }.isNotEmpty())
+    }
+
+    fun `test a target inside a catcher list anchored at its first use is renamed`() {
+        myFixture.configureByText("test.asl.yaml", """
+            StartAt: T
+            States:
+              T:
+                Type: Task
+                Resource: arn:aws:states:::sns:publish
+                Catch: &handlers
+                  - ErrorEquals: [States.ALL]
+                    Next: B
+                Next: U
+              U:
+                Type: Task
+                Resource: arn:aws:states:::sns:publish
+                Catch: *handlers
+                End: true
+              B: { Type: Succeed }
+        """.trimIndent())
+        myFixture.renameElement(AslModel.of(myFixture.file)!!.root!!.state("B")!!.entry.entryPsi, "Finish")
+        val text = myFixture.file.text
+        assertTrue(text, "Next: Finish" in text && "Finish: { Type: Succeed }" in text && "Next: B" !in text)
+        assertEmpty(io.github.saigyo.aslan.check.AslChecker.findings(myFixture.file))
+    }
+
     fun `test an anchor that names the renamed state itself is no conflict`() {
         myFixture.configureByText("test.asl.yaml", """
             StartAt: A

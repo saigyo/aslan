@@ -46,7 +46,7 @@ object AslModel {
     private fun build(file: PsiFile): AslDocument {
         val rootNode = AslTree.root(file)
         val rootObj = rootNode as? AslObject ?: return AslDocument(file, rootNode, null, SchemaIndex.EMPTY, QueryLanguage.JSONPATH, true)
-        val topLevel = QueryLanguageSetting.of(rootObj["QueryLanguage"])
+        val topLevel = QueryLanguageSetting.of(rootObj)
         val builder = Builder(topLevel)
         val root = builder.machine(rootObj, null)
         val language = topLevel.language ?: QueryLanguage.JSONPATH
@@ -54,13 +54,15 @@ object AslModel {
     }
 
     /**
-     * A `QueryLanguage` field as written: the language it names, and whether it leaves the language open. Any value other
-     * than exactly `JSONPath` or `JSONata` (a placeholder, a value being typed, a value of another kind) leaves it open.
+     * The `QueryLanguage` of an object as written: the language it names, and whether it leaves the language open. Any
+     * value other than exactly `JSONPath` or `JSONata` (a placeholder, a value being typed, a value of another kind)
+     * leaves it open. So does a missing field in an object that may get one from a placeholder key or from a merge key
+     * that could not be applied.
      */
     private class QueryLanguageSetting(val language: QueryLanguage?, val uncertain: Boolean) {
         companion object {
-            fun of(entry: AslEntry?): QueryLanguageSetting {
-                if (entry == null) return QueryLanguageSetting(null, false)
+            fun of(owner: AslObject?): QueryLanguageSetting {
+                val entry = owner?.get("QueryLanguage") ?: return QueryLanguageSetting(null, owner != null && leavesFieldsOpen(owner))
                 val scalar = entry.value as? AslScalar
                 val language = QueryLanguage.entries.firstOrNull { scalar?.type == ScalarType.STRING && !scalar.ambiguous && it.text == scalar.text }
                 return QueryLanguageSetting(language, language == null)
@@ -85,7 +87,7 @@ object AslModel {
             val obj = entry.value as? AslObject
             val typeName = (obj?.get("Type")?.value as? AslScalar)?.takeIf { it.type != ScalarType.NULL }?.text
             val type = typeName?.let { AslSpec.stateType(it) }
-            val own = QueryLanguageSetting.of(obj?.get("QueryLanguage"))
+            val own = QueryLanguageSetting.of(obj)
             val language = own.language ?: topLevel.language ?: QueryLanguage.JSONPATH
             val known = own.language != null || (!own.uncertain && !topLevel.uncertain)
             val children = ArrayList<AslStateMachine>()

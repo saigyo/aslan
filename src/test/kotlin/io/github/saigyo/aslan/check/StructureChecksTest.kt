@@ -61,6 +61,26 @@ class StructureChecksTest : CheckTestCase() {
     fun `test a resource that is not a string is reported as that only`() =
         assertEquals(listOf(WRONG_VALUE_KIND to "[a]"), withResource("[a]"))
 
+    private val jsonataTask = "  A:\n    Type: Task\n    Resource: arn:aws:states:::sns:publish\n    Arguments:\n      a: 1\n    End: true\n"
+
+    fun `test a field of the other query language without any QueryLanguage`() =
+        assertEquals(listOf(WRONG_QUERY_LANGUAGE_FIELD to "Arguments"), found("StartAt: A\nStates:\n$jsonataTask"))
+
+    fun `test the query language is not assumed where a placeholder key or an unapplied merge may set it`() {
+        val open = listOf(
+            "${'$'}{QL}: JSONata\nStartAt: A\nStates:\n$jsonataTask",
+            "<<: ${'$'}{Common}\nStartAt: A\nStates:\n$jsonataTask",
+            "StartAt: A\nStates:\n$jsonataTask    ${'$'}{QL}: JSONata\n",
+            "StartAt: A\nStates:\n$jsonataTask    <<: ${'$'}{Common}\n",
+        )
+        for (text in open) assertEquals(text, emptyList<Any>(), found(text))
+    }
+
+    fun `test an explicit query language decides although a placeholder key is present`() {
+        val text = "QueryLanguage: JSONPath\n${'$'}{Extra}: x\nStartAt: A\nStates:\n$jsonataTask    QueryLanguage: JSONPath\n    ${'$'}{More}: y\n"
+        assertEquals(listOf(WRONG_QUERY_LANGUAGE_FIELD to "Arguments"), found(text))
+    }
+
     fun `test empty Choices`() = assertEquals(
         listOf(EMPTY_CHOICES to "Choices"),
         found(edit("    Choices:\n      - Condition: $condition\n        Next: Accepted\n" to "    Choices: []\n",

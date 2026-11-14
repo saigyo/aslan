@@ -107,6 +107,21 @@ class TransitionChecksTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), found(text))
     }
 
+    fun `test targets are not missing when the set of states cannot be read`() {
+        val unreadable = listOf(
+            "StartAt: A\nStates: !Ref Definitions\n",
+            "StartAt: A\n${dollar}{StatesKey}:\n  A:\n    Type: Succeed\n",
+            "StartAt: A\n<<: ${dollar}{Rest}\n",
+        )
+        for (text in unreadable) assertEquals(text, emptyList<Any>(), found(text))
+    }
+
+    fun `test States of the wrong kind is reported as that only`() =
+        assertEquals(listOf(AslProblem.WRONG_VALUE_KIND to "[a]"), found("StartAt: A\nStates: [a]\n"))
+
+    fun `test a missing States without anything uncertain still judges StartAt`() =
+        assertEquals(listOf(AslProblem.MISSING_REQUIRED_FIELD, MISSING_TRANSITION_TARGET), found("StartAt: A\n").map { it.first })
+
     fun `test half-typed files do not throw`() {
         found("StartAt: A\nStates:\n  A:\n    Type: Pass\n    Next:")
         found("StartAt:\nStates:\n  A:\n  - x")

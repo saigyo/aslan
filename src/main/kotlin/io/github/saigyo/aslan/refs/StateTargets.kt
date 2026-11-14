@@ -71,16 +71,16 @@ internal object StateTargets {
             .toList()
 
     /**
-     * The alias values (`Next: *d`) that a rename of [state] would leave wrong: those that name [state] but whose
-     * anchored scalar is not a reference to it, so they keep the old name, and those whose anchored scalar is a
-     * reference to it but that name a state of another machine, which the rename would change with it.
+     * The values that a rename of [state] would leave wrong, each where it is written in the machine that uses it: an
+     * alias (`Next: *d`) or a value inside an aliased list or mapping (`Catch: *handlers`). These are the values that
+     * name [state] but whose own scalar is not a reference to it, so they keep the old name, and those whose scalar is
+     * a reference to it but that name a state of another machine, which the rename would change with it.
      */
     fun aliasesBrokenByRename(document: AslDocument, state: AslState): List<PsiElement> {
         val renamed = referencesTo(document, state).map { it.element }.toSet()
         return document.allMachines().flatMap { machine ->
             namedTargets(machine).filter { scalar ->
-                scalar.usePsi !== scalar.psi && scalar.text == state.name &&
-                    (machine === state.machine) != (scalar.psi in renamed)
+                scalar.text == state.name && (machine === state.machine) != (scalar.psi in renamed)
             }.map { it.usePsi }
         }.distinct()
     }
