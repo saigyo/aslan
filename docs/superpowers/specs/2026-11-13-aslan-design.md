@@ -248,6 +248,7 @@ The rule that follows from the anti-goals:
 | A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state | documented as invalid |
 | A JSONPath state in a machine whose top level is JSONata | documented restriction |
 | A value of the wrong basic kind, such as text where a number is required | schema validation |
+| The `Resource` of a Task state does not have the form of an ARN | invalid resource |
 | A string that starts with `{%` but is not closed by `%}` at its end | documented validation error |
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
@@ -259,6 +260,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 | Problem | Why not an error |
 |---|---|
 | Field name that ASL does not define, outside free-form data | rejection unconfirmed, and AWS adds fields over time |
+| The `Resource` of a Task state is written as a service integration (`arn:aws:states:::…`) that is not in the plugin's list, or as an AWS SDK integration of the wrong form | AWS adds integrations over time, so the list can be behind |
 | Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | rejection unconfirmed |
 | Value outside its documented range, such as a negative `MaxAttempts` or a `BackoffRate` below 1 | rejection unconfirmed |
 | Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End: true` | rejection unconfirmed |
@@ -279,7 +281,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - Placeholders in any position.
 - YAML anchors, aliases and merge keys.
 - Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax.
-- The value of `Resource`, beyond being a string.
+- The `Resource` of an ItemReader or ResultWriter, beyond being a string; and in the `Resource` of a Task state, anything beyond the form of an ARN and the list of service integrations: whether a function, activity, region or account exists cannot be known from the file.
 
 ## 8. Testing and verification
 

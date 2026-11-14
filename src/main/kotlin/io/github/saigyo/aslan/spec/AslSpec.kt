@@ -31,8 +31,11 @@ object AslSpec {
     /** The predefined `States.` error names. */
     val errorNames: List<NamedDoc> = predefinedErrorNames
 
-    /** Resource ARNs of the optimised service integrations, one per supported integration pattern. */
+    /** Every resource ARN the reference data describes: those of Task states and the Amazon S3 actions of a Distributed Map. */
     val resourceArns: List<NamedDoc> = optimisedResourceArns
+
+    /** Resource ARNs of the optimised service integrations and the HTTP task, one per supported integration pattern. */
+    val taskResourceArns: List<NamedDoc> = io.github.saigyo.aslan.spec.data.taskResourceArns
 
     private val allFieldNames: Set<String> = structures.values.flatMap { s -> s.fields.map { it.name } }.toSet()
 

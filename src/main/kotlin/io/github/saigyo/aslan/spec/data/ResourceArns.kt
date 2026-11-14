@@ -18,8 +18,8 @@ private val CALLBACK = Pattern.CALLBACK
 private fun api(page: String, service: String, action: String, what: String, vararg patterns: Pattern): List<NamedDoc> =
     patterns.map { NamedDoc("arn:aws:states:::$service:$action${it.suffix}", it.describe(what), Doc.page(page)) }
 
-/** The optimised service integrations, the HTTP task, and the Amazon S3 actions of ItemReader and ResultWriter. */
-internal val optimisedResourceArns: List<NamedDoc> = listOf(
+/** The optimised service integrations and the HTTP task: what a Task state can name in `Resource` besides its own resources. */
+internal val taskResourceArns: List<NamedDoc> = listOf(
     api("connect-api-gateway", "apigateway", "invoke", "an Amazon API Gateway endpoint", RR, CALLBACK),
 
     api("connect-athena", "athena", "startQueryExecution", "Amazon Athena StartQueryExecution", RR, SYNC),
@@ -106,12 +106,16 @@ internal val optimisedResourceArns: List<NamedDoc> = listOf(
         RR, SYNC, Pattern.SYNC_JSON, CALLBACK),
 
     api("call-https-apis", "http", "invoke", "a public HTTPS API", RR),
-
-    listOf(
-        NamedDoc("arn:aws:states:::s3:getObject", "Reads one Amazon S3 object, such as a CSV or JSON file, as the data set of a Distributed Map.",
-            Doc.ITEM_READER),
-        NamedDoc("arn:aws:states:::s3:listObjectsV2", "Lists the objects under an Amazon S3 bucket or prefix as the data set of a Distributed Map.",
-            Doc.ITEM_READER),
-        NamedDoc("arn:aws:states:::s3:putObject", "Stores the results of a Distributed Map in an Amazon S3 bucket.", Doc.RESULT_WRITER),
-    ),
 ).flatten()
+
+/** The Amazon S3 actions of ItemReader and ResultWriter. */
+private val distributedMapResourceArns: List<NamedDoc> = listOf(
+    NamedDoc("arn:aws:states:::s3:getObject", "Reads one Amazon S3 object, such as a CSV or JSON file, as the data set of a Distributed Map.",
+        Doc.ITEM_READER),
+    NamedDoc("arn:aws:states:::s3:listObjectsV2", "Lists the objects under an Amazon S3 bucket or prefix as the data set of a Distributed Map.",
+        Doc.ITEM_READER),
+    NamedDoc("arn:aws:states:::s3:putObject", "Stores the results of a Distributed Map in an Amazon S3 bucket.", Doc.RESULT_WRITER),
+)
+
+/** Every resource ARN the reference data describes. */
+internal val optimisedResourceArns: List<NamedDoc> = taskResourceArns + distributedMapResourceArns

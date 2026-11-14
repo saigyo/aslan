@@ -18,6 +18,7 @@ import io.github.saigyo.aslan.check.AslProblem.STATES_ALL_PLACEMENT
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_ENUM_VALUE
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_FIELD
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_PREDEFINED_ERROR
+import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_SERVICE_INTEGRATION
 import io.github.saigyo.aslan.check.AslProblem.UNREACHABLE_STATE
 import io.github.saigyo.aslan.check.AslProblem.VALUE_OUT_OF_RANGE
 import io.github.saigyo.aslan.check.StructureChecks.Context
@@ -88,6 +89,10 @@ internal object WarningChecks {
                     report(EMPTY_LIST, entry.keyPsi, "'${field.name}' needs at least one entry")
                 }
                 value(entry.value, field, field.kind, ctx, direct = true, owner = o, anchor = entry.keyPsi)
+                if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
+                    ResourceChecks.certainText(entry.value, ctx)?.let(ResourceChecks::integrationProblem)
+                        ?.let { report(UNKNOWN_SERVICE_INTEGRATION, entry.value.psi, it) }
+                }
             }
             when (structure.id) {
                 StructureId.TASK -> heartbeat(o)
