@@ -271,7 +271,7 @@ The rule that follows from the anti-goals:
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
 
-A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply. A YAML mapping or list with a tag such as `!Join [...]` or `!If [...]` is not judged either: whatever handles the tag decides the value.
+A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply. A YAML mapping or list with a tag such as `!Join [...]` or `!If [...]` is not judged either: whatever handles the tag decides the value. The same holds for a CloudFormation function in its long form, a mapping with the single key `Ref` or `Fn::Name` such as `Fn::GetAtt: [Role, Arn]`, in YAML and in JSON: a definition file that a template pulls in with `AWS::Include` can only use this form. The value of `States` is the exception, since a machine may have a single state named `Ref`.
 
 ### Warnings
 
