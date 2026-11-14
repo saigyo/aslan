@@ -6,21 +6,27 @@ private fun errorName(name: String, description: String) = NamedDoc(name, descri
 
 /** The predefined error names, all starting with `States.`. */
 internal val predefinedErrorNames = listOf(
-    errorName("States.ALL", "Matches any error name except States.DataLimitExceeded and States.Runtime; must be the only name in its rule and in the last rule."),
-    errorName("States.BranchFailed", "A branch of a Parallel state failed."),
-    errorName("States.DataLimitExceeded", "A state's input, output or a service result grew beyond the payload size limit; States.ALL does not match it."),
-    errorName("States.ExceedToleratedFailureThreshold", "A Map state failed because more items failed than its tolerated failure settings allow."),
-    errorName("States.HeartbeatTimeout", "A Task state went longer than HeartbeatSeconds without a heartbeat."),
-    errorName("States.Http.Socket", "An HTTP task timed out after 60 seconds."),
-    errorName("States.IntrinsicFailure", "An intrinsic function in a payload template could not be evaluated."),
-    errorName("States.ItemReaderFailed", "A Map state could not read the items from the source given in ItemReader."),
-    errorName("States.NoChoiceMatched", "No rule of a Choice state held and the state has no Default."),
-    errorName("States.ParameterPathFailure", "A path in a payload template, in a key ending in .\$, could not be resolved."),
-    errorName("States.Permissions", "A Task state was not allowed to run the work it names."),
-    errorName("States.QueryEvaluationError", "A JSONata expression failed, returned nothing, or returned a value of the wrong type or range."),
-    errorName("States.ResultPathMatchFailure", "A state's ResultPath could not be applied to the input it received."),
-    errorName("States.ResultWriterFailed", "A Map state could not write its results to the destination given in ResultWriter."),
-    errorName("States.Runtime", "The execution failed on an exception it could not process; it cannot be retried and States.ALL does not catch it."),
-    errorName("States.TaskFailed", "A Task state failed while running; in a rule it matches any error name except States.Timeout."),
-    errorName("States.Timeout", "A Task state ran longer than TimeoutSeconds or missed a heartbeat, or the whole execution ran past its TimeoutSeconds."),
+    errorName("States.ALL", "Wildcard for catch-all handling of almost every error. List it on its own, in the final Retry or Catch rule; " +
+        "payload-size and runtime errors still slip past it."),
+    errorName("States.BranchFailed", "Raised by a Parallel state when one of its branches ends in failure; catch it to recover from any branch."),
+    errorName("States.DataLimitExceeded", "Raised when data passed into or out of a state, or returned by a service, is too large. " +
+        "The wildcard does not cover it, so name it explicitly to handle it."),
+    errorName("States.ExceedToleratedFailureThreshold", "Raised by a Map state once its failed items go past the limit set by " +
+        "ToleratedFailureCount or ToleratedFailurePercentage."),
+    errorName("States.HeartbeatTimeout", "Raised when the worker behind a Task state stays silent for longer than HeartbeatSeconds allows."),
+    errorName("States.Http.Socket", "Raised when an HTTP task gets no answer within its 60-second limit."),
+    errorName("States.IntrinsicFailure", "Raised in a JSONPath state when a call such as States.Format inside a payload template goes wrong."),
+    errorName("States.ItemReaderFailed", "Raised by a Map state when reading its items through ItemReader goes wrong, for example a missing S3 object."),
+    errorName("States.NoChoiceMatched", "Raised by a Choice state that has no Default when none of its rules is true for the input."),
+    errorName("States.ParameterPathFailure", "Raised in a JSONPath state when a .\$ key in Parameters or a similar template points at data that is not there."),
+    errorName("States.Permissions", "Raised when the execution role lacks the rights a Task state needs to call its resource."),
+    errorName("States.QueryEvaluationError", "Raised in a JSONata state when an expression throws, yields nothing, " +
+        "or yields a value the field cannot use."),
+    errorName("States.ResultPathMatchFailure", "Raised in a JSONPath state when the result cannot be inserted at the location ResultPath names."),
+    errorName("States.ResultWriterFailed", "Raised by a Map state when storing its results through ResultWriter goes wrong, for example a bucket in another account."),
+    errorName("States.Runtime", "Stops the execution on an unexpected internal problem, such as a path applied to null input. " +
+        "Retry and Catch rules, even with the wildcard, cannot handle it."),
+    errorName("States.TaskFailed", "Raised when the work behind a Task state goes wrong. As a match, it covers every error except a timeout."),
+    errorName("States.Timeout", "Raised when a Task state exceeds TimeoutSeconds or its heartbeat interval; also ends a whole execution " +
+        "that runs past the top-level TimeoutSeconds."),
 )
