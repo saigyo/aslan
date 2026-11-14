@@ -123,10 +123,10 @@ class AslTreeTest : AslTestCase() {
     }
 
     fun `test a one-line clipped block scalar keeps its line break`() {
-    assertEquals("B\n", root("Next: |\n  B\nOther: x").let { it["Next"]!!.value.scalar().text })
-}
+        assertEquals("B\n", root("Next: |\n  B\nOther: x").let { it["Next"]!!.value.scalar().text })
+    }
 
-fun `test folded scalar text is the decoded value`() {
+    fun `test folded scalar text is the decoded value`() {
         val r = root("""
             A: >-
               {% ${'$'}x

@@ -1,5 +1,8 @@
 package io.github.saigyo.aslan.jsonata
 
+import com.intellij.codeInsight.highlighting.HighlightManager
+import com.intellij.codeInsight.highlighting.HighlightManagerImpl
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import io.github.saigyo.aslan.highlight.AslHighlighting
 import io.github.saigyo.aslan.jsonata.highlight.JsonataColorSettingsPage
 import io.github.saigyo.aslan.jsonata.highlight.JsonataHighlighting
@@ -117,5 +120,51 @@ class JsonataHighlightingTest : JsonataTestCase() {
             ),
         )
         assertEquals(listOf("\${Bucket}", "\${Bucket}"), highlightedUsages())
+    }
+
+    private fun placeholderText(): String = machineText(
+        "Type: Task\nResource: \${Bucket}\nArguments:\n  FunctionName: catalog-reel\nOutput: \"{% 'in \${Buck<caret>et}' %}\"\nEnd: true",
+    )
+
+    /** The ranges the Highlight Usages action marked in the host editor. */
+    private fun highlightedRanges(): List<Pair<Int, Int>> {
+        highlightedUsages()
+        val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+        return (HighlightManager.getInstance(project) as HighlightManagerImpl).getHighlighters(editor)
+            .sortedBy { it.startOffset }.map { it.startOffset to it.endOffset }
+    }
+
+    fun `test the usage handler for a placeholder answers with host ranges for the host and the injected editor`() {
+        myFixture.configureByText("test.asl.yaml", placeholderText())
+        val injectedEditor = myFixture.editor
+        val injectedFile = myFixture.file
+        val hostEditor = InjectedLanguageEditorUtil.getTopLevelEditor(injectedEditor)
+        val hostFile = com.intellij.lang.injection.InjectedLanguageManager.getInstance(project).getTopLevelFile(injectedFile)
+        assertTrue(injectedFile.language == io.github.saigyo.aslan.jsonata.JsonataLanguage)
+        val plain = hostEditor.document.text
+        val expected = Regex("\\$\\{Bucket}").findAll(plain).map { it.range.first to it.range.last + 1 }.toList()
+        assertEquals(2, expected.size)
+        // The daemon's identifier pass could not be driven from the fixture (see the report), so the factory is asked the
+        // way that pass asks: once with the host editor and file, once with the injected ones.
+        for ((editor, file) in listOf(hostEditor to hostFile, injectedEditor to injectedFile)) {
+            val handler = com.intellij.codeInsight.highlighting.HighlightUsagesHandler.createCustomHandler<com.intellij.psi.PsiElement>(editor, file)!!
+            handler.computeUsages(handler.targets)
+            assertEquals(expected, (handler.readUsages + handler.writeUsages).sortedBy { it.startOffset }.map { it.startOffset to it.endOffset })
+        }
+    }
+
+    fun `test the usage highlighting of a placeholder marks exact host ranges`() {
+        myFixture.configureByText("test.asl.yaml", placeholderText())
+        val plain = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).document.text
+        val expected = Regex("\\$\\{Bucket}").findAll(plain).map { it.range.first to it.range.last + 1 }.toList()
+        assertEquals(expected, highlightedRanges())
+    }
+
+    fun `test the usage highlighting of a local variable marks every occurrence at its host range`() {
+        myFixture.configureByText("test.asl.yaml", hostText("(\$total := 1; \$to<caret>tal + \$total)"))
+        val plain = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).document.text
+        val expected = Regex("\\\$total").findAll(plain).map { it.range.first to it.range.last + 1 }.toList()
+        assertEquals(3, expected.size)
+        assertEquals(expected, highlightedRanges())
     }
 }

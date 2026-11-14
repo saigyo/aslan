@@ -225,7 +225,8 @@ class JsonataInjectionTest : JsonataTestCase() {
             val file = manager.getTopLevelFile(yaml(stateText("Output: ${styles[to].first}"), "same.asl.yaml"))
             val host = AslModel.of(file)!!.jsonataSites.all.single().scalar.psi
             val injected = JsonataPsi.injectedFile(host)
-            // Pinned behaviour: from single quotes to double quotes with escapes nothing is injected (no stale decoding,
+            // Pinned behaviour, and a defect of the YAML plugin (it decodes a scalar by its old quote style): this may be
+            // relaxed to "decoded correctly" when a platform update fixes it. From single quotes to double quotes with escapes nothing is injected (no stale decoding,
             // no error); from double to single quotes the new text is decoded by the new quotes.
             if (to == 1) assertNull("style $from to $to", injected)
             else assertEquals(styles[to].second, manager.getUnescapedText(injected!!))

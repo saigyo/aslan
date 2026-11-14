@@ -31,6 +31,7 @@
         <readWriteAccessDetector implementation="io.github.saigyo.aslan.jsonata.refs.JsonataReadWriteAccessDetector"/>
         <lang.braceMatcher language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.edit.JsonataBraceMatcher"/>
         <quoteHandler fileType="AslJsonata" className="io.github.saigyo.aslan.jsonata.edit.JsonataQuoteHandler"/>
+        <typedHandler order="first" implementation="io.github.saigyo.aslan.jsonata.edit.JsonataTypedHandler"/>
         <lang.commenter language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.edit.JsonataCommenter"/>
         <lang.refactoringSupport language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataRefactoringSupport"/>
         <lang.namesValidator language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataNamesValidator"/>

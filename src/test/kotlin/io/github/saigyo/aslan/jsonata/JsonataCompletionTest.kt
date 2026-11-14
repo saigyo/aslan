@@ -68,6 +68,8 @@ class JsonataCompletionTest : JsonataTestCase() {
     fun `test nothing in a string or a comment`() {
         assertEquals(emptyList<String>(), inOutput("'\$st$caret'"))
         assertEquals(emptyList<String>(), inOutput("/* \$st$caret */ 1"))
+        // an unterminated comment is a token of its own (BAD_COMMENT)
+        assertEquals(emptyList<String>(), complete(machineText("Type: Task\nResource: arn:aws:states:::lambda:invoke\nOutput: '{% /* \$st$caret'\nEnd: true")))
     }
 
     fun `test a local variable named states has no states fields`() {
