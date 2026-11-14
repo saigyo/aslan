@@ -9,6 +9,7 @@ import com.intellij.codeInsight.completion.InsertionContext
 import com.intellij.codeInsight.completion.PrioritizedLookupElement
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
+import com.intellij.json.psi.JsonReferenceExpression
 import com.intellij.json.psi.JsonStringLiteral
 import io.github.saigyo.aslan.spec.FieldSpec
 import io.github.saigyo.aslan.spec.ValueKind
@@ -21,10 +22,14 @@ import org.jetbrains.yaml.psi.YAMLQuotedText
  */
 class AslCompletionContributor : CompletionContributor() {
     override fun fillCompletionVariants(parameters: CompletionParameters, result: CompletionResultSet) {
-        val context = CompletionContexts.at(parameters) ?: return
-        when (context) {
+        when (val context = CompletionContexts.at(parameters) ?: return) {
             is CompletionContext.Key -> addKeys(context, parameters, result)
-            is CompletionContext.Value -> addValues(context, parameters, result)
+            is CompletionContext.Value -> {
+                // Only fixed values are offered here; in any other value the IDE's own completion keeps working.
+                val kind = context.field.spec.kind
+                if (kind !is ValueKind.OneOf && kind != ValueKind.Bool) return
+                addValues(kind, parameters, result)
+            }
         }
         result.stopHere()
     }
@@ -53,10 +58,16 @@ class AslCompletionContributor : CompletionContributor() {
         else -> 1.0
     }
 
-    private fun addValues(context: CompletionContext.Value, parameters: CompletionParameters, result: CompletionResultSet) {
-        val quoted = parameters.position.parent.let { it is JsonStringLiteral || it is YAMLQuotedText }
-        when (val kind = context.field.spec.kind) {
-            is ValueKind.OneOf -> kind.values.forEach { result.addElement(LookupElementBuilder.create(it.name).withTypeText(it.description)) }
+    private fun addValues(kind: ValueKind, parameters: CompletionParameters, result: CompletionResultSet) {
+        val parent = parameters.position.parent
+        val quoted = parent is JsonStringLiteral || parent is YAMLQuotedText
+        // An unquoted JSON value must become a string literal, so the fixed value is inserted with quotes.
+        val bareJson = parent is JsonReferenceExpression
+        when (kind) {
+            is ValueKind.OneOf -> kind.values.forEach {
+                val item = LookupElementBuilder.create(it.name).withTypeText(it.description)
+                result.addElement(if (bareJson) item.withInsertHandler(JsonQuoteInsertHandler) else item)
+            }
             ValueKind.Bool -> if (!quoted) listOf("true", "false").forEach { result.addElement(LookupElementBuilder.create(it)) }
             else -> {}
         }
@@ -99,5 +110,14 @@ private class YamlKeyInsertHandler(private val kind: ValueKind) : InsertHandler<
         }
         document.insertString(tail, insert)
         context.editor.caretModel.moveToOffset(tail + insert.length)
+    }
+}
+
+/** Puts quotes around a fixed value inserted where a JSON value has none yet. */
+private object JsonQuoteInsertHandler : InsertHandler<LookupElement> {
+    override fun handleInsert(context: InsertionContext, item: LookupElement) {
+        context.document.insertString(context.tailOffset, "\"")
+        context.document.insertString(context.startOffset, "\"")
+        context.editor.caretModel.moveToOffset(context.tailOffset)
     }
 }

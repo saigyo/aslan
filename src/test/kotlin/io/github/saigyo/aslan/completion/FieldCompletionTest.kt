@@ -62,6 +62,26 @@ class FieldCompletionTest : AslTestCase() {
         assertTrue("MaxAttempts" in complete(head + "    Retry:\n      - <caret>"))
         assertTrue("ProcessorConfig" in complete("StartAt: A\nStates:\n  A:\n    Type: Map\n    ItemProcessor:\n      <caret>"))
     }
+    fun `test json boolean value`() {
+        val text = """{"StartAt": "A", "States": {"A": {"Type": "Pass", "End": <caret>}}}"""
+        assertEquals(listOf("false", "true"), complete(text, "test.asl.json").sorted())
+        myFixture.type("tr")
+        myFixture.completeBasic()
+        myFixture.checkResult("""{"StartAt": "A", "States": {"A": {"Type": "Pass", "End": true<caret>}}}""")
+    }
+    fun `test json fixed value inside quotes`() =
+        assertEquals(listOf("JSONPath", "JSONata"), complete("""{"QueryLanguage": "<caret>"}""", "test.asl.json").sorted())
+    fun `test json fixed value without quotes is inserted quoted`() {
+        assertEquals(listOf("JSONPath", "JSONata"), complete("""{"QueryLanguage": <caret>}""", "test.asl.json").sorted())
+        myFixture.type("JSONa")
+        myFixture.completeBasic()
+        myFixture.checkResult("""{"QueryLanguage": "JSONata"<caret>}""")
+    }
+    fun `test no items of its own in a text value`() {
+        val items = complete("StartAt: A\nStates:\n  A:\n    Type: Pass\n    End: true\n    Comment: <caret>")
+        val own = setOf("Next", "Result", "Parameters", "InputPath", "QueryLanguage", "JSONPath", "JSONata", "Choice", "Wait", "false")
+        assertEquals(emptyList<String>(), items.filter { it in own })
+    }
     fun `test odd input does not fail`() {
         complete("<caret>")
         complete("<caret>", "test.asl.json")
