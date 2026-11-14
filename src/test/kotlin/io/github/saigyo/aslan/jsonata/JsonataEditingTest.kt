@@ -11,6 +11,7 @@ import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.psi.PsiFile
 import io.github.saigyo.aslan.check.AslChecker
+import io.github.saigyo.aslan.files.AslFiles
 import io.github.saigyo.aslan.check.AslProblem
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.model.AslModel
@@ -155,11 +156,13 @@ class JsonataEditingTest : JsonataTestCase() {
     }
 
     fun `test a quote typed outside the injected part of the host is not escaped`() {
+        var counter = 0
         for ((style, quote, file, plain) in listOf(
-            Quad("single-quoted YAML", "'", "asl.asl.yaml", "plain.yaml"),
-            Quad("double-quoted YAML", "\"", "asl2.asl.yaml", "plain2.yaml"),
-            Quad("JSON", "\"", "asl.asl.json", "plain.json"),
+            Quad("single-quoted YAML", "'", "asl", "plain.yaml"),
+            Quad("double-quoted YAML", "\"", "asl", "plain2.yaml"),
+            Quad("JSON", "\"", "asl", "plain.json"),
         )) {
+            val json = plain.endsWith("json")
             val inner = "{% \$x %}"
             val positions = mapOf(
                 "before the opening quote" to "<caret>$quote$inner$quote",
@@ -168,10 +171,16 @@ class JsonataEditingTest : JsonataTestCase() {
                 "between the closing delimiter and the quote" to "$quote$inner<caret>$quote",
             )
             for ((where, value) in positions) {
-                val doc = { name: String -> if (name.endsWith("json")) jsonHost(value) else yamlScalarHost(value) }
+                val doc = if (json) jsonHost(value) else yamlScalarHost(value)
                 // the same typing in a file that is no ASL file: what the platform does without the handler
-                val expected = typeIn(doc(plain), plain, quote)
-                val actual = typeIn(doc(file), file.replace("asl", "asl" + where.hashCode()), quote)
+                val expected = typeIn(doc, plain, quote)
+                // a name of its own for each case, ending in .asl.yaml or .asl.json
+                val name = "case${counter++}.asl." + if (json) "json" else "yaml"
+                myFixture.configureByText(name, doc)
+                assertTrue(name, AslFiles.isAslFile(hostFile()))
+                assertEquals(1, siteCount())
+                myFixture.type(quote)
+                val actual = hostDocText()
                 // for a double quote the escaped form is distinguishable from the typed character; a single quote is not
                 if (quote == "\"") assertFalse("$style $where: $actual", actual.contains("\\\""))
                 // the ASL file differs from the plain file only in the file's own contents, which are the same here
@@ -187,7 +196,6 @@ class JsonataEditingTest : JsonataTestCase() {
             myFixture.configureByText(name, "x: '{% \$x <caret>%}'")
             myFixture.type("'")
             val withQuote = myFixture.editor.document.text
-            assertFalse(name + withQuote, withQuote.contains("''%}") && name == "never")
             assertTrue(name + ": " + withQuote, withQuote.startsWith("x: '{% \$x '"))
         }
     }
@@ -208,6 +216,28 @@ class JsonataEditingTest : JsonataTestCase() {
         assertEquals(2, siteCount())
     }
 
+    fun `test one caret inside an expression and one outside it`() {
+        val inside = "\"{% \$x & <caret>1 %}\""
+        val outside = "<caret>\"{% \$y %}\""
+        fun text(output: String, function: String) = machineText(
+            "Type: Task\nResource: arn:aws:states:::lambda:invoke\nArguments:\n  FunctionName: $function\nOutput: $output\nEnd: true",
+        )
+        // each caret alone
+        val onlyInside = typeIn(text(inside, "\"{% \$y %}\""), "alone1.asl.yaml", "\"")
+        val onlyOutside = typeIn(text("\"{% \$x & 1 %}\"", outside), "alone2.asl.yaml", "\"")
+        // both carets
+        myFixture.configureByText("both.asl.yaml", text(inside, outside))
+        myFixture.type("\"")
+        val both = hostDocText()
+        val outsideInserted = onlyOutside.length - text("\"{% \$x & 1 %}\"", "\"{% \$y %}\"").length
+        val at = text("\"{% \$x & 1 %}\"", outside).indexOf("<caret>")
+        val expected = text(inside.replace("<caret>", "\\\""), onlyOutside.substring(at, at + outsideInserted) + "\"{% \$y %}\"")
+        assertEquals(expected, both)
+        assertTrue(onlyInside.contains("\$x & \\\"1"))
+        // the plain quote before the opening quote of the other string is what the platform types there: it breaks that string
+        assertTrue(both.contains("FunctionName: \"\"{% \$y %}\""))
+    }
+
     fun `test typing the host's own quote during an in-place rename leaves the host intact`() {
         TemplateManagerImpl.setTemplateTesting(testRootDisposable)
         for (cancel in listOf(true, false)) {
@@ -226,7 +256,8 @@ class JsonataEditingTest : JsonataTestCase() {
             PsiDocumentManager.getInstance(project).commitAllDocuments()
             val text = PsiDocumentManager.getInstance(project).getDocument(host)!!.text
             assertEquals(1, AslModel.of(host)?.jsonataSites?.all?.size)
-            if (cancel) assertEquals(before.replace("<caret>", ""), text)
+            // the name typed with a quote is no variable name: the host is rolled back, finished or cancelled
+            assertEquals(before.replace("<caret>", ""), text)
         }
     }
 
