@@ -17,5 +17,52 @@
         <applicationService serviceImplementation="io.github.saigyo.aslan.settings.AslSettings"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>
+
+        <localInspection shortName="AslRootNotMapping" implementationClass="io.github.saigyo.aslan.check.AslRootNotMappingInspection"
+                         displayName="Definition is not a mapping" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslMissingRequiredField" implementationClass="io.github.saigyo.aslan.check.AslMissingRequiredFieldInspection"
+                         displayName="Required field missing" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslEmptyChoices" implementationClass="io.github.saigyo.aslan.check.AslEmptyChoicesInspection"
+                         displayName="Choice state without rules" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslUnknownStateType" implementationClass="io.github.saigyo.aslan.check.AslUnknownStateTypeInspection"
+                         displayName="Unknown state type" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslMissingTransition" implementationClass="io.github.saigyo.aslan.check.AslMissingTransitionInspection"
+                         displayName="State without Next or End" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslWrongQueryLanguageField" implementationClass="io.github.saigyo.aslan.check.AslWrongQueryLanguageFieldInspection"
+                         displayName="Field of the other query language" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslJsonpathStateInJsonataMachine" implementationClass="io.github.saigyo.aslan.check.AslJsonpathStateInJsonataMachineInspection"
+                         displayName="JSONPath state in a JSONata state machine" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslWrongValueKind" implementationClass="io.github.saigyo.aslan.check.AslWrongValueKindInspection"
+                         displayName="Value of the wrong kind" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslUnclosedJsonataDelimiter" implementationClass="io.github.saigyo.aslan.check.AslUnclosedJsonataDelimiterInspection"
+                         displayName="Unclosed JSONata expression" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslMissingTransitionTarget" implementationClass="io.github.saigyo.aslan.check.AslMissingTransitionTargetInspection"
+                         displayName="Transition to a state that does not exist" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslNoTerminalState" implementationClass="io.github.saigyo.aslan.check.AslNoTerminalStateInspection"
+                         displayName="State machine without a final state" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslDuplicateStateName" implementationClass="io.github.saigyo.aslan.check.AslDuplicateStateNameInspection"
+                         displayName="Duplicate state name" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslStateNameTooLong" implementationClass="io.github.saigyo.aslan.check.AslStateNameTooLongInspection"
+                         displayName="State name too long" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslUnknownField" implementationClass="io.github.saigyo.aslan.check.AslUnknownFieldInspection"
+                         displayName="Unknown field" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslMisplacedField" implementationClass="io.github.saigyo.aslan.check.AslMisplacedFieldInspection"
+                         displayName="Field in the wrong place" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslValueOutOfRange" implementationClass="io.github.saigyo.aslan.check.AslValueOutOfRangeInspection"
+                         displayName="Value out of range" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslUnknownEnumValue" implementationClass="io.github.saigyo.aslan.check.AslUnknownEnumValueInspection"
+                         displayName="Unknown value" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslExclusiveFields" implementationClass="io.github.saigyo.aslan.check.AslExclusiveFieldsInspection"
+                         displayName="Fields that exclude each other" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslJsonataInStaticField" implementationClass="io.github.saigyo.aslan.check.AslJsonataInStaticFieldInspection"
+                         displayName="JSONata in a field that does not evaluate it" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslStatesAllPlacement" implementationClass="io.github.saigyo.aslan.check.AslStatesAllPlacementInspection"
+                         displayName="States.ALL not on its own or not last" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslHeartbeatNotBelowTimeout" implementationClass="io.github.saigyo.aslan.check.AslHeartbeatNotBelowTimeoutInspection"
+                         displayName="Heartbeat not shorter than timeout" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslUnreachableState" implementationClass="io.github.saigyo.aslan.check.AslUnreachableStateInspection"
+                         displayName="Unreachable state" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
+                         displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>
 </idea-plugin>
