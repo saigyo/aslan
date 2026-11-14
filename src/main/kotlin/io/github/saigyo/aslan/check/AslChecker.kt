@@ -6,6 +6,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
+import io.github.saigyo.aslan.files.AslFiles
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.settings.AslSettings
 
@@ -17,8 +18,11 @@ object AslChecker {
      * The findings of [file], sorted by the start offset of their element and then by problem, with no two of the
      * same problem on the same element; empty for a file that is not an ASL file.
      */
-    fun findings(file: PsiFile): List<AslFinding> = CachedValuesManager.getCachedValue(file) {
-        CachedValueProvider.Result.create(compute(file), PsiModificationTracker.MODIFICATION_COUNT, AslSettings.getInstance())
+    fun findings(file: PsiFile): List<AslFinding> {
+        if (!AslFiles.isAslFile(file)) return emptyList()
+        return CachedValuesManager.getCachedValue(file) {
+            CachedValueProvider.Result.create(compute(file), PsiModificationTracker.MODIFICATION_COUNT, AslSettings.getInstance())
+        }
     }
 
     private fun compute(file: PsiFile): List<AslFinding> {

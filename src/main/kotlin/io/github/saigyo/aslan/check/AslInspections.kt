@@ -6,6 +6,7 @@ import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.psi.PsiFile
+import io.github.saigyo.aslan.files.AslFiles
 
 /**
  * Shows the findings of one [AslProblem], so that each problem can be switched off or given another severity on its own.
@@ -15,6 +16,8 @@ open class AslProblemInspection(val problem: AslProblem) : LocalInspectionTool()
     override fun getShortName(): String = problem.shortName
 
     override fun runForWholeFile(): Boolean = true
+
+    override fun isAvailableForFile(file: PsiFile): Boolean = AslFiles.isAslFile(file)
 
     override fun checkFile(file: PsiFile, manager: InspectionManager, isOnTheFly: Boolean): Array<ProblemDescriptor>? {
         val own = AslChecker.findings(file).filter { it.problem == problem }

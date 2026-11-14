@@ -171,6 +171,34 @@ class StructureChecksTest : CheckTestCase() {
         found("States:\n  A:\n  - x")
     }
 
+    fun `test End false without Next is a missing transition`() =
+        assertEquals(listOf(MISSING_TRANSITION to "Inspect"), found(edit("    Next: Decide\n" to "    End: false\n")))
+
+    fun `test unclosed delimiter in a field that is never evaluated`() = assertEquals(
+        emptyList<Any>(),
+        found(edit("    Type: Succeed" to "    Type: Succeed\n    Comment: '{% todo'")),
+    )
+
+    fun `test unclosed delimiter in a field that evaluates JSONata`() = assertEquals(
+        listOf(UNCLOSED_JSONATA_DELIMITER to "'{% ${'$'}t'"),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: '{% ${'$'}t'\n")),
+    )
+
+    fun `test unclosed delimiter with a placeholder`() = assertEquals(
+        emptyList<Any>(),
+        found(edit("FunctionName: ${'$'}{InspectFn}" to "FunctionName: '{% ${'$'}x ${'$'}{Tail}'")),
+    )
+
+    fun `test no delimiter check inside a field of the other query language`() = assertEquals(
+        listOf(WRONG_QUERY_LANGUAGE_FIELD to "Parameters"),
+        found(edit("Arguments:" to "Parameters:", "FunctionName: ${'$'}{InspectFn}" to "FunctionName: '{% ${'$'}x'")),
+    )
+
+    fun `test no delimiter check inside a value of the wrong kind`() = assertEquals(
+        listOf(WRONG_VALUE_KIND to "{X: '{% a'}"),
+        found(edit(retryBlock to "    Retry: {X: '{% a'}\n")),
+    )
+
     fun `test every prefix of BASE is checked without an exception`() {
         for (end in BASE.indices) found(BASE.substring(0, end))
     }
