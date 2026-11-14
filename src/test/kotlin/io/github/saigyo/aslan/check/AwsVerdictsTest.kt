@@ -62,8 +62,9 @@ class AwsVerdictsTest : CheckTestCase() {
         val warned = probes.filter { p -> p.name.startsWith("r9-") && p.diagnostics.any { it.startsWith("WARNING POSSIBLY_UNDEFINED_VARIABLE") } }
         assertEquals(listOf("r9-p-eval", "r9-p-unknown-function", "r9-p-variable"), warned.map { it.name }.sorted())
         for (p in warned) assertTrue(p.name, p.accepted && errors(p).isEmpty())
-        assertEquals(listOf(AslProblem.UNSUPPORTED_JSONATA_FUNCTION), problems("r9-p-eval"))
-        assertEquals(listOf(AslProblem.UNKNOWN_JSONATA_FUNCTION), problems("r9-p-unknown-function"))
+        fun reportedOn(problem: AslProblem) = probes.filter { it.name.startsWith("r9-") && problem in problems(it.name) }.map { it.name }
+        assertEquals(listOf("r9-p-eval"), reportedOn(AslProblem.UNSUPPORTED_JSONATA_FUNCTION))
+        assertEquals(listOf("r9-p-unknown-function"), reportedOn(AslProblem.UNKNOWN_JSONATA_FUNCTION))
     }
 
     /** Each expression check is an error exactly on the probes of round 9 that AWS rejects for that reason. */
