@@ -12,6 +12,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.jsonata.parser.JsonataElements
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.jsonata.psi.JsonataCall
+import io.github.saigyo.aslan.jsonata.psi.JsonataElement
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
@@ -87,8 +88,20 @@ class JsonataParameterInfoHandler : ParameterInfoHandler<JsonataCall, JsonataFun
             return AslSpec.jsonataFunction(callee.variableName)
         }
 
-        /** The number of the call's own argument separators before [offset]. */
-        internal fun argumentIndex(call: JsonataCall, offset: Int): Int =
-            generateSequence(call.node.firstChildNode) { it.treeNext }.count { it.elementType == JsonataTokens.COMMA && it.textRange.endOffset <= offset }
+        /**
+         * The number of the call's own argument separators before [offset], plus one on the right of `~>`, whose left
+         * side is the first argument. A partial application there (`x ~> $f(?, 1)`) is a function the left side fills
+         * the first `?` of, so its arguments are counted as written.
+         */
+        internal fun argumentIndex(call: JsonataCall, offset: Int): Int {
+            val separators = generateSequence(call.node.firstChildNode) { it.treeNext }.count { it.elementType == JsonataTokens.COMMA && it.textRange.endOffset <= offset }
+            return separators + if (isChained(call)) 1 else 0
+        }
+
+        private fun isChained(call: JsonataCall): Boolean {
+            val chain = call.parent as? JsonataElement ?: return false
+            return chain.node.findChildByType(JsonataTokens.CHAIN) != null && chain.operands.lastOrNull() === call &&
+                call.arguments.none { it.node.elementType == JsonataElements.PARTIAL_ARGUMENT }
+        }
     }
 }

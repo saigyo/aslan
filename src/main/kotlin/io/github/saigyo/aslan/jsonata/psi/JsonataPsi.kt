@@ -23,18 +23,24 @@ object JsonataPsi {
      * string literal: a `PLACEHOLDER` token, or the two characters `${` anywhere outside a `STRING` token, whatever
      * follows them (`${ssm:/path}`, `${opt:stage, 'dev'}`, `${file(./x.yml):k}` and `${jsonencode(x)}` are replaced
      * by deployment tools, so the expression AWS sees differs from the text). A placeholder inside a string literal
-     * changes nothing.
+     * changes nothing. The search runs on the decoded text, which is what Step Functions and the deployment tools see:
+     * in a JSON host `${` is a placeholder too.
      */
     fun judged(file: JsonataFile): Boolean {
-        val leaves = ArrayList<PsiElement>()
+        val injected = InjectedLanguageManager.getInstance(file.project).takeIf { it.isInjectedFragment(file) }
+        val text = StringBuilder()
+        val strings = ArrayList<TextRange>()
         var leaf: PsiElement? = PsiTreeUtil.firstChild(file)
         while (leaf != null) {
-            if (leaf.firstChild == null && leaf.textLength > 0) leaves += leaf
+            if (leaf.firstChild == null && leaf.textLength > 0) {
+                val type = leaf.node.elementType
+                if (type == JsonataTokens.PLACEHOLDER) return false
+                val start = text.length
+                text.append(injected?.getUnescapedText(leaf) ?: leaf.text)
+                if (type == JsonataTokens.STRING) strings += TextRange(start, text.length)
+            }
             leaf = PsiTreeUtil.nextLeaf(leaf)
         }
-        if (leaves.any { it.node.elementType == JsonataTokens.PLACEHOLDER }) return false
-        val strings = leaves.filter { it.node.elementType == JsonataTokens.STRING }.map { it.textRange }
-        val text = file.text
         var at = text.indexOf("\${")
         while (at >= 0) {
             if (strings.none { it.startOffset <= at && at + 1 < it.endOffset }) return false

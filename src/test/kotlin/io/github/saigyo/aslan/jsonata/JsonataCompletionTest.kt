@@ -57,6 +57,15 @@ class JsonataCompletionTest : JsonataTestCase() {
         myFixture.checkResult(hostText("\$substringBefore($caret)"))
     }
 
+    fun `test a function hidden by a local variable is not offered`() {
+        val items = inOutput("(\$sum := 1; \$su$caret)")
+        assertEquals(items.toString(), 1, items.count { it == "\$sum" })
+        assertTrue(items.toString(), items.contains("\$substring"))
+        myFixture.lookup.currentItem = myFixture.lookupElements!!.first { it.lookupString == "\$sum" }
+        myFixture.finishLookup('\n')
+        assertTrue(myFixture.editor.document.text, myFixture.editor.document.text.contains("(\$sum := 1; \$sum)"))
+    }
+
     fun `test nothing for data fields`() {
         assertEquals(emptyList<String>(), inOutput("\$states.input.$caret"))
     }

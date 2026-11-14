@@ -56,6 +56,15 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), marked(pass("'{% 1 + /* \${X} */ %}'")))
     }
 
+    fun `test a placeholder written with an escape is found in the decoded text`() {
+        val u = "\\u0024"
+        val json = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% """ + u + """{ssm:/catalog/limit} + %}","End":true}}}"""
+        assertEquals(emptyList<Any>(), marked(json, "escaped.asl.json"))
+        assertEquals(emptyList<Any>(), marked(pass("\"{% \\x24{Limit} + %}\""), "escaped.asl.yaml"))
+        val inString = """{"QueryLanguage":"JSONata","StartAt":"A","States":{"A":{"Type":"Pass","Output":"{% \"""" + u + """{X}\" + %}","End":true}}}"""
+        assertEquals(listOf(err("+")), marked(inString, "string.asl.json"))
+    }
+
     fun `test a placeholder inside a string changes nothing`() {
         assertEquals(listOf(err("+")), marked(pass("'{% \"\${Bucket}\" + %}'")))
         assertEquals(listOf(err("+")), marked(pass("'{% \"\${ssm:/catalog/limit}\" + %}'"), "inside.asl.yaml"))

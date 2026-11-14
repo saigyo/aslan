@@ -52,10 +52,12 @@ class JsonataCompletionContributor : CompletionContributor() {
         result.stopHere()
     }
 
+    /** A function hidden by a local variable of the same name is not offered: `$name` there is the variable. */
     private fun addVariables(position: PsiElement, result: CompletionResultSet) {
-        for (function in AslSpec.jsonataFunctions.filter { it.supported }) result.addElement(functionItem(function))
+        val locals = JsonataScopes.visibleNames(position)
+        for (function in AslSpec.jsonataFunctions.filter { it.supported && it.name !in locals }) result.addElement(functionItem(function))
         result.addElement(LookupElementBuilder.create("\$states").withTypeText("reserved variable", true).bold())
-        for (name in JsonataScopes.visibleNames(position)) {
+        for (name in locals) {
             if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || name == "states") continue
             result.addElement(LookupElementBuilder.create("$$name").withTypeText("variable", true))
         }

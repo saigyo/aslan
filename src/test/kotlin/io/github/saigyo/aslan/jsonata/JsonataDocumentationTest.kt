@@ -74,6 +74,15 @@ class JsonataDocumentationTest : JsonataTestCase() {
         assertEquals(listOf("substring") to 2, parameterIndex("\$substring({\"a\": 1, \"b\": 2}, 1, <caret>"))
     }
 
+    fun `test parameter info on the right of a chain counts the left side as the first argument`() {
+        assertEquals(listOf("substring") to 2, parameterIndex("\"abc\" ~> \$substring(0, <caret>)"))
+        assertEquals(listOf("substring") to 1, parameterIndex("\"abc\" ~> \$substring(<caret>)"))
+        // a partial application: the left side fills the ?
+        assertEquals(listOf("substring") to 1, parameterIndex("\"abc\" ~> \$substring(?, <caret>)"))
+        // the argument of a chained call is no chain itself
+        assertEquals(listOf("substring") to 1, parameterIndex("\"abc\" ~> \$join(\$substring(\"x\", <caret>))"))
+    }
+
     fun `test no parameter info for a function that is not built in`() {
         assertNull(parameterIndex("\$mine(1, <caret>)"))
         assertNull(parameterIndex("(\$sum := function(\$a){ \$a }; \$sum(1, <caret>))"))
