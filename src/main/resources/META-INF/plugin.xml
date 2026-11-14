@@ -27,6 +27,14 @@
         <fileType name="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.JsonataFileType" fieldName="INSTANCE" language="AslJsonata"/>
         <lang.parserDefinition language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.parser.JsonataParserDefinition"/>
         <multiHostInjector implementation="io.github.saigyo.aslan.jsonata.inject.JsonataInjector"/>
+        <lang.findUsagesProvider language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataFindUsagesProvider"/>
+        <readWriteAccessDetector implementation="io.github.saigyo.aslan.jsonata.refs.JsonataReadWriteAccessDetector"/>
+        <lang.refactoringSupport language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataRefactoringSupport"/>
+        <lang.namesValidator language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataNamesValidator"/>
+        <targetElementEvaluator language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataTargetElementEvaluator"/>
+        <referencesSearch implementation="io.github.saigyo.aslan.jsonata.refs.JsonataReferencesSearcher"/>
+        <renameHandler implementation="io.github.saigyo.aslan.jsonata.refs.JsonataInplaceRenameHandler"/>
+        <renamePsiElementProcessor implementation="io.github.saigyo.aslan.jsonata.refs.JsonataVariableRenameProcessor"/>
         <completion.contributor language="yaml" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <lang.documentationProvider language="yaml" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
