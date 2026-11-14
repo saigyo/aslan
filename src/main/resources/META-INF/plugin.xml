@@ -14,6 +14,8 @@
     <depends>intellij.structureView.plugin</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <completion.contributor language="yaml" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
+        <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <applicationService serviceImplementation="io.github.saigyo.aslan.settings.AslSettings"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>

@@ -11,4 +11,11 @@ abstract class AslTestCase : BasePlatformTestCase() {
 
     fun json(text: String, name: String = "test.asl.json"): PsiFile =
         myFixture.configureByText(name, text.trimIndent())
+
+    /** The lookup strings offered at `<caret>`; empty when a single match was inserted directly. */
+    protected fun complete(text: String, name: String = "test.asl.yaml"): List<String> {
+        myFixture.configureByText(name, text.trimIndent())
+        myFixture.completeBasic()
+        return myFixture.lookupElementStrings.orEmpty()
+    }
 }
