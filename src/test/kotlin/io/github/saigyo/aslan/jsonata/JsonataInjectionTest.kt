@@ -7,6 +7,8 @@ import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.check.AslChecker
+import io.github.saigyo.aslan.check.AslProblem
 import io.github.saigyo.aslan.fixtures.CleanCoverageTest
 import io.github.saigyo.aslan.jsonata.parser.JsonataScanner
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
@@ -216,12 +218,19 @@ class JsonataInjectionTest : JsonataTestCase() {
         }
     }
 
-    fun `test a scalar whose quotes changed in place is never decoded by its old quotes`() {
-        yaml(stateText("Output: '{% ''a'' %}'"), "same.asl.yaml")
-        val file = manager.getTopLevelFile(yaml(stateText("Output: \"{% \\\"x\\\" %}\""), "same.asl.yaml"))
-        val host = AslModel.of(file)!!.jsonataSites.all.single().scalar.psi
-        val injected = JsonataPsi.injectedFile(host)
-        if (injected != null) assertEquals(" \"x\" ", manager.getUnescapedText(injected))
+    fun `test a scalar whose quote style changes in place is never decoded by its old quotes`() {
+        val styles = listOf("'{% ''x'' %}'" to " 'x' ", "\"{% \\\"x\\\" %}\"" to " \"x\" ")
+        for ((from, to) in listOf(0 to 1, 1 to 0, 0 to 1)) {
+            yaml(stateText("Output: ${styles[from].first}"), "same.asl.yaml")
+            val file = manager.getTopLevelFile(yaml(stateText("Output: ${styles[to].first}"), "same.asl.yaml"))
+            val host = AslModel.of(file)!!.jsonataSites.all.single().scalar.psi
+            val injected = JsonataPsi.injectedFile(host)
+            // Pinned behaviour: from single quotes to double quotes with escapes nothing is injected (no stale decoding,
+            // no error); from double to single quotes the new text is decoded by the new quotes.
+            if (to == 1) assertNull("style $from to $to", injected)
+            else assertEquals(styles[to].second, manager.getUnescapedText(injected!!))
+            assertEquals(emptyList<Any>(), AslChecker.findings(file).filter { it.problem == AslProblem.JSONATA_SYNTAX_ERROR })
+        }
     }
 
     fun `test the injector copes with half-typed files`() {
