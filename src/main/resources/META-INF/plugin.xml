@@ -4,8 +4,18 @@
     <vendor url="https://github.com/saigyo/aslan">saigyo</vendor>
 
     <description><![CDATA[
-        Editor support for Amazon States Language definitions, the format of AWS Step Functions state machines.
-        Works with definitions written in YAML and in JSON.
+        <p>Editor support for Amazon States Language definitions, the format of AWS Step Functions state machines. Works with definitions written in YAML and in JSON.</p>
+        <ul>
+            <li>Completion of field names, fixed values and state names</li>
+            <li>Validation with a separate inspection for each check; a problem is an error only where AWS documents that it rejects the definition</li>
+            <li>Quick documentation for fields and values, with links to the AWS documentation</li>
+            <li>Go to a state, find the transitions that point to it, and rename a state with all of them</li>
+            <li>Structure view that lists states by type</li>
+            <li>Highlighting of ASL field names, state names and transition targets</li>
+            <li>Support for <code>${name}</code> placeholders</li>
+        </ul>
+        <p>Files named <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code> are recognised; more file name patterns can be added in the settings. The plugin makes no network requests.</p>
+        <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
