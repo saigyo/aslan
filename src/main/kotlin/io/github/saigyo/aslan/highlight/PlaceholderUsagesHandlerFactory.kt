@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.highlight
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandlerBase
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandlerFactory
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -14,7 +15,7 @@ import io.github.saigyo.aslan.files.AslFiles
  * Highlight Usages with the caret on a `${name}` placeholder marks every occurrence of that placeholder in the file.
  * Elsewhere it does nothing, so the platform's own usage highlighting applies.
  */
-class PlaceholderUsagesHandlerFactory : HighlightUsagesHandlerFactory {
+class PlaceholderUsagesHandlerFactory : HighlightUsagesHandlerFactory, DumbAware {
     override fun createHighlightUsagesHandler(editor: Editor, file: PsiFile): HighlightUsagesHandlerBase<*>? {
         if (!AslFiles.isAslFile(file)) return null
         val offset = editor.caretModel.offset
@@ -37,10 +38,11 @@ class PlaceholderUsagesHandlerFactory : HighlightUsagesHandlerFactory {
             selectionConsumer.consume(targets)
 
         override fun computeUsages(targets: List<PsiElement>) {
-            val name = file.text.substring(range.startOffset, range.endOffset)
+            val fileText = file.text
+            val name = range.substring(fileText)
             for (candidate in PsiTreeUtil.collectElements(file) { AslHighlighting.textElement(it) === it }) {
                 for (r in AslHighlighting.placeholderRanges(candidate)) {
-                    if (file.text.substring(r.startOffset, r.endOffset) == name) myReadUsages.add(r)
+                    if (r.substring(fileText) == name) myReadUsages.add(r)
                 }
             }
         }

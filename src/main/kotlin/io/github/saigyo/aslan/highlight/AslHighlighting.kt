@@ -36,11 +36,11 @@ object AslHighlighting {
         return (parent is YAMLKeyValue && parent.key === element) || (parent is JsonProperty && parent.nameElement === element)
     }
 
-    /** The ranges in the file of the placeholders written in [element]; [element] comes from [textElement]. */
-    internal fun placeholderRanges(element: PsiElement): List<TextRange> {
-        val text = element.text
-        if (!Placeholders.contains(text)) return emptyList()
+    /** The ranges in the file of the placeholders written in [element] (from [textElement]), whose text is [text]. */
+    internal fun placeholderRanges(element: PsiElement, text: String = element.text): List<TextRange> {
+        val found = Placeholders.ranges(text)
+        if (found.isEmpty()) return emptyList()
         val start = element.textRange.startOffset
-        return Placeholders.ranges(text).map { TextRange(start + it.first, start + it.last + 1) }
+        return found.map { TextRange(start + it.first, start + it.last + 1) }
     }
 }
