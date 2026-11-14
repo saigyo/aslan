@@ -52,6 +52,7 @@ class AslStatesAllPlacementInspection : AslProblemInspection(AslProblem.STATES_A
 class AslHeartbeatNotBelowTimeoutInspection : AslProblemInspection(AslProblem.HEARTBEAT_NOT_BELOW_TIMEOUT)
 class AslUnreachableStateInspection : AslProblemInspection(AslProblem.UNREACHABLE_STATE)
 class AslInvalidResourceArnInspection : AslProblemInspection(AslProblem.INVALID_RESOURCE_ARN)
+class AslInvalidRoleArnInspection : AslProblemInspection(AslProblem.INVALID_ROLE_ARN)
 class AslUnknownServiceIntegrationInspection : AslProblemInspection(AslProblem.UNKNOWN_SERVICE_INTEGRATION)
 class AslEmptyListInspection : AslProblemInspection(AslProblem.EMPTY_LIST)
 class AslUnknownPredefinedErrorInspection : AslProblemInspection(AslProblem.UNKNOWN_PREDEFINED_ERROR)
@@ -92,6 +93,7 @@ object AslInspections {
         AslHeartbeatNotBelowTimeoutInspection(),
         AslUnreachableStateInspection(),
         AslInvalidResourceArnInspection(),
+        AslInvalidRoleArnInspection(),
         AslUnknownServiceIntegrationInspection(),
         AslEmptyListInspection(),
         AslUnknownPredefinedErrorInspection(),

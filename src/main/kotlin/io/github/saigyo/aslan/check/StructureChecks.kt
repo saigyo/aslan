@@ -12,6 +12,7 @@ import io.github.saigyo.aslan.check.AslProblem.UNCLOSED_JSONATA_DELIMITER
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_STATE_TYPE
 import io.github.saigyo.aslan.check.AslProblem.WRONG_QUERY_LANGUAGE_FIELD
 import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
+import io.github.saigyo.aslan.check.AslProblem.INVALID_ROLE_ARN
 import io.github.saigyo.aslan.check.AslProblem.WRONG_VALUE_KIND
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslState
@@ -38,6 +39,9 @@ import java.util.IdentityHashMap
  * decided at the same place: a null optional field and JSONata delimiters that do not wrap the whole value.
  */
 internal object StructureChecks {
+    private const val CREDENTIALS = "Credentials"
+    private const val ROLE_ARN = "RoleArn"
+
     fun check(doc: AslDocument, out: MutableList<AslFinding>) {
         val rootNode = doc.rootNode ?: return
         val root = doc.root
@@ -104,6 +108,19 @@ internal object StructureChecks {
                         report(INVALID_RESOURCE_ARN, entry.value.psi, "Not an ARN; a Task needs the ARN of a service integration, a Lambda function or an activity")
                     }
                 }
+                if (structure.id == StructureId.TASK && field.name == CREDENTIALS) roleArn(entry.value, ctx)
+            }
+        }
+
+        /**
+         * Checks the literal `RoleArn` of [credentials]. A path or an intrinsic function goes under `RoleArn.$`, which is
+         * another key and not judged.
+         */
+        private fun roleArn(credentials: AslNode, ctx: Context) {
+            val entry = (credentials as? AslObject)?.entries?.firstOrNull { it.key == ROLE_ARN && !it.viaMerge } ?: return
+            val role = ResourceChecks.certainText(entry.value, ctx) ?: return
+            if (!ResourceChecks.isRoleArn(role)) {
+                report(INVALID_ROLE_ARN, entry.value.psi, "Not an IAM role ARN; a role is written arn:partition:iam::account:role/name")
             }
         }
 

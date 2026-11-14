@@ -2,6 +2,7 @@ package io.github.saigyo.aslan.check
 
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
 import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
+import io.github.saigyo.aslan.check.AslProblem.INVALID_ROLE_ARN
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
 import io.github.saigyo.aslan.check.AslProblem.MISSING_REQUIRED_FIELD
 import io.github.saigyo.aslan.check.AslProblem.MISPLACED_JSONATA_DELIMITER
@@ -60,6 +61,64 @@ class StructureChecksTest : CheckTestCase() {
 
     fun `test a resource that is not a string is reported as that only`() =
         assertEquals(listOf(WRONG_VALUE_KIND to "[a]"), withResource("[a]"))
+
+    private fun withCredentials(body: String) =
+        found(edit("    Arguments:\n      FunctionName: ${'$'}{InspectFn}\n" to "    Credentials:\n      $body\n"))
+
+    /** A JSONPath machine of one Task with [credentials] as the lines of its `Credentials` field. */
+    private fun jsonPathTask(credentials: String) =
+        "StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials:\n      $credentials\n    End: true\n"
+
+    fun `test a role that is not an IAM role ARN`() {
+        val values = listOf(
+            "scanning-team", "arn:aws:iam::123456789012", "arn:aws:iam::123456789012:user/scanner", "arn:aws:iam::123456789012:role/",
+            "arn:aws:s3:::scans", "arn:aws:lambda:us-east-1:123456789012:function:Inspect", "${'$'}.roleArn",
+        )
+        for (value in values) assertEquals(value, listOf(INVALID_ROLE_ARN to value), withCredentials("RoleArn: $value"))
+    }
+
+    fun `test roles that are IAM role ARNs`() {
+        val arns = listOf(
+            "arn:aws:iam::123456789012:role/scanning-team",
+            "arn:aws:iam::123456789012:role/service-role/scanning-team",
+            "arn:aws-cn:iam::123456789012:role/scanning-team",
+        )
+        for (arn in arns) assertEquals(arn, emptyList<Any>(), withCredentials("RoleArn: $arn"))
+    }
+
+    fun `test a role that the file does not settle is not judged`() {
+        val bodies = listOf(
+            "RoleArn: ${'$'}{ScanningTeamRoleArn}",
+            "RoleArn: arn:aws:iam::${'$'}{Account}:role/scanning-team",
+            "RoleArn: '{% ${'$'}roleArn %}'",
+            "RoleArn: !GetAtt ScanningRole.Arn",
+            "RoleArn: !Sub scanning-team",
+            "RoleArn:\n        Fn::GetAtt: [ScanningRole, Arn]",
+            "${'$'}{RoleKey}: scanning-team",
+        )
+        for (body in bodies) assertEquals(body, emptyList<Any>(), withCredentials(body))
+    }
+
+    fun `test a role given as a path or an intrinsic function is not judged`() {
+        for (value in listOf("${'$'}.roleArn", "States.Format('arn:aws:iam::{}:role/scanning-team', ${'$'}.accountId)")) {
+            assertEquals(value, emptyList<Any>(), found(jsonPathTask("RoleArn.${'$'}: \"$value\"")))
+        }
+    }
+
+    fun `test a JSONata string as the role of a JSONPath state is not a role ARN`() =
+        assertEquals(listOf(INVALID_ROLE_ARN to "'{% ${'$'}roleArn %}'"), found(jsonPathTask("RoleArn: '{% ${'$'}roleArn %}'")))
+
+    fun `test a role shared through an alias is reported once, where it is written`() {
+        val text = "StartAt: A\nStates:\n" +
+            "  A:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials: &creds\n      RoleArn: scanning-team\n    Next: B\n" +
+            "  B:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Credentials: *creds\n    End: true\n"
+        assertEquals(listOf(INVALID_ROLE_ARN to "scanning-team"), found(text))
+    }
+
+    fun `test a role in JSON`() {
+        val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": "arn:aws:states:::lambda:invoke", "Credentials": {"RoleArn": "scanning-team"}, "End": true}}}"""
+        assertEquals(listOf(INVALID_ROLE_ARN to "\"scanning-team\""), found(json, "test.asl.json"))
+    }
 
     private val jsonataTask = "  A:\n    Type: Task\n    Resource: arn:aws:states:::sns:publish\n    Arguments:\n      a: 1\n    End: true\n"
 

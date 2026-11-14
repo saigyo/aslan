@@ -5,11 +5,12 @@ import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.ScalarType
 
-/** Rules on the text of the `Resource` of a Task state. */
+/** Rules on the text of the `Resource` of a Task state and of the role in its `Credentials`. */
 internal object ResourceChecks {
     private const val ARN_PARTS = 6
     private const val INTEGRATION_PREFIX = "arn:aws:states:::"
     private const val SDK_PREFIX = "aws-sdk:"
+    private const val ROLE_PREFIX = "role/"
 
     /** Each known optimised integration and the HTTP task, as the text after `arn:aws:states:::`. */
     private val known: Set<String> = AslSpec.taskResourceArns.map { it.name.removePrefix(INTEGRATION_PREFIX) }.toSet()
@@ -31,6 +32,16 @@ internal object ResourceChecks {
     fun isArn(text: String): Boolean {
         val parts = text.split(':', limit = ARN_PARTS)
         return parts.size == ARN_PARTS && parts[0] == "arn" && parts[1].isNotEmpty() && parts[2].isNotEmpty() && parts[5].isNotEmpty()
+    }
+
+    /**
+     * Whether [text] has the form `arn:partition:iam::account:role/name` of an IAM role ARN. Region and account are not
+     * judged: AWS does not publish the rule it applies to them.
+     */
+    fun isRoleArn(text: String): Boolean {
+        if (!isArn(text)) return false
+        val parts = text.split(':', limit = ARN_PARTS)
+        return parts[2] == "iam" && parts[5].startsWith(ROLE_PREFIX) && parts[5].length > ROLE_PREFIX.length
     }
 
     /**

@@ -249,6 +249,7 @@ The rule that follows from the anti-goals:
 | A JSONPath state in a machine whose top level is JSONata | documented restriction |
 | A value of the wrong basic kind, such as text where a number is required | schema validation |
 | The `Resource` of a Task state does not have the form of an ARN | invalid resource |
+| The `RoleArn` in the `Credentials` of a Task state does not have the form of an IAM role ARN, `arn:partition:iam::account:role/name` | schema validation; observed from the validation API |
 | A string that starts with `{%` but is not closed by `%}` at its end | documented validation error |
 | `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
 | JSONata syntax error | cannot be evaluated |
@@ -280,8 +281,8 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 
 - Placeholders in any position.
 - YAML anchors, aliases and merge keys.
-- Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax.
-- The `Resource` of an ItemReader or ResultWriter, beyond being a string; and in the `Resource` of a Task state, anything beyond the form of an ARN and the list of service integrations: whether a function, activity, region or account exists cannot be known from the file.
+- Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax. The one exception is the `RoleArn` in `Credentials`.
+- The `Resource` of an ItemReader or ResultWriter, beyond being a string; and in the `Resource` of a Task state, anything beyond the form of an ARN and the list of service integrations: whether a function, activity, region or account exists cannot be known from the file. The same holds for a `RoleArn` beyond the form of an IAM role ARN, and a role given under `RoleArn.$` is not judged at all.
 
 ## 8. Testing and verification
 
