@@ -55,6 +55,9 @@
         <psi.referenceContributor language="yaml" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
         <psi.referenceContributor language="JSON" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
         <referencesSearch implementation="io.github.saigyo.aslan.refs.AslReferencesSearcher"/>
+        <gotoDeclarationHandler implementation="io.github.saigyo.aslan.refs.AslVariableGotoDeclarationHandler"/>
+        <findUsagesHandlerFactory order="first" implementation="io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory"/>
+        <readWriteAccessDetector implementation="io.github.saigyo.aslan.refs.AslVariableReadWriteAccessDetector"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <yaml.customStructureViewFactory implementation="io.github.saigyo.aslan.structure.AslYamlStructureViewFactory"/>
