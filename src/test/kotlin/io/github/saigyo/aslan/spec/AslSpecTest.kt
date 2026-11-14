@@ -85,6 +85,14 @@ class AslSpecTest : TestCase() {
         assertFalse(field(TASK, "Resource").lenient)
     }
 
+    fun `test only the sanctioned groups require one of their fields`() {
+        val expected = mapOf(
+            WAIT to listOf(setOf("Seconds", "Timestamp", "SecondsPath", "TimestampPath")),
+            MAP to listOf(setOf("ItemProcessor", "Iterator")),
+        )
+        for (id in StructureId.entries) assertEquals("$id", expected[id] ?: emptyList<Set<String>>(), AslSpec.structure(id).oneOfRequired)
+    }
+
     fun `test generic state structure`() =
         assertEquals(setOf("Type", "Comment", "QueryLanguage"), AslSpec.structure(STATE).fields.map { it.name }.toSet())
 

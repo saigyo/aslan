@@ -32,21 +32,21 @@ internal object Doc {
 
 internal val stateTypeSpecs = listOf(
     StateTypeSpec("Task", StructureId.TASK, needsTransition = true, terminal = false,
-        "Does one unit of work by calling the resource named in Resource, such as a Lambda function, an activity or a service API.", Doc.TASK),
+        "Calls whatever does the work, named in Resource: a Lambda function, an activity, an AWS service API or an HTTPS endpoint.", Doc.TASK),
     StateTypeSpec("Pass", StructureId.PASS, needsTransition = true, terminal = false,
-        "Does no work; hands its input on, optionally reshaped or replaced by fixed data.", Doc.PASS),
+        "Hands data on, unchanged or reshaped, without calling anything; handy for shaping data and for stubs.", Doc.PASS),
     StateTypeSpec("Choice", StructureId.CHOICE, needsTransition = false, terminal = false,
         "Picks the next state by testing its rules in order; the first rule that holds decides, otherwise Default.", Doc.CHOICE),
     StateTypeSpec("Wait", StructureId.WAIT, needsTransition = true, terminal = false,
         "Pauses the execution for a number of seconds or until a point in time, then continues.", Doc.WAIT),
     StateTypeSpec("Succeed", StructureId.SUCCEED, needsTransition = false, terminal = true,
-        "Ends the execution, a Parallel branch or a Map iteration successfully.", Doc.SUCCEED),
+        "A successful stopping point: reaching it completes the execution, or the Parallel branch or Map iteration it sits in.", Doc.SUCCEED),
     StateTypeSpec("Fail", StructureId.FAIL, needsTransition = false, terminal = true,
-        "Ends the execution as failed, with an optional error name and cause; a Catch on an enclosing state can still handle it.", Doc.FAIL),
+        "A stopping point that reports an error, with an optional name and cause; inside a branch or iteration, the enclosing state's Catch may handle it.", Doc.FAIL),
     StateTypeSpec("Parallel", StructureId.PARALLEL, needsTransition = true, terminal = false,
         "Runs several branches on the same input at the same time and outputs an array with one result per branch.", Doc.PARALLEL),
     StateTypeSpec("Map", StructureId.MAP, needsTransition = true, terminal = false,
-        "Runs the same steps for every item of a data set, in Inline or Distributed mode, and collects the results.", Doc.MAP),
+        "Iterates over a collection, applying one sub-workflow to each item in Inline or Distributed mode, and gathers what each returns.", Doc.MAP),
 )
 
 internal val queryLanguageValues = listOf(
@@ -58,7 +58,7 @@ internal fun typeField(url: String) = FieldSpec("Type", ValueKind.OneOf(stateTyp
     required = true, description = "The kind of state, which decides what it does and which other fields it takes.", docUrl = url)
 
 internal fun commentField(url: String, what: String = "this object") = FieldSpec("Comment", ValueKind.Text,
-    description = "A free text note about $what for human readers; it has no effect on execution.", docUrl = url)
+    description = "Notes about $what for people reading the definition; Step Functions ignores it.", docUrl = url)
 
 internal fun queryLanguageField(url: String) = FieldSpec("QueryLanguage", ValueKind.OneOf(queryLanguageValues),
     description = "The query language of this state, JSONPath or JSONata; when absent, the state machine's top-level setting applies.",
@@ -71,15 +71,15 @@ internal fun statesField(url: String) = FieldSpec("States", ValueKind.StatesMap,
     description = "The states of this state machine, each under its own unique name.", docUrl = url)
 
 internal fun assignField(url: String) = FieldSpec("Assign", ValueKind.FreeForm,
-    description = "Variables to set, as an object of variable names and values; the new values are visible from the next state on.",
+    description = "Stores values in workflow variables: each key names a variable and each value is what it gets; later states read them as \$name.",
     docUrl = url)
 
 internal fun outputField(url: String) = FieldSpec("Output", ValueKind.FreeForm, Mode.JSONATA, jsonata = true,
-    description = "JSONata only. The output of the state, as any JSON value in which {% %} strings are evaluated, or a single expression.",
+    description = "JSONata only. Replaces what the state hands on; write any JSON, with {% %} expressions wherever values should be computed.",
     docUrl = url)
 
 internal fun argumentsField(url: String, what: String) = FieldSpec("Arguments", ValueKind.FreeForm, Mode.JSONATA, jsonata = true,
-    description = "JSONata only. The input passed to $what, as a JSON value in which {% %} strings are evaluated, or a single expression.",
+    description = "JSONata only. What $what receives; write any JSON, with {% %} expressions wherever values should be computed.",
     docUrl = url)
 
 internal fun parametersField(url: String, what: String, deprecated: Boolean = false) = FieldSpec("Parameters", ValueKind.FreeForm,
@@ -88,21 +88,21 @@ internal fun parametersField(url: String, what: String, deprecated: Boolean = fa
     docUrl = url)
 
 internal fun resultPathField(url: String) = FieldSpec("ResultPath", ValueKind.Text, Mode.JSONPATH, nullable = true,
-    description = "JSONPath only. A reference path saying where in the input the result is placed; null keeps the input and drops the result.",
+    description = "JSONPath only. Decides how result and original input combine: a reference path to write the result into, \$ to replace the input, or null to discard the result.",
     docUrl = url)
 
 private fun nextField(url: String) = FieldSpec("Next", ValueKind.StateName,
-    description = "The name of the state to run after this one; use either Next or End.", docUrl = url)
+    description = "Where execution goes once this state is done, given as the name of a state in the same States object. Give Next or End, not both.", docUrl = url)
 
 private fun endField(url: String) = FieldSpec("End", ValueKind.Bool,
-    description = "Set to true to make this state end its execution, branch or iteration; use either Next or End.", docUrl = url)
+    description = "true marks this as a last state, after which its execution, branch or iteration is over. Give Next or End, not both.", docUrl = url)
 
 private fun inputPathField(url: String) = FieldSpec("InputPath", ValueKind.Text, Mode.JSONPATH, nullable = true,
-    description = "JSONPath only. A path that selects the part of the state input to work on; it defaults to \$, the whole input.",
+    description = "JSONPath only. Narrows the input down to the part this state works with; \$, the default, keeps all of it and null drops it.",
     docUrl = url)
 
 private fun outputPathField(url: String) = FieldSpec("OutputPath", ValueKind.Text, Mode.JSONPATH, nullable = true,
-    description = "JSONPath only. A path that selects the part of the result-combined input that becomes the state output.",
+    description = "JSONPath only. Narrows what is handed to the next state, applied last, after ResultPath; \$, the default, hands on everything.",
     docUrl = url)
 
 private fun resultSelectorField(url: String) = FieldSpec("ResultSelector", ValueKind.FreeForm, Mode.JSONPATH,
@@ -112,7 +112,7 @@ private fun retryField(url: String) = FieldSpec("Retry", ValueKind.ListOf(ValueK
     description = "Retry rules, tried in order, that say which errors to retry, how often and with what delay.", docUrl = url)
 
 private fun catchField(url: String) = FieldSpec("Catch", ValueKind.ListOf(ValueKind.Struct(StructureId.CATCHER)),
-    description = "Fallback rules, tried in order once retries are exhausted, that send matching errors to another state.", docUrl = url)
+    description = "Error handlers checked after Retry has given up: the first one whose ErrorEquals matches sends execution to its Next state.", docUrl = url)
 
 /** What a state type takes from the fields shared between state types. */
 internal class Shared(
@@ -149,25 +149,25 @@ internal val stateStructures = listOf(
             docUrl = Doc.TASK),
         argumentsField(Doc.TASK, "the resource"),
         FieldSpec("TimeoutSeconds", ValueKind.Integer, jsonata = true, min = 1.0,
-            description = "The longest time in seconds the task may run before it fails with States.Timeout; a positive integer.",
+            description = "A time budget in seconds for this task; when it is used up, the state fails with States.Timeout. Must be a positive integer.",
             docUrl = Doc.TASK),
         FieldSpec("TimeoutSecondsPath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. A reference path to a positive integer in the input to use as TimeoutSeconds.", docUrl = Doc.TASK),
         FieldSpec("HeartbeatSeconds", ValueKind.Integer, jsonata = true, min = 1.0,
-            description = "The longest gap in seconds allowed between heartbeats from the task; it should be below TimeoutSeconds.",
+            description = "If the worker sends no heartbeat for this many seconds, the task fails with States.Timeout; keep it below TimeoutSeconds.",
             docUrl = Doc.TASK),
         FieldSpec("HeartbeatSecondsPath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. A reference path to a positive integer in the input to use as HeartbeatSeconds.",
             docUrl = Doc.TASK),
         FieldSpec("Credentials", ValueKind.FreeForm,
-            description = "An object naming an IAM role, for example under RoleArn, that the execution role assumes before calling the resource.",
+            description = "Lets this one call run under a different IAM role: put the role ARN under RoleArn and the execution role switches to it first.",
             docUrl = Doc.TASK),
     ), parametersFor = "the resource"),
         exclusive = listOf(nextOrEnd, setOf("TimeoutSeconds", "TimeoutSecondsPath"), setOf("HeartbeatSeconds", "HeartbeatSecondsPath"))),
 
     StructureSpec(StructureId.PASS, stateFields(Doc.PASS, Shared(transition = true, assign = true, io = true, result = true), listOf(
         FieldSpec("Result", ValueKind.FreeForm, Mode.JSONPATH,
-            description = "JSONPath only. Fixed data used as the state's result, placed into the input according to ResultPath.",
+            description = "JSONPath only. A constant value the Pass state treats as its result; ResultPath decides where it ends up.",
             docUrl = Doc.PASS),
     )), exclusive = listOf(nextOrEnd)),
 
@@ -176,21 +176,21 @@ internal val stateStructures = listOf(
             description = "The rules to test, in order; the first rule that holds names the next state. At least one rule is needed.",
             docUrl = Doc.CHOICE),
         FieldSpec("Default", ValueKind.StateName,
-            description = "The state to run when no rule holds; without it the execution fails with States.NoChoiceMatched.",
+            description = "Fallback target for input that no rule accepts; leave it out and such input fails the execution with States.NoChoiceMatched.",
             docUrl = Doc.CHOICE),
     ))),
 
     StructureSpec(StructureId.WAIT, stateFields(Doc.WAIT, Shared(transition = true, assign = true, io = true), listOf(
         FieldSpec("Seconds", ValueKind.Integer, jsonata = true, min = 0.0, max = 99_999_999.0,
-            description = "How many seconds to wait, as an integer from 0 to 99,999,999.", docUrl = Doc.WAIT),
+            description = "The length of the pause in whole seconds, between 0 and 99,999,999.", docUrl = Doc.WAIT),
         FieldSpec("Timestamp", ValueKind.Text, jsonata = true,
-            description = "The moment to wait until, as an RFC 3339 timestamp with an upper-case T and Z, such as 2026-03-14T01:59:00Z.",
+            description = "Pauses until this point in time, written in RFC 3339 form such as 2026-03-14T01:59:00Z, with upper-case T and Z.",
             docUrl = Doc.WAIT),
         FieldSpec("SecondsPath", ValueKind.Text, Mode.JSONPATH,
-            description = "JSONPath only. A reference path to an integer in the input giving the number of seconds to wait.",
+            description = "JSONPath only. Takes the pause length in seconds from the input, at this reference path.",
             docUrl = Doc.WAIT),
         FieldSpec("TimestampPath", ValueKind.Text, Mode.JSONPATH,
-            description = "JSONPath only. A reference path to a timestamp in the input giving the moment to wait until.",
+            description = "JSONPath only. Takes the point in time to wait until from the input, at this reference path.",
             docUrl = Doc.WAIT),
     )), oneOfRequired = listOf(waitTimes), exclusive = listOf(nextOrEnd, waitTimes)),
 
@@ -198,20 +198,20 @@ internal val stateStructures = listOf(
 
     StructureSpec(StructureId.FAIL, stateFields(Doc.FAIL, Shared(), listOf(
         FieldSpec("Error", ValueKind.Text, jsonata = true,
-            description = "The error name the failure reports, which Retry and Catch rules of enclosing states can match.",
+            description = "The name to fail with; a Catch on an enclosing Parallel or Map state can match on it.",
             docUrl = Doc.FAIL),
         FieldSpec("ErrorPath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. A reference path or intrinsic function that yields the error name as a string.",
             docUrl = Doc.FAIL),
         FieldSpec("Cause", ValueKind.Text, jsonata = true,
-            description = "A human-readable explanation of the failure, for diagnosis and operations.", docUrl = Doc.FAIL),
+            description = "Free text saying why the execution stopped, shown with the failure; keep secrets and internal details out of it.", docUrl = Doc.FAIL),
         FieldSpec("CausePath", ValueKind.Text, Mode.JSONPATH,
             description = "JSONPath only. A reference path or intrinsic function that yields the cause as a string.", docUrl = Doc.FAIL),
     )), exclusive = listOf(setOf("Error", "ErrorPath"), setOf("Cause", "CausePath"))),
 
     StructureSpec(StructureId.PARALLEL, stateFields(Doc.PARALLEL, Shared(transition = true, assign = true, io = true, result = true, errors = true), listOf(
         FieldSpec("Branches", ValueKind.ListOf(ValueKind.Struct(StructureId.BRANCH)), required = true,
-            description = "The branches to run at the same time, each a small state machine with its own StartAt and States.",
+            description = "The sub-workflows to start together on the same input; each one needs its own StartAt and States.",
             docUrl = Doc.PARALLEL),
         argumentsField(Doc.PARALLEL, "every branch"),
     ), parametersFor = "every branch"), exclusive = listOf(nextOrEnd)),
