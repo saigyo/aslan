@@ -56,6 +56,64 @@ class AslTreeTest : AslTestCase() {
         assertEquals("say \"hi\"", r["C"]!!.value.scalar().text)
     }
 
+    private fun values(text: String): List<String> = root(text).entries.map { it.value.scalar().text }
+
+    fun `test quoted values with a tag or an anchor in front`() {
+        assertEquals(
+            listOf("it's", "it's", "it's", "x\"y", "x\"y", "x\"y", "plain", "plain", "plain"),
+            values("""
+                A: 'it''s'
+                B: !!str 'it''s'
+                C: &a 'it''s'
+                D: "x\"y"
+                E: !!str "x\"y"
+                F: &b "x\"y"
+                G: plain
+                H: &c plain
+                I: !!str plain
+            """),
+        )
+    }
+
+    fun `test multi-line quoted values are folded`() {
+        assertEquals(
+            listOf("it's x", "it's x", "it's x", "a b", "a\nb", "a b", "ab c", "x y"),
+            values("""
+                A: 'it''s
+                  x'
+                B: !!str 'it''s
+                  x'
+                C: &a 'it''s
+                    x'
+                D: "a
+                  b"
+                E: "a
+
+                  b"
+                F: &b "a  
+                  b"
+                G: "a\
+                  b c"
+                H: !!str 'x
+                  y'
+            """),
+        )
+    }
+
+    fun `test astral escape is the same on one line and across lines`() {
+        val one = values("A: \"\\U0001F600\"").single()
+        assertEquals("\uD83D\uDE00", one)
+        assertEquals("\uD83D\uDE00 a", values("A: \"\\U0001F600\n  a\"").single())
+        assertEquals("\uD83D\uDE00a", values("A: \"\\U0001F600\\\n  a\"").single())
+    }
+
+    fun `test an unknown escape is kept`() = assertEquals("\\q", values("A: \"\\q\"").single())
+
+    fun `test multi-line quoted value is decoded again after an edit in the same file`() {
+        assertEquals("a b", AslTree.root(yaml("A: \"a\n  b\"")).let { (it as AslObject)["A"]!!.value.scalar().text })
+        assertEquals("it's x", AslTree.root(yaml("A: 'it''s\n  x'")).let { (it as AslObject)["A"]!!.value.scalar().text })
+    }
+
     fun `test folded scalar text is the decoded value`() {
         val r = root("""
             A: >-
