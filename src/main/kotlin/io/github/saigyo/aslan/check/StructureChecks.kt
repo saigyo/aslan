@@ -41,23 +41,27 @@ internal object StructureChecks {
         Walk(doc, root, out).run()
     }
 
-    /** The query language that applies to a value, and whether it is known or decided by a placeholder. */
-    private class Context(val ql: QueryLanguage, val known: Boolean) {
+    /**
+     * The query language that applies to a value, whether it is known or decided by a placeholder, and whether the
+     * value lies in a state (rather than at the top level of a state machine).
+     */
+    private class Context(val ql: QueryLanguage, val known: Boolean, val inState: Boolean) {
         /** Where a `{%` string may stand for any kind of value. */
         val jsonataPossible: Boolean get() = ql == QueryLanguage.JSONATA || !known
+
+        /** Where Step Functions evaluates `{%` strings in JSONata fields and free-form data. */
+        val evaluatesJsonata: Boolean get() = inState && known && ql == QueryLanguage.JSONATA
     }
 
     private class Walk(val doc: AslDocument, val root: AslStateMachine, val out: MutableList<AslFinding>) {
         private val machines = IdentityHashMap<AslObject, AslStateMachine>().apply { for (m in doc.allMachines()) put(m.obj, m) }
-        private val statesByEntry = IdentityHashMap<AslEntry, AslState>().apply { for (s in doc.allStates()) put(s.entry, s) }
         private val rootLanguage = root.obj["QueryLanguage"]?.value as? AslScalar
         private val topLevelJsonata = rootLanguage?.type == ScalarType.STRING && rootLanguage.text == QueryLanguage.JSONATA.text
 
         fun run() {
             val known = rootLanguage == null || !Placeholders.contains(rootLanguage.text)
             val ql = if (topLevelJsonata) QueryLanguage.JSONATA else QueryLanguage.JSONPATH
-            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context(ql, known), root.obj.anchorPsi)
-            delimiters(root.obj, null)
+            obj(root.obj, AslSpec.structure(StructureId.STATE_MACHINE), Context(ql, known, inState = false), root.obj.anchorPsi)
         }
 
         private fun report(problem: AslProblem, element: PsiElement, message: String) {
@@ -82,20 +86,30 @@ internal object StructureChecks {
                     continue
                 }
                 if (field.lenient) continue
-                value(entry.value, field.kind, field.nullable, ctx, entry.keyPsi, o)
+                value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o)
             }
         }
 
-        /** Checks that [node] fits [kind] and, if it does, descends into it. [owner] is the object holding the field. */
-        private fun value(node: AslNode, kind: ValueKind, nullable: Boolean, ctx: Context, anchor: PsiElement, owner: AslObject) {
-            if (kind == ValueKind.FreeForm || exemptFromKind(node)) return
-            if (node is AslScalar && ctx.jsonataPossible && isJsonata(node)) return
+        /**
+         * Checks that [node] fits [kind] and, if it does, descends into it. [jsonata] tells whether the field evaluates
+         * JSONata; [owner] is the object holding the field.
+         */
+        private fun value(node: AslNode, kind: ValueKind, nullable: Boolean, jsonata: Boolean, ctx: Context, anchor: PsiElement, owner: AslObject) {
+            if (kind == ValueKind.FreeForm) {
+                if (ctx.evaluatesJsonata) freeFormDelimiters(node)
+                return
+            }
+            if (exemptFromKind(node)) return
+            if (node is AslScalar && ctx.jsonataPossible && isJsonata(node)) {
+                if (jsonata && ctx.evaluatesJsonata) unclosed(node)
+                return
+            }
             when (kind) {
                 is ValueKind.Struct ->
                     if (node is AslObject) obj(node, AslSpec.structure(kind.id), ctx, anchor) else wrongKind(node, "a mapping")
                 is ValueKind.ListOf ->
                     if (node is AslArray) {
-                        for (item in node.items) value(item, kind.element, false, ctx, (item as? AslObject)?.anchorPsi ?: item.psi, owner)
+                        for (item in node.items) value(item, kind.element, false, jsonata, ctx, (item as? AslObject)?.anchorPsi ?: item.psi, owner)
                     } else {
                         wrongKind(node, "a list")
                     }
@@ -130,7 +144,7 @@ internal object StructureChecks {
                 return
             }
             if (skipped(state)) return
-            val ctx = Context(state.queryLanguage, state.queryLanguageKnown)
+            val ctx = Context(state.queryLanguage, state.queryLanguageKnown, inState = true)
             val typeEntry = o["Type"]?.takeIf { !it.viaMerge }
             val typeValue = typeEntry?.value as? AslScalar
             if (state.type == null && typeValue != null && typeValue.type == ScalarType.STRING && !typeValue.ambiguous) {
@@ -168,23 +182,18 @@ internal object StructureChecks {
             }
         }
 
-        /** Finds unclosed `{%` strings anywhere in the values of JSONata states, free-form data included. */
-        private fun delimiters(node: AslNode, state: AslState?) {
+        /** Every string in free-form data is evaluated in a JSONata state, so each must be a closed expression or plain text. */
+        private fun freeFormDelimiters(node: AslNode) {
             when (node) {
-                is AslObject -> for (entry in node.entries) {
-                    if (entry.viaMerge || isUnappliedMerge(entry)) continue
-                    val inner = statesByEntry[entry] ?: state
-                    if (inner != null && skipped(inner)) continue
-                    delimiters(entry.value, inner)
-                }
-                is AslArray -> for (item in node.items) delimiters(item, state)
-                is AslScalar -> if (state != null && state.queryLanguageKnown && state.queryLanguage == QueryLanguage.JSONATA &&
-                    node.type == ScalarType.STRING && node.text.startsWith("{%") && !node.text.endsWith("%}")
-                ) {
-                    report(UNCLOSED_JSONATA_DELIMITER, node.psi, "A JSONata expression must end with %}")
-                }
+                is AslObject -> for (entry in node.entries) if (!entry.viaMerge && !isUnappliedMerge(entry)) freeFormDelimiters(entry.value)
+                is AslArray -> for (item in node.items) freeFormDelimiters(item)
+                is AslScalar -> if (isJsonata(node) && !Placeholders.contains(node.text)) unclosed(node)
                 is AslUnresolved -> {}
             }
+        }
+
+        private fun unclosed(scalar: AslScalar) {
+            if (!scalar.text.endsWith("%}")) report(UNCLOSED_JSONATA_DELIMITER, scalar.psi, "A JSONata expression must end with %}")
         }
     }
 

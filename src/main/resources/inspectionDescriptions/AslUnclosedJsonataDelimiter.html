@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a string in a JSONata state that starts with <code>{%</code> but does not end with <code>%}</code>. A folded or literal block scalar that keeps its final line break does not end with <code>%}</code>.</p>
-<p>AWS documents that it rejects such a definition, so this is reported as an error. Strings inside free-form data such as <code>Arguments</code> are checked too, because AWS evaluates them.</p>
+<p>Reports a string in a JSONata state that starts with <code>{%</code> but does not end with <code>%}</code>, where Step Functions evaluates it: as the value of a field that accepts a JSONata expression, such as <code>Condition</code> or <code>TimeoutSeconds</code>, and anywhere inside free-form data such as <code>Arguments</code>, <code>Output</code> or <code>Assign</code>. A folded or literal block scalar that keeps its final line break does not end with <code>%}</code>.</p>
+<p>AWS documents that it rejects such a definition, so this is reported as an error. Fields that AWS never evaluates, such as <code>Comment</code>, are not checked, and neither is a string that contains a placeholder, because the substituted text may close the expression.</p>
 </body>
 </html>
