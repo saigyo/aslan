@@ -1,6 +1,8 @@
 package io.github.saigyo.aslan.check
 
 import io.github.saigyo.aslan.check.AslProblem.EMPTY_CHOICES
+import io.github.saigyo.aslan.check.AslProblem.END_FALSE_WITHOUT_NEXT
+import io.github.saigyo.aslan.check.AslProblem.UNREACHABLE_STATE
 import io.github.saigyo.aslan.check.AslProblem.INVALID_RESOURCE_ARN
 import io.github.saigyo.aslan.check.AslProblem.INVALID_ROLE_ARN
 import io.github.saigyo.aslan.check.AslProblem.JSONPATH_STATE_IN_JSONATA_MACHINE
@@ -301,8 +303,17 @@ class StructureChecksTest : CheckTestCase() {
         found("States:\n  A:\n  - x")
     }
 
-    fun `test End false without Next is a missing transition`() =
-        assertEquals(listOf(MISSING_TRANSITION to "Inspect"), found(edit("    Next: Decide\n" to "    End: false\n")))
+    fun `test End false without Next deploys, so it is only a warning`() {
+        val found = found(edit("    Next: Decide\n" to "    End: false\n"))
+        assertEquals(listOf(END_FALSE_WITHOUT_NEXT to "false"), found.filter { it.first != UNREACHABLE_STATE })
+        assertEquals(AslProblem.END_FALSE_WITHOUT_NEXT.level, com.intellij.codeHighlighting.HighlightDisplayLevel.WARNING)
+    }
+
+    fun `test End false in JSON without Next`() {
+        val json = """{"StartAt": "A", "States": {"A": {"Type": "Choice", "Choices": [{"Variable": "$.a", "IsPresent": true, "Next": "B"}], "Default": "C"},
+            "B": {"Type": "Pass", "End": false}, "C": {"Type": "Succeed"}}}"""
+        assertEquals(listOf(END_FALSE_WITHOUT_NEXT to "false"), found(json, "test.asl.json"))
+    }
 
     fun `test unclosed delimiter in a field that is never evaluated`() = assertEquals(
         listOf(AslProblem.JSONATA_IN_STATIC_FIELD to "'{% todo'"),
