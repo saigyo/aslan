@@ -9,14 +9,16 @@ import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 
 /**
  * The local variables of a JSONata expression. A scope is a `LAMBDA`, a `BLOCK`, a whole path that binds a name with
- * `@` or `#` (`items@$i.name`, up to where the path ends), or the file. A lambda declares its parameters; each scope
- * declares every name that is the target of `:=`, or bound by `@` or `#`, inside it and not inside a nested scope.
+ * `@` or `#` (`items@$i.name`, up to where the path ends), a `TRANSFORM`, or the file. A lambda declares its
+ * parameters; a path declares what it binds with `@` or `#`; a block, a lambda or the file declares every target of
+ * `:=` inside it and not inside a nested block or lambda (JSONata binds an assignment in the environment it runs in,
+ * also in the first step of a path). A transform declares nothing. Names are compared decoded from the host's escapes.
  *
  * A parameter is visible in the whole lambda. A name declared by `:=`, `@` or `#` is visible in its scope from the end
  * of its first declaration there on (for `:=` after the right side of that first assignment, which JSONata evaluates
  * before it binds); an occurrence before that end does not refer to this scope and is resolved outward from the
- * enclosing one. An occurrence inside a lambda nested in the scope refers to it wherever it stands, since the function
- * runs later. The target of the first declaration is the declaration itself. A name that no scope makes visible is not
+ * enclosing one. An occurrence inside a lambda or transform nested in the scope refers to it wherever it stands, since
+ * the function runs later. The target of the first declaration is the declaration itself. A name that no scope makes visible is not
  * local (a function, `$states`, a state machine variable) and has no declarations here. `$` and `$$` are never
  * variables.
  *
@@ -59,7 +61,7 @@ object JsonataScopes {
         while (element != null) {
             bindings.declared[element]?.forEach { (name, found) -> if (visible(offset, found.first(), nested)) names += name }
             if (element is PsiFile) break
-            if (element.node.elementType == JsonataElements.LAMBDA) nested = true
+            if (element.node.elementType in DEFERRING) nested = true
             element = element.parent
         }
         return names.toList()
@@ -76,11 +78,11 @@ object JsonataScopes {
     internal fun variables(file: JsonataFile): List<JsonataVariableRef> = bindings(file).variables
 
     /**
-     * The uses of [file] whose meaning depends on when a function runs: a use inside a lambda that stands before the
-     * end of the first declaration it refers to. Called before that declaration, the function reads the name from
-     * further out (a built-in function, an outer variable); called after it, the local variable. A use inside the
-     * lambda that is itself the right side of that declaration (`$f := function(){ $f() }`) is not one of them: that
-     * function exists only once the assignment is done.
+     * The uses of [file] whose meaning depends on when a function runs: a use inside a lambda or a transform that
+     * stands before the end of the first declaration it refers to. Called before that declaration, the function reads
+     * the name from further out (a built-in function, an outer variable); called after it, the local variable. A use
+     * inside the lambda or transform that is itself the right side of that declaration (`$f := function(){ $f() }`) is
+     * not one of them: that function exists only once the assignment is done.
      */
     internal fun earlyUses(file: JsonataFile): List<JsonataVariableRef> {
         val bindings = bindings(file)
@@ -96,15 +98,46 @@ object JsonataScopes {
         val target = first.parent?.takeIf { it.node.elementType == JsonataElements.FILTER } ?: first
         val assignment = target.parent as? JsonataElement ?: return false
         if (assignment.node.elementType != JsonataElements.ASSIGNMENT || assignment.operands.firstOrNull() !== target) return false
-        val definition = assignment.operands.getOrNull(1)?.takeIf { it.node.elementType == JsonataElements.LAMBDA } ?: return false
+        val definition = assignment.operands.getOrNull(1)?.takeIf { it.node.elementType in DEFERRING } ?: return false
         return definition.textRange.contains(variable.textRange)
+    }
+
+    /**
+     * The first declarations by `:=` of [file] that may not run before the uses of their variable: an assignment
+     * that is not a statement of the block, lambda or file that declares it, nor the right side of such an assignment
+     * (`false ? $sum := 0 : 1`, `[$a := 1]#$i`, a filter, an argument). Where it does not run, the uses read the name
+     * from further out; and JSONata keeps an assignment inside a later step or filter of a path that binds with `@` or
+     * `#` to that step, which the plugin does not model.
+     */
+    internal fun uncertainDeclarations(file: JsonataFile): List<JsonataVariableRef> {
+        val bindings = bindings(file)
+        return bindings.declarations.keys.filter { first ->
+            first.node.elementType != JsonataElements.PARAMETER && isAssignmentTarget(first) && !isStatement(first, bindings.scopeOf[first])
+        }
+    }
+
+    /** Whether the assignment whose target is [target] is a statement of [owner], or the right side of one. */
+    private fun isStatement(target: JsonataVariableRef, owner: PsiElement?): Boolean {
+        var element: PsiElement = (target.parent?.takeIf { it.node.elementType == JsonataElements.FILTER } ?: target).parent ?: return false
+        while (true) {
+            val parent = element.parent ?: return false
+            if (parent === owner) return true
+            if (parent.node.elementType != JsonataElements.ASSIGNMENT || (parent as JsonataElement).operands.getOrNull(1) !== element) return false
+            element = parent
+        }
+    }
+
+    private fun isAssignmentTarget(variable: JsonataVariableRef): Boolean {
+        val target = variable.parent?.takeIf { it.node.elementType == JsonataElements.FILTER } ?: variable
+        val assignment = target.parent
+        return assignment != null && assignment.node.elementType == JsonataElements.ASSIGNMENT && (assignment as JsonataElement).operands.firstOrNull() === target
     }
 
     /** The name of [variable] without `$`, or null where it cannot be a local variable: `$`, `$$`, a placeholder. */
     internal fun localName(variable: JsonataVariableRef): String? {
         val token = variable.node.firstChildNode ?: return null
         if (token.elementType != JsonataTokens.VARIABLE) return null
-        val name = token.text.substring(1)
+        val name = JsonataPsi.decodedText(token.psi).substring(1)
         return name.takeIf { it.isNotEmpty() && !it.startsWith("$") }
     }
 
@@ -119,6 +152,8 @@ object JsonataScopes {
         val occurrences: Map<JsonataVariableRef, List<JsonataVariableRef>>,
         /** Every variable with a [localName], in file order. */
         val variables: List<JsonataVariableRef>,
+        /** For each declaration, the scope it declares its name in. */
+        val scopeOf: Map<JsonataVariableRef, PsiElement>,
     )
 
     /**
@@ -144,8 +179,30 @@ object JsonataScopes {
     private fun bindings(file: JsonataFile): Bindings =
         CachedValuesManager.getCachedValue(file) { CachedValueProvider.Result.create(compute(file), file) }
 
+    /**
+     * The elements a name is resolved through: blocks, lambdas and the file, which declare what is assigned in them;
+     * paths that bind with `@` or `#`, which declare only those bindings; and transforms, which declare nothing but,
+     * like lambdas, run later.
+     */
     private fun isScope(element: PsiElement): Boolean =
-        element.node.elementType.let { it == JsonataElements.BLOCK || it == JsonataElements.LAMBDA } || isPathScope(element)
+        element.node.elementType.let { it in DECLARING || it == JsonataElements.TRANSFORM } || isPathScope(element)
+
+    private val DECLARING = setOf(JsonataElements.BLOCK, JsonataElements.LAMBDA)
+
+    /** What evaluates its body later, when it is called: a use inside refers to its scope wherever it stands. */
+    private val DEFERRING = setOf(JsonataElements.LAMBDA, JsonataElements.TRANSFORM)
+
+    /**
+     * The scope [variable], a declaration found inside [scope], declares its name in: [scope] for a parameter and a
+     * binding by `@` or `#`; for `:=` the nearest block, lambda or file, since JSONata binds an assignment in the
+     * environment it is evaluated in.
+     */
+    private fun declaringScope(variable: JsonataVariableRef, scope: PsiElement, enclosing: Map<PsiElement, PsiElement>): PsiElement {
+        if (!isAssignmentTarget(variable)) return scope
+        var owner = scope
+        while (owner !is PsiFile && owner.node.elementType !in DECLARING) owner = enclosing[owner] ?: return owner
+        return owner
+    }
 
     /** The nodes whose steps make up one path: `a.b`, `a[p]`, `a^(k)`, `a{k: v}`, `a@$v`, `a#$v`. */
     private val STEPPED = setOf(
@@ -182,6 +239,7 @@ object JsonataScopes {
         val declared = HashMap<PsiElement, LinkedHashMap<String, MutableList<JsonataVariableRef>>>()
         val enclosing = HashMap<PsiElement, PsiElement>()
         val variables = ArrayList<Pair<JsonataVariableRef, PsiElement>>()
+        val scopeOf = HashMap<JsonataVariableRef, PsiElement>()
         val stack = ArrayList<Pair<PsiElement, PsiElement>>()
         pushChildren(file, file, stack)
         while (stack.isNotEmpty()) {
@@ -190,7 +248,11 @@ object JsonataScopes {
                 val name = localName(element)
                 if (name != null) {
                     variables += element to scope
-                    if (isDeclaration(element)) declared.getOrPut(scope) { LinkedHashMap() }.getOrPut(name) { ArrayList() } += element
+                    if (isDeclaration(element)) {
+                        val owner = declaringScope(element, scope, enclosing)
+                        scopeOf[element] = owner
+                        declared.getOrPut(owner) { LinkedHashMap() }.getOrPut(name) { ArrayList() } += element
+                    }
                 }
             }
             val inner = if (isScope(element)) element.also { enclosing[it] = scope } else scope
@@ -209,17 +271,17 @@ object JsonataScopes {
                 if (first != null && (first === variable || visible(offset, first, nested))) {
                     firstOf[variable] = first
                     occurrences.getOrPut(first) { ArrayList() } += variable
-                    if (scope === start && isDeclaration(variable)) declaring += variable
+                    if (scope === scopeOf[variable]) declaring += variable
                     break
                 }
-                if (scope.node.elementType == JsonataElements.LAMBDA) nested = true
+                if (scope.node.elementType in DEFERRING) nested = true
                 scope = enclosing[scope]
             }
         }
         // a declaration that stands before the end of the first one of its scope (`$a := $a := 1`) is resolved outward
         // like a use and declares nothing there
         val declarations = occurrences.mapValues { (_, all) -> all.filter { it in declaring } }
-        return Bindings(declared, firstOf, declarations, occurrences, variables.map { it.first })
+        return Bindings(declared, firstOf, declarations, occurrences, variables.map { it.first }, scopeOf)
     }
 
     /** Pushes the composite children of [element], each with the scope it stands in, so that they are popped in file order. */

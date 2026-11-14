@@ -92,7 +92,7 @@ class JsonataCompletionContributor : CompletionContributor() {
             names += left.rhs?.text ?: return
             left = left.lhs
         }
-        if (left !is JsonataVariableRef || left.node.elementType != JsonataElements.VARIABLE_REF || left.text != "\$states") return
+        if (left !is JsonataVariableRef || left.node.elementType != JsonataElements.VARIABLE_REF || left.variableName != "states") return
         if (JsonataScopes.declarations(left).isNotEmpty()) return
         names.reverse()
         when {

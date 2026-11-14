@@ -61,11 +61,18 @@ class JsonataTypedHandler : TypedHandlerDelegate() {
             window = windowAt(file, from, project) ?: return Result.CONTINUE
         }
         if (!isOurs(window, c, from, to)) return Result.CONTINUE
-        val escaped = escaped(c)
-        caret.removeSelection()
-        hostEditor.document.replaceString(from, to, escaped)
-        caret.moveToOffset(from + escaped.length)
+        write(c, hostEditor, from, to)
         return Result.STOP
+    }
+
+    /** Writes the escaped [c] over [from] to [to] of the host, widened to whole escapes, and puts the caret after it. */
+    private fun write(c: Char, hostEditor: Editor, from: Int, to: Int) {
+        val (start, end) = widened(c, hostEditor.document.charsSequence, from, to)
+        val escaped = escaped(c)
+        val caret = hostEditor.caretModel.currentCaret
+        caret.removeSelection()
+        hostEditor.document.replaceString(start, end, escaped)
+        caret.moveToOffset(start + escaped.length)
     }
 
     /**
@@ -102,10 +109,7 @@ class JsonataTypedHandler : TypedHandlerDelegate() {
         finished()
         val from = if (caret.hasSelection()) caret.selectionStart else caret.offset
         val to = if (caret.hasSelection()) caret.selectionEnd else from
-        val escaped = escaped(c)
-        caret.removeSelection()
-        hostEditor.document.replaceString(from, to, escaped)
-        caret.moveToOffset(from + escaped.length)
+        write(c, hostEditor, from, to)
         return Result.STOP
     }
 
@@ -132,6 +136,31 @@ class JsonataTypedHandler : TypedHandlerDelegate() {
     @TestOnly internal fun remembersDecision(): Boolean = decision != null
 
     private fun escaped(c: Char): String = if (c == '\'') "''" else "\\\""
+
+    /**
+     * [from] to [to] widened to whole backslash escapes of the host text [text], for the double quote: typing it between
+     * the backslash of `\"` or `A` and the rest would split the escape and break the host string. A caret inside
+     * an escape moves to its start; a selection grows to cover the escapes it cuts. A single-quoted YAML scalar has no
+     * backslash escapes, and `''` split by a typed `''` stays two whole escapes.
+     */
+    private fun widened(c: Char, text: CharSequence, from: Int, to: Int): Pair<Int, Int> {
+        if (c != '"') return from to to
+        val start = escapeAround(text, from)?.first ?: from
+        if (from == to) return start to start
+        return start to (escapeAround(text, to)?.last?.plus(1) ?: to)
+    }
+
+    /** The range of the backslash escape that [offset] stands strictly inside (after its first character), or null. */
+    private fun escapeAround(text: CharSequence, offset: Int): IntRange? {
+        val at = (offset - 1 downTo maxOf(0, offset - 10)).firstOrNull { text[it] == '\\' } ?: return null
+        var run = 0
+        var i = at
+        while (i >= 0 && text[i] == '\\') { run++; i-- }
+        // an even run ends with the second backslash of `\\`, an escape that ends at or before the offset
+        if (run % 2 == 0) return null
+        val length = when (text.getOrNull(at + 1)) { 'u' -> 6; 'x' -> 4; 'U' -> 10; else -> 2 }
+        return if (offset < at + length) at until at + length else null
+    }
 
     /** The injected document of the JSONata expression whose host string holds [offset] of the host file [file], or null. */
     private fun windowAt(file: PsiFile, offset: Int, project: Project): DocumentWindow? {

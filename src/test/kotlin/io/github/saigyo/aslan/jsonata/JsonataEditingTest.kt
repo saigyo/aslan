@@ -76,6 +76,22 @@ class JsonataEditingTest : JsonataTestCase() {
         assertTrue(result, result.contains("{% \"\" %}"))
     }
 
+    fun `test a quote typed inside a host escape goes before the escape`() {
+        val u = "\\" + "u0041"
+        for ((name, before, after) in listOf(
+            Triple("test.asl.json", jsonHost("\"{% \\\"a\\<caret>\\\" %}\""), jsonHost("\"{% \\\"a\\\"\\\" %}\"")),
+            Triple("test.asl.json", jsonHost("\"{% \\\"\\u00<caret>41\\\" %}\""), jsonHost("\"{% \\\"\\\"$u\\\" %}\"")),
+            Triple("test.asl.yaml", yamlScalarHost("\"{% \\\"a\\<caret>\\\" %}\""), yamlScalarHost("\"{% \\\"a\\\"\\\" %}\"")),
+        )) {
+            assertEquals(before, after, typeIn(before, name, "\""))
+            // the host string is still whole, so the expression is still injected
+            assertEquals(before, 1, siteCount())
+        }
+        // a selection that ends inside an escape covers it
+        val selected = jsonHost("\"{% \\\"<selection>ab\\</selection>\" & 1 %}\"")
+        assertEquals(jsonHost("\"{% \\\"\\\" & 1 %}\""), typeIn(selected, "selected.asl.json", "\""))
+    }
+
     fun `test the host's own quote is escaped in the host and the expression stays a site`() {
         // (host text with the caret, typed quote, expected host text, expected decoded expression, syntax errors)
         class Case(val name: String, val file: String, val before: String, val quote: String, val after: String, val decoded: String, val errors: Int)
