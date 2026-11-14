@@ -16,7 +16,6 @@ class JsonataConformanceTest : AslTestCase() {
     /** Syntax error codes the scanner does not find, each with the reason. */
     private val gaps = mapOf(
         "S0217" to "the parent operator is not resolved", "S0401" to "function signatures are not validated",
-        "S0209" to "Task 3", "S0210" to "Task 3", "S0213" to "Task 3", "S0215" to "Task 3", "S0216" to "Task 3",
     )
     // S0402 ("function signatures are not validated") is not a gap: the only suite case of it,
     // `λ($arr)<(sa<n>)>>{$arr}([[1]])`, also fails to parse after the signature (S0202 at the third `>`), so it is found.
@@ -35,6 +34,15 @@ class JsonataConformanceTest : AslTestCase() {
 
     fun `test every named gap is still a gap`() {
         assertEquals(emptyList<String>(), suite.filter { it.code in gaps && failed(it) }.map { it.id })
+    }
+
+    fun `test errors found after parsing`() {
+        for ((expr, code) in listOf(
+            "[1,2,3]{\"num\": \$}[true]" to "S0209", "[1,2,3]{\"num\": \$}{\"num\": \$}" to "S0210", "\$.7" to "S0213",
+            "Account.Order[1]@\$o.Product" to "S0215", "Account.Order^(>OrderID)@\$o.Product" to "S0216",
+        )) assertEquals(expr, code, JsonataScanner.scan(expr).error?.code)
+        for (expr in listOf("Account.Order{\"a\": 1}[0]", "\$.\"7\"", "Account.Order@\$o[1].Product", "(7).a"))
+            assertNull(expr, JsonataScanner.scan(expr).error)
     }
 
     companion object {
