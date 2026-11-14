@@ -216,26 +216,26 @@ class JsonataEditingTest : JsonataTestCase() {
         assertEquals(2, siteCount())
     }
 
-    fun `test one caret inside an expression and one outside it`() {
-        val inside = "\"{% \$x & <caret>1 %}\""
-        val outside = "<caret>\"{% \$y %}\""
-        fun text(output: String, function: String) = machineText(
-            "Type: Task\nResource: arn:aws:states:::lambda:invoke\nArguments:\n  FunctionName: $function\nOutput: $output\nEnd: true",
+    fun `test one caret inside an expression and one outside it gets the plain quote at both`() {
+        val text = machineText(
+            "Type: Task\nResource: arn:aws:states:::lambda:invoke\nArguments:\n  FunctionName: <caret>\"{% \$y %}\"\nOutput: \"{% \$x & <caret>1 %}\"\nEnd: true",
         )
-        // each caret alone
-        val onlyInside = typeIn(text(inside, "\"{% \$y %}\""), "alone1.asl.yaml", "\"")
-        val onlyOutside = typeIn(text("\"{% \$x & 1 %}\"", outside), "alone2.asl.yaml", "\"")
-        // both carets
-        myFixture.configureByText("both.asl.yaml", text(inside, outside))
+        // Without the handler the platform types at both carets through the injected editor of the first one, and puts
+        // both characters into that expression, whatever the character is. So the reference is an ordinary character in the
+        // same ASL file; the quote must land in the same places, with no exception.
+        val ordinary = typeIn(text, "ordinary.asl.yaml", "~").replace("~", "\"")
+        val actual = typeIn(text, "mixed.asl.yaml", "\"")
+        assertEquals(ordinary, actual)
+        assertFalse(actual.contains("\\\""))
+    }
+
+    fun `test the host's own quote typed twice with two carets inside works both times`() {
+        myFixture.configureByText("twice.asl.yaml", yamlScalarHost("\"{% \$a & <caret>\$b & <caret>\$c %}\""))
         myFixture.type("\"")
-        val both = hostDocText()
-        val outsideInserted = onlyOutside.length - text("\"{% \$x & 1 %}\"", "\"{% \$y %}\"").length
-        val at = text("\"{% \$x & 1 %}\"", outside).indexOf("<caret>")
-        val expected = text(inside.replace("<caret>", "\\\""), onlyOutside.substring(at, at + outsideInserted) + "\"{% \$y %}\"")
-        assertEquals(expected, both)
-        assertTrue(onlyInside.contains("\$x & \\\"1"))
-        // the plain quote before the opening quote of the other string is what the platform types there: it breaks that string
-        assertTrue(both.contains("FunctionName: \"\"{% \$y %}\""))
+        myFixture.type("\"")
+        assertEquals(yamlScalarHost("\"{% \$a & \\\"\\\"\$b & \\\"\\\"\$c %}\""), hostDocText())
+        assertEquals(1, siteCount())
+        assertEquals(" \$a & \"\"\$b & \"\"\$c ", decoded())
     }
 
     fun `test typing the host's own quote during an in-place rename leaves the host intact`() {
