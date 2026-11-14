@@ -85,11 +85,14 @@ internal object StateTargets {
         }.distinct()
     }
 
-    /** The string scalars written as the `StartAt` of [machine] and as the targets of its states' transitions. */
+    /**
+     * The string scalars written as the `StartAt` of [machine] and as the targets of its states' transitions. A value
+     * with a deployment tag (`!Ref Done`) names whatever the tag resolves to, not a state, and is left out.
+     */
     private fun namedTargets(machine: AslStateMachine): List<AslScalar> = buildList {
         startScalar(machine)?.let { add(it) }
         for (s in machine.states) for (t in s.transitions) t.target?.let { add(it) }
-    }.filter { it.type == ScalarType.STRING }
+    }.filter { it.type == ScalarType.STRING && !it.dynamic }
 
     /**
      * Where a value written directly as [element] names a state: [machine] is the machine whose states it names, and
@@ -117,7 +120,7 @@ internal object StateTargets {
     private fun target(document: AslDocument, element: PsiElement): Pair<AslStateMachine, String>? {
         val site = site(document, element) ?: return null
         val scalar = site.scalar
-        if (scalar.type != ScalarType.STRING || Placeholders.contains(scalar.text)) return null
+        if (scalar.type != ScalarType.STRING || scalar.dynamic || Placeholders.contains(scalar.text)) return null
         return site.machine to scalar.text
     }
 

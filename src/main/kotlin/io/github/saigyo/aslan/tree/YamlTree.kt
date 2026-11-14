@@ -19,6 +19,9 @@ import org.jetbrains.yaml.psi.impl.YAMLPlainTextImpl
 internal object YamlTree {
     private const val MERGE_KEY = "<<"
 
+    /** The tags that say "this is a string" and nothing else: the short and the verbatim form. */
+    private val STRING_TAGS = setOf("!!str", "!<tag:yaml.org,2002:str>")
+
     /** How many nodes one file may build. Aliases can double the tree at every level, so their expansion is capped. */
     internal const val NODE_BUDGET = 200_000
 
@@ -122,16 +125,18 @@ internal object YamlTree {
         /** A tag (`!!int "12"`, `!Sub '...'`) may give any scalar another type or value, so a tagged scalar is always ambiguous. */
         private fun scalar(scalar: YAMLScalar, usePsi: PsiElement): AslScalar {
             val text = scalar.textValue
-            val tagged = scalar.tag != null
+            val tag = scalar.tag?.text
+            val tagged = tag != null
+            val dynamic = tagged && tag !in STRING_TAGS
             return when (scalar) {
                 is YAMLPlainTextImpl -> AslScalar(
                     scalar, usePsi, YamlScalars.type(text), text,
-                    ambiguous = tagged || YamlScalars.isAmbiguous(text),
+                    ambiguous = tagged || YamlScalars.isAmbiguous(text), dynamic = dynamic,
                 )
                 is YAMLScalarText, is YAMLScalarList ->
-                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text), ambiguous = tagged)
-                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text, ambiguous = tagged)
-                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text, ambiguous = tagged)
+                    AslScalar(scalar, usePsi, ScalarType.STRING, blockText(scalar, text), ambiguous = tagged, dynamic = dynamic)
+                is YAMLQuotedText -> AslScalar(scalar, usePsi, ScalarType.STRING, quotedText(scalar) ?: text, ambiguous = tagged, dynamic = dynamic)
+                else -> AslScalar(scalar, usePsi, ScalarType.STRING, text, ambiguous = tagged, dynamic = dynamic)
             }
         }
 

@@ -81,6 +81,15 @@ class StructureChecksTest : CheckTestCase() {
         assertEquals(listOf(WRONG_QUERY_LANGUAGE_FIELD to "Arguments"), found(text))
     }
 
+    fun `test a Type with a deployment tag decides nothing`() {
+        assertEquals(emptyList<Any>(), found("StartAt: A\nStates:\n  A:\n    Type: !Ref Pass\n"))
+        assertEquals(emptyList<Any>(), found("StartAt: A\nStates:\n  A:\n    Type: !Ref Succeed\n    Next: B\n  B:\n    Type: Succeed\n"))
+        assertEquals(emptyList<Any>(), found("StartAt: A\nStates:\n  A:\n    Type: !Ref Tsak\n    End: true\n"))
+    }
+
+    fun `test a Type with the string tag is read as written`() =
+        assertEquals(listOf(MISSING_TRANSITION to "A"), found("StartAt: A\nStates:\n  A:\n    Type: !!str Pass\n  B:\n    Type: Succeed\n").filter { it.first == MISSING_TRANSITION })
+
     fun `test empty Choices`() = assertEquals(
         listOf(EMPTY_CHOICES to "Choices"),
         found(edit("    Choices:\n      - Condition: $condition\n        Next: Accepted\n" to "    Choices: []\n",

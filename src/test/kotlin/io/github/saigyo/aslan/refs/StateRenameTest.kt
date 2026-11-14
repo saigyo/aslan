@@ -135,6 +135,23 @@ class StateRenameTest : AslTestCase() {
         assertEmpty(io.github.saigyo.aslan.check.AslChecker.findings(myFixture.file))
     }
 
+    private fun renameDone(startAt: String): String {
+        myFixture.configureByText("test.asl.yaml", "StartAt: $startAt\nStates:\n  Done:\n    Type: Pass\n    Next: Other\n  Other:\n    Type: Succeed\n")
+        myFixture.renameElement(AslModel.of(myFixture.file)!!.root!!.state("Done")!!.entry.entryPsi, "Finished")
+        return myFixture.file.text.lines().first()
+    }
+
+    fun `test a value with a deployment tag is not a state reference and is not renamed`() {
+        assertEquals("StartAt: !Ref Done", renameDone("!Ref Done"))
+        assertEquals("StartAt: !Sub 'Done'", renameDone("!Sub 'Done'"))
+        myFixture.configureByText("test.asl.yaml", "StartAt: !Ref Do<caret>ne\nStates:\n  Done:\n    Type: Succeed\n")
+        assertNull(myFixture.getReferenceAtCaretPosition())
+    }
+
+    fun `test a value with the string tag is renamed`() {
+        assertEquals("StartAt: !!str Finished", renameDone("!!str Done"))
+    }
+
     fun `test an anchor that names the renamed state itself is no conflict`() {
         myFixture.configureByText("test.asl.yaml", """
             StartAt: A
