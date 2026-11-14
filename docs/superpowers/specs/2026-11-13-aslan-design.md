@@ -231,7 +231,7 @@ The rule that follows from the anti-goals:
 - Anything that deploys but is probably a mistake is a **warning** at most.
 - Every check has its own entry in the IDE's inspection settings, so it can be switched off or changed in severity without affecting the others.
 
-**Evidence.** The checks of stage 1 were compared with the definition validation of Step Functions (`aws stepfunctions validate-state-machine-definition`) on 2026-11-14, with about 1,400 small definitions. Most hold one condition; some hold a set of candidate field names in one position. Every field of every structure was sent with `null`, with a value of the wrong kind and with a JSONata string. AWS documents that an error from this validation prevents creating or updating the state machine. The recorded answers are committed as test data, and two tests hold the checks to them: no error on a definition AWS accepts, and an error on every definition AWS rejects, apart from a short list of gaps that the test names with their reasons. The rules below marked "validation" rest on these answers.
+**Evidence.** The checks were compared with the definition validation of Step Functions (`aws stepfunctions validate-state-machine-definition`) on 2026-11-14, with about 1,400 small definitions for stage 1 and 185 more for the JSONata checks of stage 2. Most hold one condition; some hold a set of candidate field names in one position. Every field of every structure was sent with `null`, with a value of the wrong kind and with a JSONata string. AWS documents that an error from this validation prevents creating or updating the state machine. The recorded answers are committed as test data, and two tests hold the checks to them: no error on a definition AWS accepts, and an error on every definition AWS rejects, apart from a short list of gaps that the test names with their reasons. The rules below marked "validation" rest on these answers.
 
 ### Errors
 
@@ -268,8 +268,10 @@ The rule that follows from the anti-goals:
 | The `Resource` of an ItemReader or ResultWriter names its S3 action with a region or an account; a Task may do so, a reader or writer may not | validation |
 | The `RoleArn` in the `Credentials` of a Task state is not an IAM role ARN, `arn:partition:iam::account:role/name` | validation |
 | A string in a JSONata state that holds `{%` or `%}` but is not wrapped in them as a whole, where JSONata is evaluated | validation |
-| `$states.result` or `$states.errorOutput` outside the fields that provide them | documented as rejected |
-| JSONata syntax error | cannot be evaluated |
+| `$states.result` or `$states.errorOutput` outside the fields that provide them, or a field of `$states` that is none of `input`, `result`, `errorOutput` and `context` | validation, in all 46 places asked |
+| JSONata syntax error | validation: AWS parses every expression with the JSONata 2.0.6 parser and rejected all 40 syntax errors of the official test suite |
+| An operator from JSONata 2.1 (`?:`, `??`) | validation |
+| A field name or `$` that is evaluated against the input of the expression itself, which does not exist, and `$$` anywhere | validation, in the forms asked: at the top level, in brackets, in array and object constructors, as an argument, in a function body, as an operand, and as the first step of a path |
 
 A value that is a placeholder or a JSONata string never triggers the "wrong basic kind" error. Neither does a plain YAML value that YAML 1.1 and YAML 1.2 read as different types, such as `yes` or `1_000`, because it is not known which YAML version the tools in front of AWS apply. A YAML mapping or list with a tag such as `!Join [...]` or `!If [...]` is not judged either: whatever handles the tag decides the value. The same holds for a CloudFormation function in its long form, a mapping with the single key `Ref` or `Fn::Name` such as `Fn::GetAtt: [Role, Arn]`, in YAML and in JSON: a definition file that a template pulls in with `AWS::Include` can only use this form. The value of `States` is the exception, since a machine may have a single state named `Ref`.
 
@@ -287,15 +289,16 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 | Read of a variable with no assignment in any visible scope | fails at run time |
 | Variable assigned but never read (weak warning) | harmless |
 | Assignment to `states`, to an invalid name, or in an inner scope to a name an outer scope assigns | rejection unconfirmed |
-| Call of a function that is not built in and not defined locally | fails at run time |
-| `$eval`, or an operator from JSONata 2.1 | fails; time of failure unconfirmed |
-| Top-level `$`, `$$` or bare field name in an expression | rejection unconfirmed |
+| Call of a function that is not built in and not defined locally | deploys; AWS itself only warns, and the plugin's list can be behind |
+| `$eval` | deploys; AWS itself only warns |
 
 ### Never reported
 
 - Placeholders in any position.
 - YAML anchors, aliases and merge keys.
 - Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax and keys that end in `.$`. AWS checks the parameter names of a service call; the plugin does not, because it has no list of them.
+- Inside a JSONata expression: a bare `*` or `**` (AWS accepts `*`), the parent operator `%` and a function signature (AWS rejects what cannot be resolved, but the plugin does not port those parts of the parser), an unknown field below `$states.context` (the plugin's list can be behind AWS), and the number and types of the arguments of a call (AWS does not check them either).
+- A JSONata expression that holds `${` outside a string literal: a deployment tool replaces that text before AWS sees it.
 - Which actions the `Resource` of an ItemReader or ResultWriter may name. In the `Resource` of a Task state and in a `RoleArn`, whether the function, activity, role, region or account exists cannot be known from the file. The services and actions of an AWS SDK integration are not checked either.
 
 ## 8. Testing and verification
@@ -326,7 +329,7 @@ These could not be verified and are handled as stated.
 | Uncertainty | Handling |
 |---|---|
 | Exact naming rules for placeholders | Accept letters, digits, underscore, hyphen, dot, colon and comma between `${` and `}` |
-| Whether AWS rejects JSONata syntax errors at deployment or only at run time | Reported as errors either way, since the expression cannot run |
+| Whether AWS rejects JSONata syntax errors at deployment or only at run time | Settled on 2026-11-14: at deployment. The validation parses every expression as jsonata-js 2.0.6 does, including its oddities about where a `/` starts a regular expression |
 | Whether several warnings in section 7 are in fact deployment errors | They stay warnings until confirmed |
 | Whether `Assign` is allowed in nested JSONPath Choice rules | Not reported |
 | Whether the IDE's default search finds `name` inside `$name` | The plugin provides its own search within the file |
