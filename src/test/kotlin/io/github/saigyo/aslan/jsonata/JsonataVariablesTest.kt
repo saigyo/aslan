@@ -400,6 +400,30 @@ class JsonataVariablesTest : JsonataTestCase() {
         assertEquals(json.replace("<caret>", ""), inplaceRenameTo(json, "su\"m", "test.asl.json"))
     }
 
+    /** Starts an in-place rename at the caret of [before], types [typed], presses Escape, and returns the host text after. */
+    private fun cancelInplaceRename(before: String, typed: String): String {
+        myFixture.configureByText("test.asl.yaml", before)
+        val host = hostFile()
+        val editor = myFixture.editor
+        val target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)!!
+        JsonataInplaceRenameHandler().doRename(target, editor, null)
+        val top = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
+        val range = TemplateManagerImpl.getTemplateState(top)!!.currentVariableRange!!
+        WriteCommandAction.runWriteCommandAction(project) { top.document.replaceString(range.startOffset, range.endOffset, typed) }
+        TemplateManagerImpl.getTemplateState(top)!!.cancelTemplate()
+        finishTemplate()
+        return PsiDocumentManager.getInstance(project).getDocument(host)!!.text
+    }
+
+    fun `test Escape in an in-place rename restores the old name`() {
+        TemplateManagerImpl.setTemplateTesting(testRootDisposable)
+        val before = hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)")
+        // a valid name that collides
+        assertEquals(before.replace("<caret>", ""), cancelInplaceRename(before, "b"))
+        // a fresh valid name
+        assertEquals(before.replace("<caret>", ""), cancelInplaceRename(before, "total"))
+    }
+
     fun `test cancelling an in-place rename with a quote restores the host`() {
         TemplateManagerImpl.setTemplateTesting(testRootDisposable)
         val before = passText("'{% (\$sum := ''a''; ''b'' & \$s<caret>um) %}'")
@@ -452,9 +476,9 @@ class JsonataVariablesTest : JsonataTestCase() {
         assertRenameConflict(hostText("(\$b := 1; (\$<caret>a := 2; \$a + \$b))"), "b")
     }
 
-    fun `test rename to a built-in name is a conflict`() {
+    fun `test rename to a built-in name is a conflict only where the expression calls it`() {
         assertRenameConflict(hostText("(\$x := [1]; \$sum(\$<caret>x))"), "sum")
-        assertRenameConflict(hostText("(\$x := [1]; \$<caret>x)"), "count")
+        assertRename(hostText("(\$x := 1; \$<caret>x + 1)"), hostText("(\$count := 1; \$count + 1)"), newName = "count")
     }
 
     fun `test rename to a name read as no local variable is a conflict`() {

@@ -25,7 +25,6 @@ import com.intellij.usageView.UsageInfo
 import com.intellij.util.IncorrectOperationException
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
-import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 
 /**
@@ -85,14 +84,14 @@ class JsonataInplaceRenamer(element: PsiNamedElement, editor: Editor, initialNam
     }
 
     /**
-     * On cancel the platform leaves the typed text in place. A text that is no variable name (a quote, for one) can
-     * break the host string, so it is put back to the old name.
+     * On cancel the platform leaves the typed text in every occurrence. Cancel means no rename here: the typed text could
+     * break the host string or collide with another name, so every occurrence gets the old name back.
      */
     override fun finish(success: Boolean) {
         if (!success) {
             val state = TemplateManagerImpl.getTemplateState(InjectedLanguageEditorUtil.getTopLevelEditor(myEditor))
             val typed = state?.getVariableValue(PRIMARY_VARIABLE_NAME)?.text
-            if (typed != null && typed != myOldName && !isIdentifier(typed, null)) revertState()
+            if (typed != null && typed != myOldName) revertState()
         }
         super.finish(success)
     }
@@ -155,16 +154,17 @@ class JsonataVariableRenameProcessor : RenamePsiElementProcessor() {
 /**
  * What a rename of one local variable must not choose as the new name, because the expression would then compute
  * something else: the name of another local variable visible at an occurrence (the occurrences would refer to it, or
- * it to them), the name of a built-in function or `states`, and a name read in the expression that is no local
- * variable (a state machine variable or an undeclared name, which the renamed variable would capture). Taken from the
- * expression as it stands before the rename.
+ * it to them), `states`, and a name read in the expression that is no local variable (a built-in function that is
+ * called, a state machine variable or an undeclared name, which the renamed variable would capture). A built-in name the
+ * expression does not use is free. Taken from the expression as it stands before the rename; both rules are taken
+ * over the whole expression, so some safe renames are refused too, but none that changes the result.
  */
 internal class JsonataRenameConflicts private constructor(private val oldName: String, private val locals: Set<String>, private val reads: Set<String>) {
     /** A description of the conflict a rename to [newName] makes, or null. */
     fun conflict(newName: String): String? = when {
         newName == oldName -> null
         newName in locals -> "Another variable named \$$newName is visible where \$$oldName is used"
-        newName == "states" || AslSpec.jsonataFunction(newName) != null -> "\$$newName is a built-in name that \$$oldName would hide"
+        newName == "states" -> "\$states is reserved by Step Functions"
         newName in reads -> "\$$newName is read in this expression and would then refer to the renamed variable"
         else -> null
     }
