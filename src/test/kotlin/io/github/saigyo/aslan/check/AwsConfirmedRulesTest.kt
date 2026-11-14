@@ -217,6 +217,28 @@ class AwsConfirmedRulesTest : CheckTestCase() {
         assertEquals(listOf(WRONG_VALUE_KIND to "{}"), found(task("Credentials:", "  RoleArn.$dollar: {}")))
     }
 
+    // CloudFormation functions in their long form
+
+    fun `test a CloudFormation function in its long form is not judged`() {
+        nothing(task("TimeoutSeconds:", "  Ref: Timeout", "Comment:", "  Fn::Join: ['', [a, b]]", resource = "{'Fn::GetAtt': [Inspect, Arn]}"))
+        nothing(task("Credentials:", "  Fn::If: [Prod, {RoleArn: $role}, {RoleArn: $role}]", "Retry:", "  Fn::If: [Prod, [], []]"))
+        nothing(task("Credentials:", "  RoleArn:", "    Fn::GetAtt: [Role, Arn]", "ResultSelector:", "  value.$dollar:", "    Fn::Sub: $dollar.a"))
+        nothing(task("Retry:", "  - Fn::If: [Prod, {ErrorEquals: [States.ALL]}, {ErrorEquals: [States.ALL]}]"))
+        val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": {"Fn::GetAtt": ["Inspect", "Arn"]}, "TimeoutSeconds": {"Ref": "Timeout"},
+            "Next": {"Fn::If": ["Prod", "B", "C"]}}, "B": {"Type": "Succeed"}, "C": {"Fn::If": ["Prod", {"Type": "Succeed"}, {"Type": "Fail"}]}}}"""
+        assertEquals(emptyList<Any>(), found(json, "test.asl.json"))
+        assertEquals(emptyList<Any>(), found("""{"Fn::Transform": {"Name": "AWS::Include", "Parameters": {"Location": "s3://b/k"}}}""", "test.asl.json"))
+    }
+
+    fun `test a mapping that only resembles a CloudFormation function is judged`() {
+        assertEquals(listOf(WRONG_VALUE_KIND to "{Ref: Timeout, Other: 1}"), found(task("TimeoutSeconds: {Ref: Timeout, Other: 1}")))
+        assertEquals(listOf(WRONG_VALUE_KIND to "{Function: x}"), found(task("TimeoutSeconds: {Function: x}")))
+        // A machine may have a single state named Ref.
+        assertEquals(listOf(WRONG_VALUE_KIND to "x"), found("StartAt: Ref\nStates:\n  Ref:\n    Type: Succeed\n    Comment: [x]\n").map { it.first to "x" })
+        val json = """{"StartAt": "Ref", "States": {"Ref": {"Type": "Pass", "End": true, "Comment": 5}}}"""
+        assertEquals(listOf(WRONG_VALUE_KIND to "5"), found(json, "test.asl.json"))
+    }
+
     fun `test a tagged list is not judged`() {
         nothing(task("ResultSelector:", "  value.$dollar: !Join ['.', [$dollar, id]]"))
         nothing(task("Credentials:", "  RoleArn.$dollar: !Join ['.', [$dollar, role]]"))

@@ -42,10 +42,11 @@ internal object YamlTree {
 
         private val exhausted: Boolean get() = built >= NODE_BUDGET
 
-        fun node(value: YAMLValue, usePsi: PsiElement): AslNode {
+        fun node(value: YAMLValue, usePsi: PsiElement, mayBeCall: Boolean = true): AslNode {
             ProgressManager.checkCanceled()
             if (value is YAMLAlias) return alias(value)
             if (value !is YAMLScalar && value.tag?.text?.let { it !in COLLECTION_TAGS } == true) return AslUnresolved(value, usePsi)
+            if (mayBeCall && value is YAMLMapping && CloudFormationFunctions.isCall(value.keyValues.map { keyText(it) })) return AslUnresolved(value, usePsi)
             if (!inProgress.add(value)) return AslUnresolved(usePsi, usePsi)
             built++
             try {
@@ -97,8 +98,9 @@ internal object YamlTree {
 
         private fun entry(keyValue: YAMLKeyValue): AslEntry {
             val keyPsi = keyValue.key ?: keyValue
-            val value = keyValue.value?.let { node(it, it) } ?: AslScalar(keyPsi, keyPsi, ScalarType.NULL, "")
-            return AslEntry(keyText(keyValue), keyPsi, keyValue, value, viaMerge = false)
+            val key = keyText(keyValue)
+            val value = keyValue.value?.let { node(it, it, CloudFormationFunctions.mayHoldCall(key)) } ?: AslScalar(keyPsi, keyPsi, ScalarType.NULL, "")
+            return AslEntry(key, keyPsi, keyValue, value, viaMerge = false)
         }
 
         /**
