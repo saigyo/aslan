@@ -231,7 +231,7 @@ The rule that follows from the anti-goals:
 - Anything that deploys but is probably a mistake is a **warning** at most.
 - Every check has its own entry in the IDE's inspection settings, so it can be switched off or changed in severity without affecting the others.
 
-**Evidence.** The checks of stage 1 were compared with the definition validation of Step Functions (`aws stepfunctions validate-state-machine-definition`) on 2026-11-14, with about 900 small definitions that each hold one condition or one set of candidate field names. AWS documents that an error from this validation prevents creating or updating the state machine. The recorded answers are committed as test data, and two tests hold the checks to them: no error on a definition AWS accepts, and an error on every definition AWS rejects, apart from a short list of gaps that the test names with their reasons. The rules below marked "validation" rest on these answers.
+**Evidence.** The checks of stage 1 were compared with the definition validation of Step Functions (`aws stepfunctions validate-state-machine-definition`) on 2026-11-14, with about 1,400 small definitions. Most hold one condition; some hold a set of candidate field names in one position. Every field of every structure was sent with `null`, with a value of the wrong kind and with a JSONata string. AWS documents that an error from this validation prevents creating or updating the state machine. The recorded answers are committed as test data, and two tests hold the checks to them: no error on a definition AWS accepts, and an error on every definition AWS rejects, apart from a short list of gaps that the test names with their reasons. The rules below marked "validation" rest on these answers.
 
 ### Errors
 
@@ -249,13 +249,13 @@ The rule that follows from the anti-goals:
 | A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state | validation, for every such field |
 | A JSONPath state in a machine whose top level is JSONata | validation |
 | A value of the wrong basic kind, such as text where a number is required, or a number with a fraction where a whole number is required; `5.0` only in a JSON file, since tools that convert YAML differ on it | validation |
-| `null` in an optional field with a fixed kind of value, and in `Assign`, `Items`, `Credentials` and the `Parameters` or `Arguments` of a Task | validation |
+| `null` in an optional field with a fixed kind of value, and in `Assign`, `Items`, `Credentials` and the `Parameters` or `Arguments` of a Task, ItemReader or ResultWriter; AWS accepts it in the paths, in `Error` of a Fail state and in `CSVDelimiter` | validation |
 | Field name that ASL does not define, outside free-form data | validation; the plugin's field names were compared with AWS in every position |
 | Field that ASL defines, used on a state type or structure that does not take it, such as `Next` on a Succeed state | validation |
-| A value that is not one of the values a field takes, such as an unknown `JitterStrategy` | validation; the plugin's lists match the ones AWS reports |
+| A value that is not one of the values a field takes, such as an unknown `JitterStrategy`, or a `Version` other than the string `"1.0"` | validation; the plugin's lists match the ones AWS reports |
 | Value outside the range AWS applies, such as a negative `MaxAttempts`, a `BackoffRate` below 1 or a `TimeoutSeconds` above 99999999 | validation |
 | Two fields together that exclude each other, such as two time fields on a Wait state, or `Next` together with `End`, whatever its value | validation |
-| A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts`; not in `Comment` | validation |
+| A JSONata string in a field that does not evaluate JSONata, such as `MaxAttempts`; not in `Comment` or `ItemsPointer` | validation, for every field |
 | `States.ALL` combined with other names, or not in the last Retrier or Catcher | validation |
 | An empty `ErrorEquals`, `And`, `Or` or `CSVHeaders` list | validation |
 | A JSONPath Choice rule that is neither one combination nor a `Variable` with exactly one operator | validation |
@@ -296,7 +296,6 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - YAML anchors, aliases and merge keys.
 - Anything inside free-form data: the contents of `Arguments`, `Output`, `Assign` values, `Parameters`, `Result` and similar fields, apart from JSONata syntax and keys that end in `.$`. AWS checks the parameter names of a service call; the plugin does not, because it has no list of them.
 - The `Resource` of an ItemReader or ResultWriter, beyond being a string. In the `Resource` of a Task state and in a `RoleArn`, whether the function, activity, role, region or account exists cannot be known from the file. The services and actions of an AWS SDK integration are not checked either.
-- `Version`: YAML reads `1.0` as a number, and how AWS takes that is not confirmed.
 
 ## 8. Testing and verification
 

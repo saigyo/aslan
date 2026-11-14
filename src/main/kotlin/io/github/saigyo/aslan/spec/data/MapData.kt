@@ -112,7 +112,7 @@ internal val mapStructures = listOf(
             "PIPE" to "Columns are separated by vertical bars.",
             "SEMICOLON" to "Columns are separated by semicolons.",
             "SPACE" to "Columns are separated by spaces.",
-            "TAB" to "Columns are separated by tab characters."),
+            "TAB" to "Columns are separated by tab characters."), nullable = true,
             description = "The character that separates columns in a CSV or manifest input.", docUrl = Doc.ITEM_READER),
         FieldSpec("MaxItems", ValueKind.Integer, jsonata = true, min = 0.0, max = 100_000_000.0,
             description = "Reads at most this many items from the data set; up to 100,000,000.", docUrl = Doc.ITEM_READER),

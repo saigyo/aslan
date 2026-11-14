@@ -44,8 +44,6 @@ class AwsVerdictsTest : CheckTestCase() {
         "r3-AI-dollar-word-OutputPath" to "variables are checked in a later stage",
         "r3-AI-dollar-word-TimeoutSecondsPath" to "variables are checked in a later stage",
         "r3-AI-dollar-word-Variable" to "variables are checked in a later stage",
-        "r2-C-version" to "Version is not checked: YAML reads 1.0 as a number, and how AWS takes that is not confirmed",
-        "r2-I-unknown-version" to "Version is not checked: YAML reads 1.0 as a number, and how AWS takes that is not confirmed",
     )
 
     private fun gap(name: String): String? = gaps.entries.firstOrNull { name.startsWith(it.key) }?.value

@@ -88,7 +88,6 @@ internal object WarningChecks {
                 if (entry.viaMerge || isUnappliedMerge(entry)) continue
                 val field = structure.field(entry.key) ?: continue
                 if (ctx.known && !field.mode.allows(ctx.ql)) continue
-                if (field.lenient) continue
                 if (field.name in NON_EMPTY_LISTS && (entry.value as? AslArray)?.items?.isEmpty() == true) {
                     report(EMPTY_LIST, entry.keyPsi, "'${field.name}' needs at least one entry")
                 }
@@ -143,7 +142,9 @@ internal object WarningChecks {
         private fun value(node: AslNode, field: FieldSpec, kind: ValueKind, ctx: Context, direct: Boolean, owner: AslObject, anchor: PsiElement) {
             if (kind == ValueKind.FreeForm || StructureChecks.exemptFromKind(node)) return
             if (node is AslScalar && ctx.jsonataPossible && StructureChecks.isJsonata(node)) {
-                if (direct && isScalarKind(kind) && !field.jsonata && field.name != "Type" && field.name != "Comment" && ctx.known && ctx.ql == QueryLanguage.JSONATA) {
+                if (field.name == "QueryLanguage") {
+                    report(UNKNOWN_ENUM_VALUE, node.psi, "'${node.text}' is not one of JSONPath, JSONata")
+                } else if (direct && isScalarKind(kind) && !field.jsonata && field.name !in PLAIN_TEXT && ctx.known && ctx.ql == QueryLanguage.JSONATA) {
                     report(JSONATA_IN_STATIC_FIELD, node.psi, "'${field.name}' does not evaluate JSONata, so this is taken as plain text")
                 }
                 return
@@ -190,6 +191,8 @@ internal object WarningChecks {
                 }
                 field.name in TIMESTAMP_FIELDS ->
                     if (!isTimestamp(text)) report(INVALID_TIMESTAMP, scalar.psi, "Expected an RFC 3339 timestamp such as 2026-03-14T01:59:00Z")
+                field.name == "Version" ->
+                    if (text != VERSION) report(UNKNOWN_ENUM_VALUE, scalar.psi, "'$text' is not a version of the States Language; the only one is $VERSION")
                 field.name == "Label" -> {
                     labels.putIfAbsent(scalar.psi, scalar)
                     if (text.isEmpty()) {
@@ -391,6 +394,9 @@ internal object WarningChecks {
     private const val MAX_LABEL_LENGTH = 40
     private const val LABEL_FORBIDDEN = "?*<>{}[]:;,\\|/^~$#%&`\""
     private val NON_EMPTY_LISTS = setOf("ErrorEquals", "And", "Or", "Branches", "CSVHeaders")
+    /** Fields where AWS accepts a string in JSONata delimiters as it stands; `Type` is reported as an unknown type. */
+    private val PLAIN_TEXT = setOf("Type", "Comment", "ItemsPointer")
+    private const val VERSION = "1.0"
     private val COMBINATIONS = setOf("And", "Or", "Not")
     private val TOP_RULE_ONLY = listOf("Next", "Assign")
     private val CHOICE_RULE = AslSpec.structure(StructureId.CHOICE_RULE)

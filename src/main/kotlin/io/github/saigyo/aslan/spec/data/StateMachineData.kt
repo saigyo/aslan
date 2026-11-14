@@ -10,7 +10,7 @@ internal val stateMachineStructures = listOf(
         startAtField(Doc.STRUCTURE),
         statesField(Doc.STRUCTURE),
         commentField(Doc.STRUCTURE, "the state machine"),
-        FieldSpec("Version", ValueKind.Text, lenient = true,
+        FieldSpec("Version", ValueKind.Text,
             description = "Which revision of the States Language this definition follows; 1.0, the only one so far, is assumed when absent.",
             docUrl = Doc.STRUCTURE),
         FieldSpec("TimeoutSeconds", ValueKind.Integer, min = 0.0, max = 99_999_999.0,
