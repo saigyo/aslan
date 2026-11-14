@@ -2,11 +2,13 @@ package io.github.saigyo.aslan.highlight
 
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandlerBase
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandlerFactory
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.Consumer
 import io.github.saigyo.aslan.files.AslFiles
@@ -16,7 +18,11 @@ import io.github.saigyo.aslan.files.AslFiles
  * Elsewhere it does nothing, so the platform's own usage highlighting applies.
  */
 class PlaceholderUsagesHandlerFactory : HighlightUsagesHandlerFactory, DumbAware {
-    override fun createHighlightUsagesHandler(editor: Editor, file: PsiFile): HighlightUsagesHandlerBase<*>? {
+    override fun createHighlightUsagesHandler(editor: Editor, injectedFile: PsiFile): HighlightUsagesHandlerBase<*>? {
+        // With the caret in an injected fragment (a JSONata expression) the platform hands out the injected editor and
+        // file; the placeholders are searched in the host file.
+        val file = InjectedLanguageManager.getInstance(injectedFile.project).getTopLevelFile(injectedFile)
+        val editor = if (file === injectedFile) editor else InjectedLanguageEditorUtil.getTopLevelEditor(editor)
         if (!AslFiles.isAslFile(file)) return null
         val offset = editor.caretModel.offset
         for (at in listOf(offset, offset - 1)) {
