@@ -174,6 +174,9 @@ class AwsConfirmedRulesTest : CheckTestCase() {
         assertEquals(listOf(WRONG_VALUE_KIND to "1.5e+0"), found(task("TimeoutSeconds: 1.5e+0")))
         val json = """{"StartAt": "A", "States": {"A": {"Type": "Task", "Resource": "$function", "TimeoutSeconds": 15e-1, "End": true}}}"""
         assertEquals(listOf(WRONG_VALUE_KIND to "15e-1"), found(json, "test.asl.json"))
+        // AWS takes no exponent at all for a whole number, even when the value is whole.
+        assertEquals(listOf(WRONG_VALUE_KIND to "1e2"), found(json.replace("15e-1", "1e2"), "test.asl.json"))
+        nothing(task("TimeoutSeconds: 1.5e+1"))
     }
 
     // the value of a key that ends in .$

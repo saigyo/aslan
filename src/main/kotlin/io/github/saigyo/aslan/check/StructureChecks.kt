@@ -230,7 +230,7 @@ internal object StructureChecks {
                 return
             }
             if (node is AslScalar && jsonata && ctx.evaluatesJsonata) misplaced(node)
-            if (kind == ValueKind.Integer && node is AslScalar && notWhole(node)) wrongKind(node, "a whole number, written without a decimal point")
+            if (kind == ValueKind.Integer && node is AslScalar && notWhole(node)) wrongKind(node, "a whole number, written without a decimal point or an exponent")
             when (kind) {
                 is ValueKind.Struct -> obj(node as AslObject, AslSpec.structure(kind.id), ctx, anchor)
                 is ValueKind.ListOf ->
@@ -241,14 +241,14 @@ internal object StructureChecks {
         }
 
         /**
-         * AWS takes only a number without a fraction and without a decimal point as a whole number, so it rejects `1.5`,
-         * `15e-1` and also `5.0`. A JSON file reaches AWS as it is written. A YAML file is converted first, and the tools
-         * differ: some turn `5.0` into `5`, others keep it. So in YAML only a number with a real fraction is certain to
-         * be rejected.
+         * AWS takes only a number written with digits alone as a whole number, so it rejects `1.5` and also `5.0`, `1e2`
+         * and `500e-1`. A JSON file reaches AWS as it is written. A YAML file is converted first, and the tools differ:
+         * some turn `5.0` into `5`, others keep it. So in YAML only a number with a real fraction is certain to be
+         * rejected.
          */
         private fun notWhole(scalar: AslScalar): Boolean {
             val fraction = scalar.text.toBigDecimalOrNull()?.let { it.stripTrailingZeros().scale() > 0 } ?: return false
-            return fraction || ('.' in scalar.text && scalar.psi.containingFile is JsonFile)
+            return fraction || (scalar.psi.containingFile is JsonFile && scalar.text.any { it in ".eE" })
         }
 
         private fun expectedText(kind: ValueKind): String = when (kind) {
