@@ -53,6 +53,9 @@ internal object StructureChecks {
     /** Free-form fields for which AWS rejects `null`; it accepts `null` in the others, such as `Output` and `ResultSelector`. */
     private val NEVER_NULL = setOf("Assign", "Items")
 
+    /** The structures whose `Parameters` or `Arguments` AWS does not accept as `null`; on a Pass or Map state it does. */
+    private val NEEDS_PAYLOAD = setOf(StructureId.TASK, StructureId.ITEM_READER, StructureId.RESULT_WRITER)
+
     /** JSONPath fields whose keys that end in `.$` are evaluated. */
     private val PAYLOAD_TEMPLATES = setOf("Parameters", "ResultSelector", "ItemSelector")
     private val INTRINSIC_CALL = Regex("""^States\.\w+\(""")
@@ -115,7 +118,6 @@ internal object StructureChecks {
                     report(WRONG_QUERY_LANGUAGE_FIELD, entry.keyPsi, "'${entry.key}' cannot be used with ${ctx.ql.text}")
                     continue
                 }
-                if (field.lenient) continue
                 if (field.kind == ValueKind.FreeForm) freeForm(entry, structure, ctx)
                 value(entry.value, field.kind, field.nullable, field.jsonata, ctx, entry.keyPsi, o, optional = !field.required && field.kind != ValueKind.StateName)
                 if (structure.id == StructureId.TASK && field.kind == ValueKind.ResourceArn) {
@@ -183,7 +185,7 @@ internal object StructureChecks {
         /** Rules on fields whose content is free-form data. */
         private fun freeForm(entry: AslEntry, structure: StructureSpec, ctx: Context) {
             val node = entry.value
-            val rejectsNull = entry.key in NEVER_NULL || (structure.id == StructureId.TASK && entry.key in PAYLOAD_FIELDS)
+            val rejectsNull = entry.key in NEVER_NULL || (structure.id in NEEDS_PAYLOAD && entry.key in PAYLOAD_FIELDS)
             if (rejectsNull && node is AslScalar && node.type == ScalarType.NULL && !node.ambiguous) {
                 report(NULL_VALUE, node.psi, "The field is present but has no value")
             }

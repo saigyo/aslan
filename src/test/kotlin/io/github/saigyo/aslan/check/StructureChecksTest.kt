@@ -344,8 +344,15 @@ class StructureChecksTest : CheckTestCase() {
         for (end in BASE.indices) found(BASE.substring(0, end))
     }
 
-    fun `test the kind of a lenient field is not checked`() =
-        assertEquals(emptyList<Any>(), found(edit("StartAt: Inspect\n" to "StartAt: Inspect\nVersion: 1.0\n")))
+    fun `test Version must be the string 1 point 0`() {
+        // Unquoted, YAML reads 1.0 as a number, and AWS only takes a string.
+        assertEquals(listOf(WRONG_VALUE_KIND to "1.0"), found(edit("StartAt: Inspect\n" to "StartAt: Inspect\nVersion: 1.0\n")))
+        assertEquals(listOf(UNKNOWN_ENUM_VALUE to "'2.0'"), found(edit("StartAt: Inspect\n" to "StartAt: Inspect\nVersion: '2.0'\n")))
+        assertEquals(listOf(NULL_VALUE to "null"), found(edit("StartAt: Inspect\n" to "StartAt: Inspect\nVersion: null\n")))
+        for (ok in listOf("'1.0'", "\"1.0\"", "${'$'}{Version}", "!Ref Version")) {
+            assertEquals(ok, emptyList<Any>(), found(edit("StartAt: Inspect\n" to "StartAt: Inspect\nVersion: $ok\n")))
+        }
+    }
 
     fun `test an unapplied merge key is not reported and may supply required fields`() = assertEquals(
         emptyList<Any>(),

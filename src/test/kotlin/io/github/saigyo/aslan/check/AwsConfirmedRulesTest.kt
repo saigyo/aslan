@@ -134,6 +134,21 @@ class AwsConfirmedRulesTest : CheckTestCase() {
         nothing(map("ItemSelector: null"))
     }
 
+    fun `test null parameters of an ItemReader and a ResultWriter`() {
+        assertEquals(listOf(NULL_VALUE to "null"), found(map("ItemReader:", "  Resource: arn:aws:states:::s3:listObjectsV2", "  Parameters: null")))
+        assertEquals(listOf(NULL_VALUE to "null"), found(map("ResultWriter:", "  Resource: arn:aws:states:::s3:putObject", "  Parameters: null")))
+    }
+
+    fun `test a null CSVDelimiter and a JSONata string as ItemsPointer are accepted by AWS`() {
+        val get = arrayOf("ItemReader:", "  Resource: arn:aws:states:::s3:getObject", "  Arguments:", "    Bucket: b", "    Key: k", "  ReaderConfig:")
+        val jsonata = "QueryLanguage: JSONata\n"
+        nothing(jsonata + map(*get, "    InputType: CSV", "    CSVHeaderLocation: FIRST_ROW", "    CSVDelimiter: null"))
+        nothing(jsonata + map(*get, "    InputType: JSON", "    ItemsPointer: '{% 1 %}'"))
+    }
+
+    fun `test a JSONata string as QueryLanguage`() =
+        assertEquals(listOf(AslProblem.UNKNOWN_ENUM_VALUE to "'{% 1 %}'"), found("QueryLanguage: '{% 1 %}'\n" + state("Type: Succeed")))
+
     fun `test null Cause on a Fail state`() = assertEquals(listOf(NULL_VALUE to "null"), found(state("Type: Fail", "Cause: null")))
 
     // whole numbers and their bounds
