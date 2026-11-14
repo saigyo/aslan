@@ -18,6 +18,11 @@
         <completion.contributor language="JSON" order="first" implementationClass="io.github.saigyo.aslan.completion.AslCompletionContributor"/>
         <lang.documentationProvider language="yaml" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
         <lang.documentationProvider language="JSON" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
+        <psi.referenceContributor language="yaml" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
+        <psi.referenceContributor language="JSON" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
+        <referencesSearch implementation="io.github.saigyo.aslan.refs.AslReferencesSearcher"/>
+        <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
+        <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <applicationService serviceImplementation="io.github.saigyo.aslan.settings.AslSettings"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>
