@@ -286,8 +286,9 @@ class JsonataVariablesTest : JsonataTestCase() {
         assertEquals(listOf(null, -1), resolution("(\$b; \$b := 1)"))
         // a variable assigned in a block that is a lambda body is local to that block
         assertEquals(listOf(-1, 0, null), resolution("(function(){ (\$c := 1; \$c) }; \$c)"))
-        // focus and index variables are visible after their binding in the enclosing block, also after the path
-        assertEquals(listOf(-1, -1, 0, 1, 0), resolution("(items@\$v#\$i.{\"n\": \$v.name, \"i\": \$i}; \$v)"))
+        // focus and index variables are visible after their binding up to the end of the path (jsonata-js 2.0.6 gives
+        // undefined for `(items@$v; $v)`)
+        assertEquals(listOf(-1, -1, 0, 1, null), resolution("(items@\$v#\$i.{\"n\": \$v.name, \"i\": \$i}; \$v)"))
         // ... but not before it
         assertEquals(listOf(null, -1), resolution("\$w.(items@\$w)"))
         // an assignment at the top level is declared by the file, but not for its own right side
@@ -500,10 +501,46 @@ class JsonataVariablesTest : JsonataTestCase() {
             hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)") to "b",
             hostText("(\$x := [1]; \$sum(\$<caret>x))") to "sum",
             hostText("(\$<caret>n := 1; \$n + \$limit)") to "limit",
+            hostText("(\$<caret>a := 1; true ? \$a : \$b := 2; \$exists(\$b))") to "b",
+            hostText("(\$f := function(){ \$sum([1, 2]) }; \$f(); \$s<caret>um := 0)") to "total",
         )) {
             assertEquals(name, before.replace("<caret>", ""), inplaceRenameTo(before, name, "test.asl.yaml"))
         }
         val fresh = hostText("(\$a := 1; \$b := 2; \$<caret>a + \$b)")
         assertEquals(hostText("(\$total := 1; \$b := 2; \$total + \$b)"), inplaceRenameTo(fresh, "total", "test.asl.yaml"))
+    }
+
+    fun `test rename to the name of a later declaration in the scope is a conflict`() {
+        // the skipped assignment leaves $b undefined; after the rename $b would be 1
+        assertRenameConflict(hostText("(\$<caret>a := 1; true ? \$a : \$b := 2; \$exists(\$b))"), "b")
+        assertRename(
+            hostText("(\$<caret>a := 1; true ? \$a : \$b := 2; \$exists(\$b))"),
+            hostText("(\$total := 1; true ? \$total : \$b := 2; \$exists(\$b))"),
+            newName = "total",
+        )
+    }
+
+    fun `test a use in a function that may run before the assignment blocks the rename`() {
+        // $f() runs before $sum := 0, so its $sum is the built-in function
+        assertRenameConflict(hostText("(\$f := function(){ \$sum([1, 2]) }; \$f(); \$s<caret>um := 0)"), "total")
+        // renaming $a to b would let the early $b of the function read $a
+        assertRenameConflict(hostText("(\$<caret>a := 5; (\$f := function(){ \$b }; \$f(); \$b := 0); \$a)"), "b")
+        // a function that calls itself exists only once it is assigned
+        assertRename(
+            hostText("(\$f := function(\$n){ \$n = 0 ? 0 : \$<caret>f(\$n - 1) }; \$f(3))"),
+            hostText("(\$sum2 := function(\$n){ \$n = 0 ? 0 : \$sum2(\$n - 1) }; \$sum2(3))"),
+        )
+    }
+
+    fun `test a focus or index binding ends with its path`() {
+        assertRename(
+            hostText("(\$states.input.items@\$s<caret>um.name; \$sum([1, 2]))"),
+            hostText("(\$states.input.items@\$sum2.name; \$sum([1, 2]))"),
+        )
+        val text = "(\$states.input.items#\$i[\$i > 0].(\$i); \$<caret>i)"
+        val file = jsonata(text)
+        val uses = variables(file).filter { it.name == "i" }
+        assertEquals(listOf(uses[0], uses[0]), uses.subList(1, 3).map { it.reference!!.resolve() })
+        assertNull(uses[3].reference)
     }
 }

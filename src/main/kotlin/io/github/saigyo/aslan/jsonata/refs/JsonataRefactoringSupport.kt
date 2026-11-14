@@ -9,11 +9,15 @@ import com.intellij.lang.Language
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.lang.refactoring.RefactoringSupportProvider
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.jsonata.JsonataLanguage
 import com.intellij.psi.PsiReference
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.refactoring.listeners.RefactoringElementListener
@@ -153,33 +157,86 @@ class JsonataVariableRenameProcessor : RenamePsiElementProcessor() {
 
 /**
  * What a rename of one local variable must not choose as the new name, because the expression would then compute
- * something else: the name of another local variable visible at an occurrence (the occurrences would refer to it, or
- * it to them), `states`, and a name read in the expression that is no local variable (a built-in function that is
- * called, a state machine variable or an undeclared name, which the renamed variable would capture). A built-in name the
- * expression does not use is free. Taken from the expression as it stands before the rename; both rules are taken
- * over the whole expression, so some safe renames are refused too, but none that changes the result.
+ * something else:
+ * - the name of another local variable visible at an occurrence (the occurrences would refer to it, or it to them);
+ * - `states`;
+ * - a name read in the expression that is no local variable (a built-in function that is called, a state machine
+ *   variable or an undeclared name, which the renamed variable would capture); a built-in name the expression does not
+ *   use is free;
+ * - any name, when the old name or the new one is used inside a function that may run before the variable it refers
+ *   to is assigned ([JsonataScopes.earlyUses]): what that use reads then depends on when the function runs;
+ * - a name under which any occurrence of the expression, renamed or not, would refer to another variable than before,
+ *   such as one declared later in the scope (found by reading the renamed expression).
+ *
+ * Taken from the expression as it stands before the rename; the first rules are taken over the whole expression, so
+ * some safe renames are refused too, but none that changes the result.
  */
-internal class JsonataRenameConflicts private constructor(private val oldName: String, private val locals: Set<String>, private val reads: Set<String>) {
+internal class JsonataRenameConflicts private constructor(
+    private val project: Project,
+    private val oldName: String,
+    private val locals: Set<String>,
+    private val reads: Set<String>,
+    private val early: Set<String>,
+    /** The decoded text of the expression in pieces, and which pieces are names of occurrences of the renamed variable. */
+    private val pieces: List<Pair<String, Boolean>>,
+    private val meanings: List<String>,
+) {
     /** A description of the conflict a rename to [newName] makes, or null. */
     fun conflict(newName: String): String? = when {
         newName == oldName -> null
         newName in locals -> "Another variable named \$$newName is visible where \$$oldName is used"
         newName == "states" -> "\$states is reserved by Step Functions"
         newName in reads -> "\$$newName is read in this expression and would then refer to the renamed variable"
+        oldName in early || newName in early ->
+            "\$${if (oldName in early) oldName else newName} is used in a function that may run before it is assigned, so the rename could change what that use reads"
+        meanings(newName).let { it != null && it != meanings } -> "After the rename some uses of \$$newName would refer to another variable"
         else -> null
+    }
+
+    /** [meanings] of the expression renamed to [newName], or null when it cannot be read. */
+    private fun meanings(newName: String): List<String>? {
+        val text = pieces.joinToString("") { (piece, renamed) -> if (renamed) "$$newName" else piece }
+        val file = PsiFileFactory.getInstance(project).createFileFromText("rename.jsonata", JsonataLanguage, text) as? JsonataFile ?: return null
+        return meaningsOf(file).takeIf { it.size == meanings.size }
     }
 
     companion object {
         fun of(variable: JsonataVariableRef): JsonataRenameConflicts {
-            val oldName = variable.name
             val locals = HashSet<String>()
             for (occurrence in JsonataScopes.occurrences(variable)) locals += JsonataScopes.visibleNames(occurrence)
-            locals -= oldName
-            val file = variable.containingFile as? JsonataFile
-            val reads = file?.let { JsonataScopes.variables(it) }.orEmpty()
-                .filter { JsonataScopes.declarations(it).isEmpty() }
-                .mapTo(HashSet()) { it.name }
-            return JsonataRenameConflicts(oldName, locals, reads)
+            locals -= variable.name
+            val file = variable.containingFile as JsonataFile
+            val reads = JsonataScopes.variables(file).filter { JsonataScopes.declarations(it).isEmpty() }.mapTo(HashSet()) { it.name }
+            val early = JsonataScopes.earlyUses(file).mapTo(HashSet()) { it.name }
+            return JsonataRenameConflicts(variable.project, variable.name, locals, reads, early, pieces(variable, file), meaningsOf(file))
+        }
+
+        /** The leaves of [file] as Step Functions reads them, each marked when it is the name token of an occurrence of [variable]. */
+        private fun pieces(variable: JsonataVariableRef, file: JsonataFile): List<Pair<String, Boolean>> {
+            val injected = InjectedLanguageManager.getInstance(file.project).takeIf { it.isInjectedFragment(file) }
+            val names = JsonataScopes.occurrences(variable).mapNotNullTo(HashSet()) { it.nameIdentifier }
+            val pieces = ArrayList<Pair<String, Boolean>>()
+            var leaf: PsiElement? = PsiTreeUtil.firstChild(file)
+            while (leaf != null) {
+                if (leaf.firstChild == null && leaf.textLength > 0) pieces += (injected?.getUnescapedText(leaf) ?: leaf.text) to (leaf in names)
+                leaf = PsiTreeUtil.nextLeaf(leaf)
+            }
+            return pieces
+        }
+
+        /**
+         * For each variable of [file] in file order, what it refers to: the position of its first declaration among
+         * the variables, or its name when it is no local variable. Two expressions whose variables have the same
+         * meanings (after numbering the declarations by first appearance) read the same names the same way.
+         */
+        private fun meaningsOf(file: JsonataFile): List<String> {
+            val variables = JsonataScopes.variables(file)
+            val index = variables.withIndex().associate { (i, v) -> v to i }
+            val numbers = HashMap<Int, Int>()
+            return variables.map { v ->
+                val first = JsonataScopes.declarations(v).firstOrNull()
+                if (first == null) "read ${v.name}" else "local ${numbers.getOrPut(index.getValue(first)) { numbers.size }}"
+            }
         }
     }
 }

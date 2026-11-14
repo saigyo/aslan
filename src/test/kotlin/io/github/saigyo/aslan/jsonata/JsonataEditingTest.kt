@@ -145,6 +145,27 @@ class JsonataEditingTest : JsonataTestCase() {
         roundTrip(block, block.replace("<caret>", "").replace("{% \$x + 1 %}", "{% /* \$x + 1 */ %}"))
     }
 
+    /** Toggles a block comment around the `<selection>` of the standalone expression [text], and returns the text. */
+    private fun blockComment(text: String): String {
+        jsonata(text)
+        myFixture.performEditorAction(IdeActions.ACTION_COMMENT_BLOCK)
+        return myFixture.editor.document.text
+    }
+
+    fun `test a block comment around a selection and off again`() {
+        assertEquals("/*1 + 2*/ + 3", blockComment("<selection>1 + 2</selection> + 3"))
+        assertEquals("1 + 2 + 3", blockComment("<selection>/*1 + 2*/</selection> + 3"))
+    }
+
+    fun `test a selection holding a comment delimiter is left as it is`() {
+        for (text in listOf("1 + /* c */ 2", "\"a*/\" & 1")) {
+            assertEquals(text, text, blockComment("<selection>$text</selection>"))
+        }
+        // from one comment to another: the outer delimiters are not taken off, which would leave the inner ones
+        // unmatched; the platform then uncomments the one whole comment at the caret, as in every language
+        assertEquals(" a  1 + 2 /* b */", blockComment("<selection><caret>/* a */ 1 + 2 /* b */</selection>"))
+    }
+
     fun `test toggling a comment on one line of a multi-line expression`() {
         val text = yamlScalarHost(">-\n      {% \$x +\n      <caret>1 %}")
         roundTrip(text, text.replace("<caret>", "").replace("      1 %}", "      /* 1 */ %}"))

@@ -8,9 +8,9 @@ import io.github.saigyo.aslan.jsonata.parser.JsonataElements
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 
 /**
- * The local variables of a JSONata expression. A scope is a `LAMBDA`, a `BLOCK`, or the file. A lambda declares its
- * parameters; a lambda, a block or the file declares every name that is the target of `:=`, or bound by `@` or `#`,
- * inside it and not inside a nested block or lambda.
+ * The local variables of a JSONata expression. A scope is a `LAMBDA`, a `BLOCK`, a whole path that binds a name with
+ * `@` or `#` (`items@$i.name`, up to where the path ends), or the file. A lambda declares its parameters; each scope
+ * declares every name that is the target of `:=`, or bound by `@` or `#`, inside it and not inside a nested scope.
  *
  * A parameter is visible in the whole lambda. A name declared by `:=`, `@` or `#` is visible in its scope from the end
  * of its first declaration there on (for `:=` after the right side of that first assignment, which JSONata evaluates
@@ -75,6 +75,31 @@ object JsonataScopes {
     /** Every `$name` of [file] that can be a local variable (see [localName]), local or not, in file order. */
     internal fun variables(file: JsonataFile): List<JsonataVariableRef> = bindings(file).variables
 
+    /**
+     * The uses of [file] whose meaning depends on when a function runs: a use inside a lambda that stands before the
+     * end of the first declaration it refers to. Called before that declaration, the function reads the name from
+     * further out (a built-in function, an outer variable); called after it, the local variable. A use inside the
+     * lambda that is itself the right side of that declaration (`$f := function(){ $f() }`) is not one of them: that
+     * function exists only once the assignment is done.
+     */
+    internal fun earlyUses(file: JsonataFile): List<JsonataVariableRef> {
+        val bindings = bindings(file)
+        return bindings.variables.filter { variable ->
+            val first = bindings.firstOf[variable]
+            first != null && first !== variable && first.node.elementType != JsonataElements.PARAMETER &&
+                variable.textRange.startOffset < declarationEnd(first) && !inOwnDefinition(variable, first)
+        }
+    }
+
+    /** Whether [variable] stands inside the lambda that is the right side of the assignment whose target is [first]. */
+    private fun inOwnDefinition(variable: JsonataVariableRef, first: JsonataVariableRef): Boolean {
+        val target = first.parent?.takeIf { it.node.elementType == JsonataElements.FILTER } ?: first
+        val assignment = target.parent as? JsonataElement ?: return false
+        if (assignment.node.elementType != JsonataElements.ASSIGNMENT || assignment.operands.firstOrNull() !== target) return false
+        val definition = assignment.operands.getOrNull(1)?.takeIf { it.node.elementType == JsonataElements.LAMBDA } ?: return false
+        return definition.textRange.contains(variable.textRange)
+    }
+
     /** The name of [variable] without `$`, or null where it cannot be a local variable: `$`, `$$`, a placeholder. */
     internal fun localName(variable: JsonataVariableRef): String? {
         val token = variable.node.firstChildNode ?: return null
@@ -120,7 +145,37 @@ object JsonataScopes {
         CachedValuesManager.getCachedValue(file) { CachedValueProvider.Result.create(compute(file), file) }
 
     private fun isScope(element: PsiElement): Boolean =
-        element.node.elementType.let { it == JsonataElements.BLOCK || it == JsonataElements.LAMBDA }
+        element.node.elementType.let { it == JsonataElements.BLOCK || it == JsonataElements.LAMBDA } || isPathScope(element)
+
+    /** The nodes whose steps make up one path: `a.b`, `a[p]`, `a^(k)`, `a{k: v}`, `a@$v`, `a#$v`. */
+    private val STEPPED = setOf(
+        JsonataElements.PATH, JsonataElements.FILTER, JsonataElements.ORDER_BY, JsonataElements.GROUP_BY,
+        JsonataElements.FOCUS_BINDING, JsonataElements.INDEX_BINDING,
+    )
+
+    /** The children of [element] that are steps of its path: both sides of `.`, the left side of the others. */
+    private fun steps(element: PsiElement): List<PsiElement> {
+        val operands = (element as? JsonataElement)?.operands.orEmpty()
+        return if (element.node.elementType == JsonataElements.PATH) operands.take(2) else operands.take(1)
+    }
+
+    /**
+     * Whether [element] is a whole path that binds a variable with `@` or `#` in one of its steps. Step Functions
+     * evaluates such a path as a stream of bindings that ends with the path, so the path is the scope of what it binds.
+     */
+    private fun isPathScope(element: PsiElement): Boolean {
+        if (element.node.elementType !in STEPPED) return false
+        val parent = element.parent
+        if (parent != null && parent.node.elementType in STEPPED && steps(parent).any { it === element }) return false
+        val pending = arrayListOf(element)
+        while (pending.isNotEmpty()) {
+            val step = pending.removeAt(pending.size - 1)
+            val type = step.node.elementType
+            if (type == JsonataElements.FOCUS_BINDING || type == JsonataElements.INDEX_BINDING) return true
+            if (type in STEPPED) pending += steps(step)
+        }
+        return false
+    }
 
     /** One walk in file order with an explicit stack (trees can be hundreds of levels deep), then one lookup per variable. */
     private fun compute(file: JsonataFile): Bindings {

@@ -92,8 +92,7 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
         var end = selectionEnd
         while (start < end && text[start].isWhitespace()) start++
         while (end > start && text[end - 1].isWhitespace()) end--
-        val inside = text.subSequence(start, end)
-        return if (inside.length >= OPEN.length + CLOSE.length && inside.startsWith(OPEN) && inside.endsWith(CLOSE)) TextRange(start, end) else null
+        return if (isOneComment(text.subSequence(start, end).toString())) TextRange(start, end) else null
     }
 
     override fun getBlockCommentPrefix(selectionStart: Int, document: Document, data: CommenterDataHolder): String = OPEN
@@ -107,8 +106,11 @@ class JsonataCommenter : Commenter, SelfManagingCommenter<CommenterDataHolder> {
         document.deleteString(range.startOffset, range.startOffset + OPEN.length)
     }
 
+    /** Like a line, a selection that holds a comment delimiter is left as it is, since comments do not nest. */
     override fun insertBlockComment(startOffset: Int, endOffset: Int, document: Document, data: CommenterDataHolder): TextRange {
         if (data === Disabled) return TextRange(startOffset, endOffset)
+        val selected = document.charsSequence.subSequence(startOffset, endOffset)
+        if (selected.contains(OPEN) || selected.contains(CLOSE)) return TextRange(startOffset, endOffset)
         document.insertString(endOffset, CLOSE)
         document.insertString(startOffset, OPEN)
         return TextRange(startOffset, endOffset + OPEN.length + CLOSE.length)
