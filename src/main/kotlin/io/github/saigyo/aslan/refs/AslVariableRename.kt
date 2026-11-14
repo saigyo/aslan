@@ -43,7 +43,9 @@ import io.github.saigyo.aslan.tree.AslEntry
 import org.jetbrains.yaml.psi.YAMLAlias
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLKeyValue
+import org.jetbrains.yaml.psi.YAMLMapping
 import org.jetbrains.yaml.psi.YAMLScalar
+import org.jetbrains.yaml.psi.YAMLSequence
 import java.awt.GridBagConstraints
 import javax.swing.JCheckBox
 import javax.swing.JPanel
@@ -97,6 +99,12 @@ internal enum class RenameConflictKind {
 
     /** Rule 4: an occurrence that also belongs to another variable, or to a read of no variable (a YAML alias). */
     SHARED_OCCURRENCE,
+
+    /**
+     * A key renamed in a mapping that also takes keys from a YAML merge key, where a merged key has the old or the new
+     * name: the rename would let a merged key the local one masks take effect, or make the renamed key mask one.
+     */
+    MERGE_KEY_CLASH,
 
     /** Rule 5: an occurrence whose text in the host is not the old name, such as one written with an escape. */
     ESCAPED_OCCURRENCE,
@@ -228,6 +236,18 @@ internal class AslVariableRename private constructor(
             if (treeUses.of(read.string) != read.countedUses.toLong()) {
                 out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, read.element, "This read is also used through an alias where it is no read of \$$oldName")
             }
+        }
+
+        // a merged key of the old or the new name next to a renamed key, which the model does not show when masked
+        val ownEntries = keys.mapTo(HashSet()) { it.entry.entryPsi }
+        for (key in keys) {
+            val clash = YamlMerges.keysBesides(key.entry.entryPsi).firstOrNull { other ->
+                other !in ownEntries && other.keyText.removeSuffix(".$").let { it == oldName || it == newName }
+            } ?: continue
+            out += RenameConflict(
+                RenameConflictKind.MERGE_KEY_CLASH, key.entry.entryPsi,
+                "A key '${clash.keyText}' merged into the same mapping would then take effect or be masked",
+            )
         }
 
         // 5: an occurrence whose raw host text is not the old name
@@ -413,6 +433,56 @@ private class YamlTreeUses(file: PsiFile) {
 
     private companion object {
         const val MANY = 1_000_000L
+    }
+}
+
+/**
+ * The keys that stand next to a key in a mapping that takes keys from a YAML merge key (`<<`). The YAML tree drops a
+ * merged key that an explicit one masks, so the model does not show these.
+ */
+private object YamlMerges {
+    private const val MERGE_KEY = "<<"
+
+    /**
+     * Every key, explicit or merged (through nested merge keys too), of each mapping that holds [entry] or merges the
+     * mapping that holds it, where that mapping has a merge key; [entry] itself excluded. Empty outside YAML.
+     */
+    fun keysBesides(entry: PsiElement): List<YAMLKeyValue> {
+        val own = entry.parent as? YAMLMapping ?: return emptyList()
+        val file = entry.containingFile as? YAMLFile ?: return emptyList()
+        val merges = PsiTreeUtil.findChildrenOfType(file, YAMLKeyValue::class.java).filter { it.keyText == MERGE_KEY }
+        // the mapping of the entry, and every mapping that merges one of these
+        val holders = linkedSetOf(own)
+        val pending = ArrayDeque(listOf(own))
+        while (pending.isNotEmpty()) {
+            val mapping = pending.removeFirst()
+            for (merge in merges) {
+                val holder = merge.parentMapping ?: continue
+                if (mapping in targets(merge) && holders.add(holder)) pending += holder
+            }
+        }
+        return holders.filter { holder -> holder.keyValues.any { it.keyText == MERGE_KEY } }
+            .flatMap { keys(it, HashSet()) }
+            .filter { it !== entry }
+            .distinct()
+    }
+
+    /** The explicit keys of [mapping] and those its merge keys bring in, recursively. */
+    private fun keys(mapping: YAMLMapping, seen: MutableSet<YAMLMapping>): List<YAMLKeyValue> {
+        if (!seen.add(mapping)) return emptyList()
+        return mapping.keyValues.flatMap { keyValue ->
+            if (keyValue.keyText == MERGE_KEY) targets(keyValue).flatMap { keys(it, seen) } else listOf(keyValue)
+        }
+    }
+
+    /** The mappings the merge key [merge] names: one alias, or a list of aliases. */
+    private fun targets(merge: YAMLKeyValue): List<YAMLMapping> {
+        val aliases = when (val value = merge.value) {
+            is YAMLAlias -> listOf(value)
+            is YAMLSequence -> value.items.mapNotNull { it.value as? YAMLAlias }
+            else -> emptyList()
+        }
+        return aliases.mapNotNull { it.reference?.resolve()?.markedValue as? YAMLMapping }
     }
 }
 

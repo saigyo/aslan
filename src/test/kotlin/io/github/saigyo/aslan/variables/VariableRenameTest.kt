@@ -21,6 +21,7 @@ import io.github.saigyo.aslan.refs.AslVariableTargets
 import io.github.saigyo.aslan.refs.RenameConflictKind
 import io.github.saigyo.aslan.refs.RenameConflictKind.ESCAPED_OCCURRENCE
 import io.github.saigyo.aslan.refs.RenameConflictKind.LOCAL_OF_NEW_NAME
+import io.github.saigyo.aslan.refs.RenameConflictKind.MERGE_KEY_CLASH
 import io.github.saigyo.aslan.refs.RenameConflictKind.NAME_IN_REGION
 import io.github.saigyo.aslan.refs.RenameConflictKind.NEW_NAME_MENTIONED
 import io.github.saigyo.aslan.refs.RenameConflictKind.REGION_OPEN
@@ -519,6 +520,48 @@ class VariableRenameTest : VariableTestCase() {
             """.trimIndent(),
         )
         assertEquals(setOf(SHARED_OCCURRENCE), assertRenameConflict(withCaret(expression, "re|el: 1"), "film"))
+    }
+
+    fun `test a rename refuses to unmask a merged key of the old name`() {
+        val text = """
+            StartAt: Store
+            States:
+              Store:
+                Type: Pass
+                Parameters: &defaults
+                  reel: 1
+                Assign:
+                  <<: *defaults
+                  re<caret>el: 2
+                Next: Show
+              Show:
+                Type: Pass
+                InputPath: §reel
+                End: true
+        """.trimIndent()
+        // after a rename to film, the merged `reel: 1` would take effect and Assign would assign reel as well
+        assertEquals(setOf(MERGE_KEY_CLASH), assertRenameConflict(text, "film"))
+    }
+
+    fun `test a rename refuses to mask a merged key of the new name`() {
+        val text = """
+            StartAt: Store
+            States:
+              Store:
+                Type: Pass
+                Parameters: &defaults
+                  film: 1
+                Assign:
+                  <<: *defaults
+                  re<caret>el: 2
+                Next: Show
+              Show:
+                Type: Pass
+                InputPath: §reel
+                End: true
+        """.trimIndent()
+        // the merged `film` is an assignment of the new name too; the renamed key would mask it
+        assertEquals(setOf(NAME_IN_REGION, MERGE_KEY_CLASH), assertRenameConflict(text, "film"))
     }
 
     fun `test an alias that every use reads the variable through is renamed once`() {

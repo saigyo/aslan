@@ -7,8 +7,8 @@ import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.NavigationItem
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
