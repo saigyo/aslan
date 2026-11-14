@@ -40,9 +40,9 @@ class JsonataConformanceTest : AslTestCase() {
     fun `test errors found after parsing`() {
         for ((expr, code) in listOf(
             "[1,2,3]{\"num\": \$}[true]" to "S0209", "[1,2,3]{\"num\": \$}{\"num\": \$}" to "S0210", "\$.7" to "S0213",
-            "Account.Order[1]@\$o.Product" to "S0215", "Account.Order^(>OrderID)@\$o.Product" to "S0216",
+            "Archive.Reel[1]@\$o.Title" to "S0215", "Archive.Reel^(>ReelID)@\$o.Title" to "S0216",
         )) assertEquals(expr, code, JsonataScanner.scan(expr).error?.code)
-        for (expr in listOf("Account.Order{\"a\": 1}[0]", "\$.\"7\"", "Account.Order@\$o[1].Product", "(7).a"))
+        for (expr in listOf("Archive.Reel{\"a\": 1}[0]", "\$.\"7\"", "Archive.Reel@\$o[1].Title", "(7).a"))
             assertNull(expr, JsonataScanner.scan(expr).error)
     }
 

@@ -155,6 +155,23 @@ class JsonataEditingTest : JsonataTestCase() {
         roundTrip(text, text.replace("<caret>", "").replace("    Output:", "#    Output:"))
     }
 
+    fun `test toggling a comment in a quoted scalar over several lines changes nothing`() {
+        for (quote in listOf("'", "\"")) {
+            val text = yamlScalarHost("$quote{% \$x +\n      <caret>1 %}$quote")
+            myFixture.configureByText("multi.asl.yaml", text)
+            val plain = text.replace("<caret>", "")
+            // a block comment of a selection inside the expression: the JSONata commenter does nothing here
+            val editor = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+            editor.selectionModel.setSelection(plain.indexOf("1 %}"), plain.indexOf("1 %}") + 1)
+            myFixture.performEditorAction(IdeActions.ACTION_COMMENT_BLOCK)
+            assertEquals(quote, plain, hostDocText())
+            // a line comment on the second line is the YAML plugin's: it puts `#` at the start of the line, which in a
+            // quoted scalar is part of the value. Pinned here as a known limitation; the JSONata commenter is not asked.
+            myFixture.configureByText("multi2.asl.yaml", text)
+            assertEquals(quote, plain.replace("\n          1 %}", "\n#          1 %}"), toggle(text.indexOf("<caret>")))
+        }
+    }
+
     fun `test a quote typed outside the injected part of the host is not escaped`() {
         var counter = 0
         for ((style, quote, file, plain) in listOf(

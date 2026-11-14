@@ -161,7 +161,11 @@ class JsonataChecksTest : CheckTestCase() {
 
     fun `test a local variable named states is checked like the built-in`() {
         assertEquals(field("result"), task("Arguments", "(\$states := {\"result\": 1}; \$states.result)"))
-        assertEquals(field("nope"), expr("function(\$states){ \$states.nope }({\"nope\": 1})"))
+    }
+
+    fun `test a parameter named states is not checked`() {
+        assertEquals(nothing, expr("function(\$states){ \$states.nope }({\"nope\": 1})"))
+        assertEquals(nothing, task("Arguments", "function(\$states){ \$states.result }({\"result\": 1})"))
     }
 
     fun `test the field below a step on states`() {
@@ -225,7 +229,7 @@ class JsonataChecksTest : CheckTestCase() {
             "\$map(\$states.input.items, function(\$v){ foo })" to "foo", "foo ? 1 : 2" to "foo", "-foo" to "foo",
             "foo & \"x\"" to "foo", "foo.bar[baz > 1]" to "foo", "\$states.input.items[\$\$.a]" to "\$\$",
             "and" to "and", "or.x" to "or", "`reel title`" to "`reel title`",
-            "foo[0]" to "foo", "foo^(a)" to "foo", "foo{\"a\": 1}" to "foo", "foo@\$f.id" to "foo", "foo#\$i.id" to "foo",
+            "foo[0]" to "foo", "foo^(a)" to "foo", "foo{\"a\": 1}" to "foo", "foo@\$f.id" to "foo",
             "(\$x := foo; 1)" to "foo", "\$states.input ~> foo" to "foo", "[foo..3]" to "foo", "[1..foo]" to "foo",
             "foo ~> |a|{}|" to "foo",
         )
@@ -234,13 +238,15 @@ class JsonataChecksTest : CheckTestCase() {
 
     fun `test names with an input`() {
         val silent = listOf(
-            "*", "%", "\$states.input.items[price > 1]", "\$states.input.items.\$", "\$states.input.{\"a\": b}",
-            "\$states.input.items^(price)", "\$states.input.items{category: price}", "\$states.input.items.\$string(name)",
-            "\$states.input ~> |items|{\"a\": b}|", "\$states.input.orders.items.%.id", "\$states.input.*", "\$states.input.**.id",
+            "*", "%", "\$states.input.items[year > 1]", "\$states.input.items.\$", "\$states.input.{\"a\": b}",
+            "\$states.input.items^(year)", "\$states.input.items{genre: year}", "\$states.input.items.\$string(name)",
+            "\$states.input ~> |items|{\"a\": b}|", "\$states.input.archives.items.%.id", "\$states.input.*", "\$states.input.**.id",
             "\$states.input.items#\$i.{\"n\": \$i, \"v\": name}", "\$states.input.items@\$it.{\"v\": \$it.name}",
             "\$states.input.name ~> \$uppercase() ~> \$trim()", "\$substring(?, 0, 2)(\"hello\")", "\$states.input.`reel title`",
             "**", "**.id", "*.id", "\$states.input.[a, b]", "(\$states.input).a", "\$states.input.items[0]",
             "\$states.input.items{\"a\": b}", "\$states.input.items^(>b)",
+            // the base of an index binding: AWS was not asked about it
+            "foo#\$i.id", "foo#\$i",
         )
         for (expression in silent) assertEquals(expression, nothing, expr(expression))
     }

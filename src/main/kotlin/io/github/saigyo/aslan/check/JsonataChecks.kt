@@ -147,13 +147,16 @@ internal object JsonataChecks {
 
         /**
          * `$states.name`: a name that is no field of `$states`, a field that a use of the expression does not have, or a
-         * wildcard. AWS decides by the name, so a local variable named `$states` counts too, but only the variable itself
-         * on the left side, not a block around it. The name is the base of any filter, binding, order-by or group-by.
+         * wildcard. AWS decides by the name, so a local variable named `$states` assigned with `:=` counts too, but only
+         * the variable itself on the left side, not a block around it. A `$states` that is a parameter of a function
+         * definition is not checked: AWS was not asked about that form. The name is the base of any filter, binding,
+         * order-by or group-by.
          */
         private fun statesField(path: JsonataPath) {
             val lhs = path.lhs as? JsonataVariableRef ?: return
             // a PARAMETER is a JsonataVariableRef too, and never the left side of a path
             if (lhs.node.elementType != E.VARIABLE_REF || JsonataScopes.localName(lhs) != "states") return
+            if (JsonataScopes.declarations(lhs).firstOrNull()?.node?.elementType == E.PARAMETER) return
             var rhs = path.rhs ?: return
             while (rhs.node.elementType in STEPS) rhs = (rhs as JsonataElement).operands.firstOrNull() ?: return
             if (rhs.node.elementType == E.WILDCARD) {
@@ -196,20 +199,20 @@ internal object JsonataChecks {
      * Whether [child], the operand at [index] of [parent], is evaluated against the same input as [parent]. This decides
      * between an error and silence, so it lists only places where AWS rejected a name without an input, and the places
      * that inherit the input in JSONata in the same way; every other place is taken to have an input. Inheriting: the
-     * left side of a path, the base of a filter, order-by, group-by and `@` or `#` binding, both sides of a binary
+     * left side of a path, the base of a filter, order-by, group-by and `@` binding, both sides of a binary
      * operator (`~>` included), the operands of a range, the value of `:=`, the items of an array, the pairs of an object
      * constructor and both their parts, a block, the operand of a negation and of a conditional, the arguments of a call
      * of a variable or a function definition (unless an argument is a partial application's `?`), and the body of a
      * function definition that is called directly or given to one of the built-in functions that call their function
      * argument. A filter predicate, the pairs of a group-by, the terms of an order-by and the parts of a transform have
-     * an input.
+     * an input, and so has the base of a `#` binding, which AWS was not asked about.
      */
     private fun inherits(parent: PsiElement, child: PsiElement, index: Int): Boolean {
         if (child.node.elementType == E.LAMBDA && !calledLambda(parent, child, index)) return false
         return when (parent.node.elementType) {
             E.BLOCK, E.ARRAY, E.RANGE, E.OBJECT, E.NEGATION, E.CONDITIONAL, E.LAMBDA, E.BINARY -> true
             E.PAIR -> parent.parent?.node?.elementType == E.OBJECT
-            E.PATH, E.FILTER, E.ORDER_BY, E.GROUP_BY, E.FOCUS_BINDING, E.INDEX_BINDING -> index == 0
+            E.PATH, E.FILTER, E.ORDER_BY, E.GROUP_BY, E.FOCUS_BINDING -> index == 0
             E.ASSIGNMENT -> index == 1
             E.CALL -> {
                 val callee = (parent as JsonataCall).callee
