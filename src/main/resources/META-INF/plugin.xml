@@ -12,7 +12,12 @@
             <li>Go to a state, find the transitions that point to it, and rename a state with all of them</li>
             <li>Structure view that lists states by type</li>
             <li>Highlighting of ASL field names, state names and transition targets</li>
-            <li>Support for <code>${name}</code> placeholders</li>
+            <li>JSONata in <code>{% … %}</code> strings: highlighting and syntax checks exactly as Step Functions parses it (JSONata 2.0.6)</li>
+            <li>Six JSONata inspections, each of which can be switched off: syntax error, a field of <code>$states</code> that does not exist where it is used, an operator of JSONata 2.1, a field name, <code>$</code> or <code>$$</code> without an input, a call of an unknown function, and <code>$eval</code></li>
+            <li>JSONata completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation and parameter hints for the built-in functions and the Step Functions additions</li>
+            <li>Local JSONata variables: go to declaration, find usages, highlight usages and rename</li>
+            <li>Brackets, quotes and comment toggling inside expressions</li>
+            <li>Support for <code>${name}</code> placeholders. An expression that contains <code>${</code> outside a string literal is not judged at all</li>
         </ul>
         <p>Files named <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code> are recognised; more file name patterns can be added in the settings. The plugin makes no network requests.</p>
         <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.</p>

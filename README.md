@@ -12,7 +12,11 @@ Editor support for Amazon States Language (AWS Step Functions) definitions in Je
 - **Navigation and rename** for state names: go to the state a transition points to, find the transitions that point to a state, and rename a state together with all of them. A rename stays inside its own state machine, and the plugin reports name conflicts.
 - **Structure view** that lists the states by type, with the states of Map and Parallel states nested below them. It works for YAML and JSON.
 - **Highlighting** of ASL field names, state names and transition targets, with colours that can be changed under Settings | Editor | Color Scheme | Amazon States Language.
+- **JSONata** in `{% … %}` strings of states that use JSONata, in YAML (plain, quoted, literal and folded scalars) and in JSON. An expression is highlighted, with its own colour settings, and syntax-checked exactly as Step Functions parses it (JSONata 2.0.6, including its rules for where a `/` starts a regular expression). Six inspections report a syntax error; a field of `$states` that does not exist where it is used (for example `$states.result` outside a Task, Map or Parallel state); an operator of JSONata 2.1 (`?:`, `??`), which Step Functions does not have; a field name, `$` or `$$` where there is no input; a call of an unknown function; and `$eval`, which Step Functions does not support. Each can be switched off.
+- **JSONata editing:** completion of the built-in functions and the Step Functions additions, of `$states` and its fields (including the fields of `$states.context`), of local variables and of keywords; quick documentation and parameter hints for functions; go to declaration, find usages, usage highlighting and rename for local variables (`$x := …` and function parameters); matching of brackets and quotes; comment toggling. Typing the quote of the surrounding YAML or JSON string inside an expression inserts its escaped form.
 - **Placeholders** of the form `${name}` are recognised as template placeholders. They are never reported as problems, and Highlight Usages marks all occurrences of the same placeholder.
+
+An expression that contains `${` outside a string literal is not judged at all, because a deployment tool replaces that text before AWS sees it. The plugin does not check the syntax of regular expressions, the parent operator `%`, function signatures, or the number and types of the arguments of a call.
 
 The plugin makes no network requests. YAML anchors, aliases and merge keys, and the contents of free-form data fields, are never reported.
 
@@ -22,7 +26,7 @@ A file is treated as an ASL file when its name ends in `.asl.yaml`, `.asl.yml` o
 
 ## Status
 
-In development and not yet published. Stage 1 of 4 (ASL-aware editing) is complete. The other stages are JSONata support, variable navigation and a live diagram.
+In development and not yet published. Stages 1 and 2 of 4 (ASL-aware editing and JSONata support) are complete. The other stages are variable navigation and a live diagram.
 
 ## Requirements
 
