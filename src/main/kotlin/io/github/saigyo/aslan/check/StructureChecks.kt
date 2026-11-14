@@ -23,6 +23,7 @@ import io.github.saigyo.aslan.check.AslProblem.WRONG_VALUE_KIND
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslState
 import io.github.saigyo.aslan.model.AslStateMachine
+import io.github.saigyo.aslan.model.JsonataSites
 import io.github.saigyo.aslan.model.isUnappliedMerge
 import io.github.saigyo.aslan.model.leavesFieldsOpen
 import io.github.saigyo.aslan.spec.AslSpec
@@ -80,7 +81,7 @@ internal object StructureChecks {
         val jsonataPossible: Boolean get() = ql == QueryLanguage.JSONATA || !known
 
         /** Where Step Functions evaluates `{%` strings in JSONata fields and free-form data. */
-        val evaluatesJsonata: Boolean get() = inState && known && ql == QueryLanguage.JSONATA
+        val evaluatesJsonata: Boolean get() = inState && JsonataSites.evaluatedIn(ql, known)
 
         companion object {
             /** The context of the top level of [doc], whose `QueryLanguage` decides that of every state unless it sets its own. */
@@ -339,7 +340,7 @@ internal object StructureChecks {
 
         private fun unclosed(scalar: AslScalar) {
             val text = scalar.text
-            if (text.endsWith("%}")) return
+            if (JsonataSites.closes(text)) return
             val message = if (text.trimEnd('\n', '\r').endsWith("%}")) {
                 "A JSONata expression must end with %}, but this value ends with a line break; in a YAML block scalar, >- or |- removes it"
             } else {
@@ -384,7 +385,7 @@ internal object StructureChecks {
         return node is AslScalar && (node.type == expected || (node.type == ScalarType.NULL && nullable))
     }
 
-    internal fun isJsonata(scalar: AslScalar) = scalar.type == ScalarType.STRING && scalar.text.startsWith("{%")
+    internal fun isJsonata(scalar: AslScalar) = JsonataSites.opens(scalar)
 
     /** `End` counts as possibly true unless it is the Boolean `false`; a placeholder or ambiguous value stays possible. */
     internal fun mayEnd(end: AslEntry?): Boolean {

@@ -32,6 +32,9 @@ class AslDocument(
         HashMap<PsiElement, AslState>().also { map -> for (s in states) map.putIfAbsent(s.entry.entryPsi, s) }
     }
 
+    /** The strings Step Functions evaluates as JSONata, one site for each state that uses one. */
+    val jsonataSites: JsonataSites by lazy { JsonataSites(this) }
+
     /** The root machine first, then the nested ones, depth first in file order. */
     fun allMachines(): List<AslStateMachine> = machines
 
