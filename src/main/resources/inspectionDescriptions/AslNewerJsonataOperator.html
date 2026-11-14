@@ -1,0 +1,6 @@
+<html>
+<body>
+<p>Reports the operators <code>?:</code> and <code>??</code> in a JSONata expression. They come from JSONata 2.1, which is newer than the JSONata Step Functions runs; Step Functions rejects the definition with a syntax error when it is created. Write a conditional instead, for example <code>$exists(a) ? a : b</code>.</p>
+<p>Characters inside the signature of a function definition are not operators and are not reported. An expression that contains a deployment-time placeholder such as <code>${Name}</code> outside a string literal is not checked. To switch the check off, disable this inspection in Settings | Editor | Inspections | Amazon States Language.</p>
+</body>
+</html>

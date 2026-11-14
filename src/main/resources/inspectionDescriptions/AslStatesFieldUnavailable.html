@@ -1,0 +1,7 @@
+<html>
+<body>
+<p>Reports a field of the reserved variable <code>$states</code> in a JSONata expression that does not exist where the expression is evaluated. Step Functions rejects the definition when it is created.</p>
+<p><code>$states.result</code> exists only in the <code>Output</code> and <code>Assign</code> of a Task, Map or Parallel state, and <code>$states.errorOutput</code> only in the <code>Output</code> and <code>Assign</code> of a catcher. Any name other than <code>input</code>, <code>context</code>, <code>result</code> and <code>errorOutput</code> is reported everywhere. An expression that several states use through a YAML alias is reported when one of these uses lacks the field. The fields below <code>$states.context</code> are not checked, and a local variable named <code>$states</code> is not the reserved variable.</p>
+<p>An expression that contains a deployment-time placeholder such as <code>${Name}</code> outside a string literal is not checked. To switch the check off, disable this inspection in Settings | Editor | Inspections | Amazon States Language.</p>
+</body>
+</html>

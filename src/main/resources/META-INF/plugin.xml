@@ -143,6 +143,16 @@
                          displayName="JSONata delimiters that do not wrap the whole value" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslJsonataSyntaxError" implementationClass="io.github.saigyo.aslan.check.AslJsonataSyntaxErrorInspection"
                          displayName="JSONata syntax error" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslStatesFieldUnavailable" implementationClass="io.github.saigyo.aslan.check.AslStatesFieldUnavailableInspection"
+                         displayName="Field of $states that does not exist in this place" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslNewerJsonataOperator" implementationClass="io.github.saigyo.aslan.check.AslNewerJsonataOperatorInspection"
+                         displayName="JSONata operator newer than Step Functions" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslJsonataWithoutInput" implementationClass="io.github.saigyo.aslan.check.AslJsonataWithoutInputInspection"
+                         displayName="JSONata name evaluated without an input" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslUnknownJsonataFunction" implementationClass="io.github.saigyo.aslan.check.AslUnknownJsonataFunctionInspection"
+                         displayName="Unknown JSONata function" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslUnsupportedJsonataFunction" implementationClass="io.github.saigyo.aslan.check.AslUnsupportedJsonataFunctionInspection"
+                         displayName="JSONata function Step Functions does not support" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>
