@@ -934,4 +934,19 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(3, variables.assignments.count { it.name == "reel" })
         assertEquals(7, variables.reads.count { it.name == "reel" })
     }
+
+    /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
+    private val deseret = String(Character.toChars(0x10400))
+
+    fun `test a rename leaves a read of a name with a supplementary letter after it alone`() {
+        val before = machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$deseret: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$deseret\n  End: true")
+        val after = renameAtCaret(withCaret(before, "    |a: 1"), "b")
+        assertEquals(before.replace("    a: 1", "    b: 1").replace("§", "$"), after)
+    }
+
+    fun `test a name with a supplementary letter after it does not refuse a rename`() {
+        val before = jsonataMachine("Show:\n  Type: Pass\n  Output: '{% §reel$deseret %}'\n  End: true")
+        val after = renameAtCaret(withCaret(before, "re|el: 1"), "film")
+        assertEquals(before.replace("reel: 1", "film: 1").replace("§", "$"), after)
+    }
 }
