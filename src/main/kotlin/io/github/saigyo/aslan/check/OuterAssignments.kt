@@ -7,7 +7,7 @@ import io.github.saigyo.aslan.model.TransitionKind
 
 /**
  * Which assignments in the machines around a nested state machine apply before the flow enters it, as AWS judges
- * "already defined in a parent scope" (rounds 12 and 13). For a machine E around the nested one, S is the state of E
+ * "already defined in a parent scope" (rounds 12 to 14). For a machine E around the nested one, S is the state of E
  * that holds it (directly or through further nesting). An assignment Y in E applies before S when the flow leads from
  * it to S, along any transitions of E (`Catch` included, so a loop counts), starting from:
  * - for the `Assign` of a state: its `Next` and its `Default` only. The `Assign` does not apply when the state fails,
@@ -26,15 +26,19 @@ internal class OuterAssignments(assignments: List<AslAssignment>) {
 
     /**
      * Whether a machine around [machine], at any level, has an assignment that [matches] and that applies before the
-     * flow enters the state of that machine that holds [machine].
+     * flow enters the state of that machine that holds [machine]. Without [holderCounts], an assignment in that state
+     * itself never counts, loop or not: no probe asks whether a read inside a Distributed Map sees it, so the check of
+     * such reads keeps to what rounds 11 to 13 answered.
      */
-    fun before(machine: AslStateMachine, matches: (AslAssignment) -> Boolean): Boolean {
+    fun before(machine: AslStateMachine, holderCounts: Boolean = true, matches: (AslAssignment) -> Boolean): Boolean {
         var inner = machine
         while (true) {
             val holder = inner.owner ?: return false
             val outer = holder.machine
             if (!flowUnknown.getOrPut(outer) { outer.hasUnknownFlow() }) {
-                val found = byMachine[outer].orEmpty().any { matches(it) && reaches(outer, entered(it), holder.name) }
+                val found = byMachine[outer].orEmpty().any {
+                    (holderCounts || it.state !== holder) && matches(it) && reaches(outer, entered(it), holder.name)
+                }
                 if (found) return true
             }
             inner = outer

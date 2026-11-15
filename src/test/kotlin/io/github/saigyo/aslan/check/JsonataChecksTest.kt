@@ -246,6 +246,16 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(nothing, inside(sum))
     }
 
+    fun `test a variable named like a built-in function shared by two states that both assign it`() {
+        val text = "QueryLanguage: JSONata\nStartAt: P\nStates:\n  P:\n    Type: Parallel\n    Branches:\n" +
+            "      - StartAt: L\n        States:\n          L:\n            Type: Pass\n            Assign:\n              eval: 1\n            Next: S\n" +
+            "          S:\n            Type: Pass\n            Output: &shared '{% \$eval %}'\n            End: true\n" +
+            "      - StartAt: M\n        States:\n          M:\n            Type: Pass\n            Assign:\n              eval: 2\n            Next: T\n" +
+            "          T:\n            Type: Pass\n            Output: *shared\n            End: true\n" +
+            "    End: true\n"
+        assertEquals(nothing, inside(text))
+    }
+
     fun `test a call of an assigned name that is no built-in function is still unknown`() {
         // the model reads $myfn as the variable, but a state machine variable holds no function
         val text = assigning("myfn: 1", "'{% \$myfn(1) %}'")

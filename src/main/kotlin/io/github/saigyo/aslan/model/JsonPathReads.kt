@@ -83,15 +83,16 @@ object JsonPathReads {
     /**
      * The `Result` values of the JSONPath Pass states, where they are written: AWS does not evaluate them
      * (`r3-AC-pass-result-key`, `PASS_RESULT_IS_STATIC`), so a `$name` there is plain data. Not a value that an alias
-     * or merge key elsewhere in the file reuses, through an anchor on it or on one of its ancestors: the reuse may be
-     * a field that is evaluated (`Parameters: *shared` in a state whose `Type` is a placeholder).
+     * or merge key elsewhere in the file reuses, wholly or in part, through an anchor on it, on one of its ancestors or
+     * on a value inside it: the reuse may be a field that is evaluated (`Parameters: *shared` in a state whose `Type` is
+     * a placeholder).
      */
     internal fun staticValues(doc: AslDocument): List<PsiElement> {
         val reused = reusedAnchoredValues(doc.file)
         return doc.allStates().mapNotNull { state ->
             if (!isJsonPath(state) || state.type?.structure != StructureId.PASS) return@mapNotNull null
             state.obj?.get(STATIC_RESULT)?.takeIf { !it.viaMerge }?.value?.takeIf { it.psi === it.usePsi }?.psi
-                ?.takeIf { value -> reused.none { PsiTreeUtil.isAncestor(it, value, false) } }
+                ?.takeIf { value -> reused.none { PsiTreeUtil.isAncestor(it, value, false) || PsiTreeUtil.isAncestor(value, it, false) } }
         }.distinct()
     }
 
