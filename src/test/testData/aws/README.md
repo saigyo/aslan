@@ -11,6 +11,10 @@ The definitions whose names start with `r9-` and `r10-` are about JSONata expres
 
 The 45 definitions whose names start with `r11-`, recorded on 2026-11-14, are about state machine variables: `r11-p-` and `r11-j-` read `$reel` from JSONPath and JSONata in every relation between the read and the assignment (none, before, the same state, later, inside or outside an inline or Distributed Map, a Parallel branch, a Catcher, a Choice rule), `r11-a-` probe the names an `Assign` key may have and an inner machine assigning an outer name. `AwsVerdictsTest` compares the variable checks with them one by one.
 
+The 11 definitions whose names start with `r12-`, recorded on 2026-11-15, follow up on round 11: `r12-o-` assign a name inside a Map or Parallel state and again outside it only after that state, in its own `Assign` or in one of its Catchers; `r12-p-` probe an outer assignment before an inline Map and the rejected names in JSONPath states. `AwsVerdictsTest` compares the variable checks with them one by one too.
+
+The 6 definitions whose names start with `r13-`, recorded on 2026-11-15, ask the finer points of that order: an outer assignment in a Catcher or a Choice rule whose `Next` leads to the Map, a state `Assign` whose only path to the Map is its Catcher, a Choice rule `Assign` on another rule's path, an assignment after the Map that a loop leads back from, and two levels of nesting.
+
 All names, account numbers and regions in the definitions are made up. To re-record, send each `definition` to the command above and replace the stored answer; the result does not depend on the account.
 
 Some definitions depend on how a number is spelled (`5.0`, `1E2`, `15e-1`), so `verdicts.json` must be edited as text. A tool that parses and rewrites it would change these numbers.

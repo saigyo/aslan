@@ -8,14 +8,15 @@ import io.github.saigyo.aslan.model.AslAssignment
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.AslVariable
+import io.github.saigyo.aslan.model.AssignPlace
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
+import io.github.saigyo.aslan.model.TransitionKind
 import io.github.saigyo.aslan.refs.variableNameProblem
-import io.github.saigyo.aslan.spec.QueryLanguage
 
 /**
  * The checks of the state machine variables, on the model of [AslDocument.variables], held to the answers of AWS
- * round 11. Where the file does not say every name a read can reach or which way a chain goes (`isOpen`), nothing is
+ * rounds 11 to 13. Where the file does not say every name a read can reach or which way a chain goes (`isOpen`), nothing is
  * concluded about the reads there, nor about whether an assignment is read; a name and an assignment of an outer name
  * are judged by what the file says. A read is reported on its host with the range of `$name`, an assignment on its key.
  */
@@ -26,9 +27,9 @@ internal object VariableChecks {
     private const val MAX_NAME_LENGTH = 80
 
     /**
-     * Whether AWS rejects [name] in a JSONata state, for the classes probed in round 11 only: a first character that is
-     * an ASCII digit or `_`, a `.`, `-` or space, more than 80 code points (`INVALID_VARIABLE_NAME`), and `states`
-     * (`RESERVED_VARIABLE_NAME`).
+     * Whether AWS rejects [name], in a state of any query language, for the classes probed in rounds 11 and 12 only: a
+     * first character that is an ASCII digit or `_`, a `.`, `-` or space, more than 80 code points
+     * (`INVALID_VARIABLE_NAME`), and `states` (`RESERVED_VARIABLE_NAME`).
      */
     private fun rejectedName(name: String): Boolean {
         val first = name.firstOrNull() ?: return false
@@ -58,16 +59,16 @@ internal object VariableChecks {
                 val name = assignment.name
                 val nameProblem = variableNameProblem(name)
                 if (nameProblem != null) {
-                    if (assignment.state.queryLanguageKnown && assignment.state.queryLanguage == QueryLanguage.JSONATA && rejectedName(name)) {
+                    if (rejectedName(name)) {
                         report(AslProblem.INVALID_VARIABLE_NAME, assignment, "'$name' is no valid variable name: $nameProblem")
                     } else {
                         report(AslProblem.UNUSUAL_VARIABLE_NAME, assignment, "'$name' is no plain variable name: $nameProblem")
                     }
                     continue
                 }
-                if (enclosing(assignment.state.machine).any { name in assignedIn[it].orEmpty() }) {
+                if (assignedBefore(assignment)) {
                     report(AslProblem.OUTER_VARIABLE_ASSIGNED, assignment,
-                        "\$$name is a variable of an outer state machine, which a state of a nested one cannot assign")
+                        "\$$name is already assigned in an outer state machine before this one runs")
                 }
                 val variable = model.variableOf(assignment)
                 if (neverRead(variable)) report(AslProblem.VARIABLE_NEVER_READ, assignment, "\$$name is assigned but never read")
@@ -77,6 +78,56 @@ internal object VariableChecks {
         /** The machines around [machine], innermost first, across every Map and Parallel state, whatever their `Mode`. */
         private fun enclosing(machine: AslStateMachine): Sequence<AslStateMachine> =
             generateSequence(machine.owner?.machine) { it.owner?.machine }
+
+        private val assignmentsIn: Map<AslStateMachine, List<AslAssignment>> = model.assignments.groupBy { it.state.machine }
+        private val flowUnknown = HashMap<AslStateMachine, Boolean>()
+
+        /**
+         * Whether a machine E around the machine of [assignment] assigns its name where that applies before the flow
+         * enters S, the state of E that holds the nested machine (rounds 12 and 13): AWS reports the name as already
+         * defined in a parent scope. An assignment in S itself (its own `Assign`, its Catchers) applies after S. A
+         * machine whose flow is not known is skipped, since the order cannot be told.
+         */
+        private fun assignedBefore(assignment: AslAssignment): Boolean {
+            var inner = assignment.state.machine
+            while (true) {
+                val holder = inner.owner ?: return false
+                val outerMachine = holder.machine
+                if (!flowUnknown.getOrPut(outerMachine) { outerMachine.hasUnknownFlow() }) {
+                    val before = assignmentsIn[outerMachine].orEmpty()
+                        .any { it.name == assignment.name && it.state !== holder && reaches(outerMachine, entered(it), holder.name) }
+                    if (before) return true
+                }
+                inner = outerMachine
+            }
+        }
+
+        /**
+         * The states the flow enters once [assignment] has applied: for the `Assign` of a state, its `Next`, its Choice
+         * rules' `Next` and its `Default`, not its Catchers (the state's `Assign` does not apply when it fails); for that
+         * of a Catcher or a Choice rule, its own `Next`.
+         */
+        private fun entered(assignment: AslAssignment): List<String> = assignment.state.transitions.filter { t ->
+            when (assignment.place) {
+                AssignPlace.STATE -> t.kind != TransitionKind.CATCH
+                AssignPlace.CATCHER -> t.kind == TransitionKind.CATCH && t.index == assignment.index
+                AssignPlace.CHOICE_RULE -> t.kind == TransitionKind.CHOICE && t.index == assignment.index
+            }
+        }.mapNotNull { it.targetName }
+
+        /** Whether the flow of [machine] reaches the state [target] from [from], along any transitions, `Catch` included. */
+        private fun reaches(machine: AslStateMachine, from: List<String>, target: String): Boolean {
+            val reached = HashSet<String>()
+            val queue = ArrayDeque(from)
+            while (queue.isNotEmpty()) {
+                val name = queue.removeFirst()
+                if (name == target) return true
+                if (!reached.add(name)) continue
+                val state = machine.state(name) ?: continue
+                for (t in state.transitions) t.targetName?.let(queue::addLast)
+            }
+            return false
+        }
 
         /**
          * A JSONPath read without a variable is an error: AWS rejects the definition (`UNDEFINED_VARIABLE`) in every

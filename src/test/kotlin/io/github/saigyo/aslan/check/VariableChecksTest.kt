@@ -339,9 +339,17 @@ class VariableChecksTest : CheckTestCase() {
         val combining = String(Character.toChars(0x301))
         val jsonata = machine("Tag:\n  Type: Pass\n  Assign:\n    re${combining}el: 1\n  End: true")
         assertEquals(listOf(UNUSUAL_VARIABLE_NAME to "re${combining}el"), variables(jsonata))
-        // in a JSONPath state AWS was not asked about names
-        val jsonPath = machine("Tag:\n  Type: Pass\n  Assign:\n    re-el: 1\n    _reel: 2\n  End: true", top = "")
-        assertEquals(listOf(UNUSUAL_VARIABLE_NAME to "re-el", UNUSUAL_VARIABLE_NAME to "_reel"), variables(jsonPath, "path.asl.yaml"))
+        // in a JSONPath state too
+        val jsonPath = machine("Tag:\n  Type: Pass\n  Assign:\n    re${combining}el: 1\n  End: true", top = "")
+        assertEquals(listOf(UNUSUAL_VARIABLE_NAME to "re${combining}el"), variables(jsonPath, "path.asl.yaml"))
+    }
+
+    fun `test a name that AWS rejects is an error whatever the query language`() {
+        val jsonPath = machine("Tag:\n  Type: Pass\n  Assign:\n    1reel: 1\n    re-el: 2\n    _reel: 3\n    states: 4\n  End: true", top = "")
+        assertEquals(listOf("1reel", "re-el", "_reel", "states").map { INVALID_VARIABLE_NAME to it }, variables(jsonPath, "path.asl.yaml"))
+        // a state whose QueryLanguage is not known
+        val unknown = machine("Tag:\n  Type: Pass\n  QueryLanguage: §{Language}\n  Assign:\n    1reel: 1\n  End: true", top = "")
+        assertEquals(listOf(INVALID_VARIABLE_NAME to "1reel"), variables(unknown, "unknown.asl.yaml"))
     }
 
     fun `test a name is judged where the machine does not say every name`() {
@@ -383,6 +391,74 @@ class VariableChecksTest : CheckTestCase() {
         val open = Regex("( *)reel: 2\n").replace(text) { it.value + it.groupValues[1] + "<<: §{Extra}\n" }
         assertTrue(open, "<<: §{Extra}" in open)
         assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), variables(open, "open.asl.yaml"))
+    }
+
+    // OUTER_VARIABLE_ASSIGNED follows the flow: an outer assignment counts where it applies before the flow enters the
+    // state that holds the nested machine (rounds 12 and 13)
+
+    /** `Split`, a Parallel state whose branch assigns `reel`, with [tail] (YAML at the state's indentation) as its further lines. */
+    private fun split(tail: String) =
+        "Split:\n  Type: Parallel\n  Branches:\n    - StartAt: Tag\n      States:\n        Tag:\n          Type: Pass\n" +
+            "          Assign:\n            reel: 2\n          End: true\n" + tail.trimIndent().prependIndent("  ") + "\n"
+
+    private val done = "Done:\n  Type: Pass\n  End: true\n"
+
+    /** The outer assignments reported in a JSONata machine whose `States` are [states]. */
+    private fun outer(states: String, name: String = "test.asl.yaml") =
+        variables(machine(states), name).filter { it.first == OUTER_VARIABLE_ASSIGNED }
+
+    private val reelOne = "  Assign:\n    reel: 1\n"
+
+    fun `test an outer assignment before the nested machine is an error`() =
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer("Load:\n  Type: Pass\n" + reelOne + "  Next: Split\n" + split("End: true")))
+
+    fun `test an outer assignment after the nested machine is none`() =
+        assertEquals(emptyList<Any>(), outer(split("Next: Load") + "Load:\n  Type: Pass\n" + reelOne + "  End: true\n"))
+
+    fun `test the own Assign of the state that holds the nested machine is none`() =
+        assertEquals(emptyList<Any>(), outer(split("Assign:\n  reel: 1\nEnd: true")))
+
+    fun `test a Catcher of the state that holds the nested machine is none`() =
+        assertEquals(emptyList<Any>(), outer(split("Catch:\n  - ErrorEquals: [States.ALL]\n    Assign:\n      reel: 1\n    Next: Done\nEnd: true") + done))
+
+    private fun fetch(catcher: String, own: String = "") =
+        "Fetch:\n  Type: Task\n  Resource: arn:aws:states:::lambda:invoke\n  Arguments:\n    FunctionName: catalog\n" + own +
+            "  Catch:\n    - ErrorEquals: [States.ALL]\n" + catcher + "      Next: Split\n  Next: Done\n"
+
+    fun `test a state Assign whose only path to the nested machine is its Catcher is none`() =
+        assertEquals(emptyList<Any>(), outer(fetch(catcher = "", own = reelOne) + split("End: true") + done))
+
+    fun `test a Catcher Assign whose Next reaches the nested machine is an error`() =
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(fetch(catcher = "      Assign:\n        reel: 1\n") + split("End: true") + done))
+
+    private fun route(assignedRuleNext: String, default: String) =
+        "Route:\n  Type: Choice\n  Choices:\n    - Condition: '{% true %}'\n      Assign:\n        reel: 1\n      Next: $assignedRuleNext\n" +
+            "  Default: $default\n"
+
+    fun `test a Choice rule Assign whose Next reaches the nested machine is an error`() =
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(route("Split", "Done") + split("End: true") + done))
+
+    fun `test a Choice rule Assign on another rule's path is none`() =
+        assertEquals(emptyList<Any>(), outer(route("Done", "Split") + split("End: true") + done))
+
+    fun `test an outer assignment that a loop leads back from is an error`() {
+        val again = "Set:\n  Type: Pass\n" + reelOne + "  Next: Again\n" +
+            "Again:\n  Type: Choice\n  Choices:\n    - Condition: '{% true %}'\n      Next: Split\n  Default: Done\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(split("Next: Set") + again + done))
+        // control: without the way back, the assignment comes after
+        assertEquals(emptyList<Any>(), outer(split("Next: Set") + again.replace("Next: Split", "Next: Done"), "control.asl.yaml"))
+    }
+
+    fun `test two levels of nesting report the innermost assignment`() {
+        val states = "Load:\n  Type: Pass\n" + reelOne + "  Next: Outer\n" +
+            "Outer:\n  Type: Parallel\n  Branches:\n    - StartAt: Mid\n      States:\n" + split("End: true").trimEnd('\n').replace("Split:", "Mid:").prependIndent("        ") + "\n  End: true\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(states))
+    }
+
+    fun `test an outer machine whose flow is not known reports nothing`() {
+        val states = "Load:\n  Type: Pass\n" + reelOne + "  Next: §{After}\n" + split("End: true")
+        assertEquals(emptyList<Any>(), outer(states))
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(states.replace("§{After}", "Split"), "known.asl.yaml"))
     }
 
     fun `test two branches that assign the same name are no outer assignment`() {

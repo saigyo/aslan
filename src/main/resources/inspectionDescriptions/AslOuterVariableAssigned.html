@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a key in <code>Assign</code> in a nested state machine, a Parallel branch or the item processor of a Map, whose name a state machine around it also assigns. Step Functions rejects the definition: the name is already defined in a parent scope. This holds for a Distributed Map too, although its states cannot read the outer variable.</p>
-<p>Two Parallel branches that assign the same name, with no assignment around them, are not reported.</p>
+<p>Reports a key in <code>Assign</code> in a nested state machine, a Parallel branch or the item processor of a Map, whose name a state machine around it assigns before the flow enters the Map or Parallel state. Step Functions rejects the definition: the name is already defined in a parent scope. This holds for a Distributed Map too, although its states cannot read the outer variable.</p>
+<p>An outer assignment counts when the flow leads from it to the Map or Parallel state, also through a loop: from a state's own <code>Assign</code> along its <code>Next</code>, its Choice rules and its <code>Default</code>, but not its Catchers; from a Catcher's or a Choice rule's <code>Assign</code> along its own <code>Next</code>. An assignment only after the Map or Parallel state, in its own <code>Assign</code> or in its Catchers is not reported, nor are two Parallel branches that assign the same name. Where the flow of the outer state machine is not known, for example through a placeholder <code>Next</code>, nothing is reported.</p>
 </body>
 </html>
