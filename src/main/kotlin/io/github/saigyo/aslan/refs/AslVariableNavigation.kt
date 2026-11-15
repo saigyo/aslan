@@ -90,24 +90,22 @@ class AslVariableFindUsagesHandlerFactory : FindUsagesHandlerFactory() {
 }
 
 /**
- * The primary elements are the assignments of the variables, one [AslVariableTarget] for each, so the usage view shows
- * each by the variable's name and the assignment's place. Their usages are the same for each of them, so they are
- * searched once, from the assignment the search starts on: the reads (through [AslReferencesSearcher]) and the keys of
- * the other assignments.
+ * The primary elements are the entries of every assignment of the variables; [AslAssignmentPresentationProvider] makes
+ * the usage view show a YAML entry by the variable's name and the assignment's place. They are the PSI entries, not
+ * go-to targets: a target holds a variable of the model it was made from, and any PSI change before the search runs
+ * makes a new model that no longer knows it. Their usages are the same for each of them, so they are searched once,
+ * from the entry the search starts on: the reads (through [AslReferencesSearcher]) and the keys of the other
+ * assignments.
  */
 private class AslVariableFindUsagesHandler(element: PsiElement, variables: List<AslVariable>) : FindUsagesHandler(element) {
     private val entries = AslVariableTargets.assignmentEntries(variables)
-    private val targets = AslVariableTargets.assignmentTargets(variables)
     private val start = (element as? AslVariableTarget)?.entry?.takeIf { it in entries } ?: element.takeIf { it in entries } ?: entries.first()
-    private val startTarget = targets.first { it.entry == start }
 
-    override fun getPrimaryElements(): Array<PsiElement> = targets.toTypedArray()
+    override fun getPrimaryElements(): Array<PsiElement> = entries.toTypedArray()
 
     override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean {
-        // an entry used through an alias by several scopes has a target for each variable; each finds its own reads
-        if (element !is AslVariableTarget || element.entry != start) return true
+        if (element != start) return true
         if (!super.processElementUsages(element, processor, options)) return false
-        if (element != startTarget) return true
         val writes = runReadActionBlocking {
             entries.filter { it != start && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
         }
