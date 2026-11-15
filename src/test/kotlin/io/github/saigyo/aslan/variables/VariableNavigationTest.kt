@@ -4,18 +4,23 @@ import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector.Access
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
+import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.NavigationItem
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.ElementDescriptionUtil
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usageView.UsageInfo
+import com.intellij.usageView.UsageViewNodeTextLocation
+import com.intellij.usageView.UsageViewUtil
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.jsonata.refs.JsonataVariableReference
+import io.github.saigyo.aslan.refs.AslVariableDescriptionProvider
 import io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory
 import io.github.saigyo.aslan.refs.AslVariableGotoDeclarationHandler
 import io.github.saigyo.aslan.refs.AslVariableReadReference
@@ -170,6 +175,26 @@ class VariableNavigationTest : VariableTestCase() {
         assertTrue(detector.isDeclarationWriteAccess(catcher))
         val accesses = usages.map { usage -> usage.reference?.let { detector.getReferenceAccess(catcher, it) } ?: detector.getExpressionAccess(usage.element!!) }
         assertEquals(expected.map { if (it.first == "reel") Access.Write else Access.Read }, accesses)
+    }
+
+    fun `test find usages presents each assignment by the variable's name and its place`() {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        val primary = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(catcher, false)!!.primaryElements.toList()
+        assertEquals(offsetsOf("reel:").map { entryAt(it) }, primary.map { it.navigationElement })
+        val presentations = primary.map { PsiElement2UsageTargetAdapter(it, true).presentation!! }
+        assertEquals(List(3) { "reel" }, presentations.map { it.presentableText })
+        assertEquals(listOf("Load", "Load, first Catcher", "Check, second Choice rule"), presentations.map { it.locationString })
+        // the assignment entries and the targets are described as the variable, not as a key-value and its value
+        for (element in primary + catcher) {
+            assertEquals(AslVariableDescriptionProvider.TYPE, UsageViewUtil.getType(element))
+            assertEquals("reel", UsageViewUtil.getShortName(element))
+            assertEquals("reel", UsageViewUtil.getLongName(element))
+            assertEquals("reel", ElementDescriptionUtil.getElementDescription(element, UsageViewNodeTextLocation.INSTANCE))
+        }
+        // anything else keeps its own description
+        val shelve = entryAt(offsetsOf("Shelve:").last())
+        assertFalse(UsageViewUtil.getType(shelve) == AslVariableDescriptionProvider.TYPE)
     }
 
     fun `test a go-to target from an older model stands for no variable`() {

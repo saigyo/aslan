@@ -343,6 +343,21 @@ internal class AslVariableRename private constructor(
     /** The references of the reads, for the preview; the rename writes the reads itself. */
     fun readReferences(): List<PsiReference> = variables.flatMap { AslVariableTargets.readReferences(it) }
 
+    /**
+     * A reference on the name in the key of every assignment but the one [element] stands for, so the preview lists
+     * every key the rename writes. They resolve to [element]; the rename writes the keys itself.
+     */
+    fun keyReferences(element: PsiElement): List<PsiReference> {
+        val own = (element as? AslVariableTarget)?.entry ?: AslVariableTargets.assignmentEntryAt(element)
+        return keys.filter { it.entry.entryPsi != own }.map { key ->
+            val keyPsi = key.entry.keyPsi
+            val text = keyPsi.text
+            val quote = if (isQuoted(text)) 1 else 0
+            val end = text.length - quote - key.suffix.length
+            AslVariableKeyReference(keyPsi, if (end > quote) TextRange(quote, end) else TextRange(0, text.length), element)
+        }
+    }
+
     private fun elementOf(read: AslRead): PsiElement = when (read) {
         is JsonataRead -> read.variable
         is PathRead -> read.scalar.psi
@@ -518,8 +533,9 @@ class AslVariableRenameProcessor : RenamePsiElementProcessor() {
     override fun createRenameDialog(project: Project, element: PsiElement, nameSuggestionContext: PsiElement?, editor: Editor?): RenameDialog =
         AslVariableRenameDialog(project, element, nameSuggestionContext, editor)
 
+    /** The reads and the keys of the other assignments, for the preview; [renameElement] writes them all itself. */
     override fun findReferences(element: PsiElement, searchScope: SearchScope, searchInCommentsAndStrings: Boolean): Collection<PsiReference> =
-        AslVariableRename.of(element)?.readReferences().orEmpty()
+        AslVariableRename.of(element)?.let { it.readReferences() + it.keyReferences(element) }.orEmpty()
 
     /** No text search in strings and comments: the rename knows every place it writes. */
     override fun getElementToSearchInStringsAndComments(element: PsiElement): PsiElement? = null

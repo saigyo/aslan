@@ -59,11 +59,7 @@ class AslVariableGotoDeclarationHandler : GotoDeclarationHandler {
     override fun getGotoDeclarationTargets(sourceElement: PsiElement?, offset: Int, editor: Editor?): Array<PsiElement>? {
         val variables = sourceElement?.let { readVariablesAt(it, offset) }.orEmpty()
         if (variables.isEmpty()) return null
-        val targets = variables.flatMap { variable ->
-            AslVariableTargets.modelOf(variable)?.assignmentsOf(variable).orEmpty()
-                .map { AslVariableTarget(variable, it.entry.entryPsi, it.placeText) }
-        }.distinct().sortedBy { it.entry.textRange.startOffset }
-        return targets.takeIf { it.isNotEmpty() }?.toTypedArray()
+        return AslVariableTargets.assignmentTargets(variables).takeIf { it.isNotEmpty() }?.toTypedArray()
     }
 
     /**
@@ -94,19 +90,24 @@ class AslVariableFindUsagesHandlerFactory : FindUsagesHandlerFactory() {
 }
 
 /**
- * The primary elements are the entries of every assignment of the variables. Their usages are the same for each of
- * them, so they are searched once, from the entry the search starts on: the reads (through [AslReferencesSearcher])
- * and the keys of the other assignments.
+ * The primary elements are the assignments of the variables, one [AslVariableTarget] for each, so the usage view shows
+ * each by the variable's name and the assignment's place. Their usages are the same for each of them, so they are
+ * searched once, from the assignment the search starts on: the reads (through [AslReferencesSearcher]) and the keys of
+ * the other assignments.
  */
 private class AslVariableFindUsagesHandler(element: PsiElement, variables: List<AslVariable>) : FindUsagesHandler(element) {
     private val entries = AslVariableTargets.assignmentEntries(variables)
+    private val targets = AslVariableTargets.assignmentTargets(variables)
     private val start = (element as? AslVariableTarget)?.entry?.takeIf { it in entries } ?: element.takeIf { it in entries } ?: entries.first()
+    private val startTarget = targets.first { it.entry == start }
 
-    override fun getPrimaryElements(): Array<PsiElement> = entries.toTypedArray()
+    override fun getPrimaryElements(): Array<PsiElement> = targets.toTypedArray()
 
     override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean {
-        if (element != start) return true
+        // an entry used through an alias by several scopes has a target for each variable; each finds its own reads
+        if (element !is AslVariableTarget || element.entry != start) return true
         if (!super.processElementUsages(element, processor, options)) return false
+        if (element != startTarget) return true
         val writes = runReadActionBlocking {
             entries.filter { it != start && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
         }
