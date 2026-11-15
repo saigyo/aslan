@@ -57,13 +57,13 @@ class AwsVerdictsTest : CheckTestCase() {
     )
 
     /**
-     * Each variable check is reported exactly on the probes of rounds 11 to 13 that AWS answers for that reason: an
+     * Each variable check is reported exactly on the probes of rounds 11 to 14 that AWS answers for that reason: an
      * error where AWS rejects the definition, a warning where it warns. A read that stands before its assignment in the
      * flow is not found (decision 3): rejected for JSONPath (named gaps), only warned about for JSONata (missed warnings).
      */
     fun `test the variable checks agree with AWS probe by probe`() {
-        val round = probes.filter { p -> listOf("r11-", "r12-", "r13-").any { p.name.startsWith(it) } }
-        assertEquals(45 + 11 + 6, round.size)
+        val round = probes.filter { p -> listOf("r11-", "r12-", "r13-", "r14-").any { p.name.startsWith(it) } }
+        assertEquals(45 + 11 + 6 + 4, round.size)
         fun answered(prefix: String, diagnostic: String) =
             round.filter { p -> p.name.startsWith(prefix) && p.diagnostics.any { it.startsWith(diagnostic) } }.map { it.name }.toSet()
         val missedWarnings = setOf("r11-j-same-state", "r11-j-later")
@@ -79,16 +79,18 @@ class AwsVerdictsTest : CheckTestCase() {
         // A name assigned and read nowhere in the scope of the assignment: the inner assignment of the distributed
         // shadow; both branch assignments of the siblings; the assignments whose read AWS rejects or warns about
         // because it stands outside their reach (inner, after, sibling, outer of a Distributed Map). The invalid
-        // names get only the name finding, and a read before the assignment in the flow is still a read. Rounds 12 and
-        // 13 read no variable at all, so every probe of theirs with a valid name assigns one that is never read.
+        // names get only the name finding, and a read before the assignment in the flow is still a read. Rounds 12 to
+        // 14 read no variable at all, so every probe of theirs with a valid name assigns one that is never read.
         expect(AslProblem.VARIABLE_NEVER_READ, setOf("r11-a-distributed-shadow", "r11-a-siblings", "r12-p-shadow-before") +
             listOf("p", "j").flatMap { q ->
                 listOf("inline-map-inner", "distributed-inner", "distributed-outer", "parallel-after", "parallel-sibling").map { "r11-$q-$it" }
-            } + round.map { it.name }.filter { it.startsWith("r12-o-") || it.startsWith("r13-o-") })
+            } + round.map { it.name }.filter { it.startsWith("r12-o-") || it.startsWith("r13-o-") || it.startsWith("r14-o-") })
 
         assertEquals(setOf("r11-j-distributed-outer"), answered("r11-j-", "ERROR UNDEFINED_VARIABLE"))
         assertEquals(7 + 4, round.count { AslProblem.INVALID_VARIABLE_NAME in expected.getValue(it.name) })
-        assertEquals(3 + 1 + 4, round.count { AslProblem.OUTER_VARIABLE_ASSIGNED in expected.getValue(it.name) })
+        // round 14: an assignment in the Map or Parallel state itself counts where the flow leads back to the state
+        assertEquals(4, round.count { it.name.startsWith("r14-") && AslProblem.OUTER_VARIABLE_ASSIGNED in expected.getValue(it.name) })
+        assertEquals(3 + 1 + 4 + 4, round.count { AslProblem.OUTER_VARIABLE_ASSIGNED in expected.getValue(it.name) })
         // an outer assignment after the Map or Parallel, in its own Assign, in its Catcher, on a path only its Catcher
         // takes, or on another Choice rule's path is no outer assignment
         assertEquals(6 + 2, round.count { it.name.matches(Regex("r1[23]-o-.*")) && it.accepted && it.diagnostics.isEmpty() })

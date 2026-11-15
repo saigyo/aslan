@@ -472,6 +472,33 @@ class VariableChecksTest : CheckTestCase() {
     fun `test a Catcher of the state that holds the nested machine is none`() =
         assertEquals(emptyList<Any>(), outer(split("Catch:\n  - ErrorEquals: [States.ALL]\n    Assign:\n      reel: 1\n    Next: Done\nEnd: true") + done))
 
+    /** An inline Map state `Films` whose item processor assigns `reel`, with [tail] (YAML lines of `Films`) after it. */
+    private fun films(tail: String) =
+        "Films:\n  Type: Map\n  Items: '{% §states.input.items %}'\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: INLINE\n" +
+            "    StartAt: SetInner\n    States:\n      SetInner:\n        Type: Pass\n        Assign:\n          reel: 2\n        End: true\n" +
+            tail.trimIndent().prependIndent("  ") + "\n"
+
+    private val again = "Again:\n  Type: Choice\n  Choices:\n    - Condition: '{% §states.input.again %}'\n      Next: Films\n  Default: Done\n"
+
+    // round 14: an assignment in the state that holds the nested machine counts once the flow leads back to the state
+
+    fun `test the own Assign of a Map with a way back to it is an error`() {
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(films("Assign:\n  reel: 1\nNext: Again") + again + done))
+        // the Map itself as its Next (r14-o-owner-self-loop)
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(films("Assign:\n  reel: 1\nNext: Films"), "self.asl.yaml"))
+    }
+
+    fun `test the own Assign of a Map without a way back to it is none`() =
+        assertEquals(emptyList<Any>(), outer(films("Assign:\n  reel: 1\nNext: Again") + again.replace("Next: Films", "Next: Done") + done))
+
+    fun `test a Catcher Assign of a Map with a way back to it is an error`() {
+        val catcher = "Catch:\n  - ErrorEquals: [States.ALL]\n    Assign:\n      reel: 1\n    Next: Retry\nEnd: true"
+        val retry = "Retry:\n  Type: Pass\n  Next: Films\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(films(catcher) + retry))
+        // control: the Catcher's way ends
+        assertEquals(emptyList<Any>(), outer(films(catcher) + retry.replace("Next: Films", "End: true"), "control.asl.yaml"))
+    }
+
     private fun fetch(catcher: String, own: String = "") =
         "Fetch:\n  Type: Task\n  Resource: arn:aws:states:::lambda:invoke\n  Arguments:\n    FunctionName: catalog\n" + own +
             "  Catch:\n    - ErrorEquals: [States.ALL]\n" + catcher + "      Next: Split\n  Next: Done\n"

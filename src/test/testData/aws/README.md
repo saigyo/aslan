@@ -15,6 +15,8 @@ The 11 definitions whose names start with `r12-`, recorded on 2026-11-15, follow
 
 The 6 definitions whose names start with `r13-`, recorded on 2026-11-15, ask the finer points of that order: an outer assignment in a Catcher or a Choice rule whose `Next` leads to the Map, a state `Assign` whose only path to the Map is its Catcher, a Choice rule `Assign` on another rule's path, an assignment after the Map that a loop leads back from, and two levels of nesting.
 
+The 4 definitions whose names start with `r14-`, recorded on 2026-11-15, ask whether an assignment in the Map or Parallel state itself counts before its nested machine when the flow leads back to the state: the Map's own `Assign` with a Choice back to it, or with the Map itself as its `Next`, a Catcher's `Assign` with a Pass back to the Map, and a Parallel state's own `Assign` with a Choice back to it. AWS rejects all four.
+
 All names, account numbers and regions in the definitions are made up. To re-record, send each `definition` to the command above and replace the stored answer; the result does not depend on the account.
 
 Some definitions depend on how a number is spelled (`5.0`, `1E2`, `15e-1`), so `verdicts.json` must be edited as text. A tool that parses and rewrites it would change these numbers.
