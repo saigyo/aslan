@@ -2,6 +2,8 @@
 
 Design, 2026-11-13. Status: awaiting approval.
 
+Revised 2026-11-15, before stage 4: the diagram is drawn by the plugin itself, not in an embedded browser, and it has two layouts. The reasons and the spike behind this are in `../research/2026-11-15-diagram-rendering.md`. Sections 4, 5, 6.5, 8, 9 and 10 changed.
+
 Statements marked **(decided)** come from the person who commissioned the plugin. Statements marked **(my call)** are choices made while writing this design; they can be overruled. Everything else follows from the two.
 
 ## 1. Intent
@@ -103,19 +105,30 @@ Sources: the ASL specification at states-language.net (revision of 22 November 2
 
 None offers YAML with JSONata support and variable navigation. Both open-source plugins are worth reading before planning.
 
+### Diagram layout
+
+Researched and tried in a spike on 2026-11-15.
+
+- Eclipse ELK is a Java library (the first design planned to use its JavaScript form, elkjs): version 0.12.1 on Maven Central, EPL-2.0. Its layered algorithm handles nested boxes, right-angle paths and labels on paths. It needs the Eclipse EMF libraries (2.12.0, EPL-1.0) and Guava 15 or newer.
+- It lays out the large synthetic definition (62 states, 112 transitions) in 20 to 200 ms, runs inside IntelliJ IDEA 2026.2.3 under the plugin's own class loader, and the plugin verifier reports the plugin with these jars compatible with 2026.2.3 and 2026.3.
+- The IDE ships Guava itself (33.5.0 in 2026.2.3, 33.7.1 in 2026.3), and a plugin that does not carry Guava gets the IDE's.
+- With default options the large definition is laid out about 5,000 pixels wide and 3,900 high. With compact placement, shared lines for paths into the same state and shorter labels it is about 2,000 wide.
+- Left out of the layout, catch paths no longer hold the states they lead to in place: a state reached only through a Catcher drifts to the top.
+- The IDE's own Diagrams framework needs the paid features of the IDE.
+
 ## 5. Technical decisions
 
 - **Language and build (decided):** Kotlin, Gradle, the official JetBrains plugin tooling, started from the official plugin template.
 - **Supported IDEs (decided):** IntelliJ IDEA and other JetBrains IDEs that bundle YAML support, such as WebStorm.
 - **Minimum IDE version (my call):** 2026.2, not 2025.3 as first proposed. The 2026.2 release changed the Java version and moved two modules the plugin depends on, and whether one build can span both sides is unverified. The commissioner's IDEs are all on 2026.3. Build with Java 25.
-- **Dependencies:** the bundled YAML plugin, the JSON module, the embedded browser module and the structure view module, all required.
+- **Dependencies:** the bundled YAML plugin, the JSON module and the structure view module, all required. The embedded browser is not used (revised 2026-11-15).
 - **Identity (my call):** plugin name "Aslan", plugin ID and base package `io.github.saigyo.aslan` (from the repository at github.com/saigyo/aslan), licence Apache-2.0 as already in the repository.
 - **File recognition (my call):** a file is an ASL file when its name ends in `.asl.yaml`, `.asl.yml` or `.asl.json`. Further name patterns can be added in settings. The files keep their normal YAML and JSON file types, so all bundled YAML and JSON features keep working.
 - **JSON files (my call):** every feature in section 6 works in JSON files, because all of them read the shared document model. "Less polish" means two things only: where a feature needs work specific to the file format, such as inserting quotes and commas on completion or inserting the required fields of a new state, the JSON version may be plainer; and JSON gets fewer editing-behaviour tests than YAML.
 - **One model of ASL, no JSON Schema (my call):** the plugin carries its own description of ASL (section 6.1) and drives completion, validation and documentation from it. A JSON Schema would give those three for free, but it cannot express inherited query language, cannot control severity per check, produces poor messages, would report placeholders in typed fields as type errors, and behaves differently across IDE versions. The no-false-errors rule needs control over every reported problem.
 - **JSONata is its own language in the IDE (decided)**, with its own lexer and parser, injected into YAML and JSON strings. **(my call)** It does not reuse the existing JSONata plugin, because placeholders, the Step Functions functions and variable references need to be part of the language. It uses a distinct language ID and claims no file extension, so both plugins can be installed together. **(my call, made in the plan of stage 2)** The scanner is a port of the tokenizer and the parser of jsonata-js 2.0.6 (`src/parser.js`, MIT), not a JFlex lexer and a Grammar-Kit parser. In the reference, the parser tells the tokenizer whether a `/` starts a regular expression, which a generated lexer cannot reproduce, and some errors are found only after parsing, which a grammar cannot express. A direct port can be compared with the original line by line. The port turns the text into tokens, a node tree and at most one error; the IDE lexer and the IDE parser replay that result, so there is one source of truth for what is valid.
 - **References (my call):** classic references and a read/write access detector, not the experimental Symbol API.
-- **Diagram (decided):** an embedded browser panel beside the editor, like the Markdown preview. **(my call)** Layout by the elkjs library (EPL-2.0, bundled unmodified with its notice), drawing as SVG by the plugin's own JavaScript. All assets ship inside the plugin.
+- **Diagram (decided, revised 2026-11-15):** a panel beside the editor, like the Markdown preview, drawn by the plugin itself with the IDE's own UI toolkit (Swing). The first design named an embedded browser with a JavaScript layout library. A spike showed that the native route works; it keeps the plugin in one language and under its automated tests, and it needs no browser runtime. **(my call)** Layout by Eclipse ELK 0.12.1 as a Java library (EPL-2.0), bundled unmodified with its notice, together with the Eclipse EMF libraries it needs (2.12.0, EPL-1.0). Guava, which ELK needs as well, is taken from the IDE; should a later IDE no longer ship it, the plugin bundles its own copy. The plugin grows from about 0.8 MB to about 6 MB.
 - **Reference texts (my call):** ASL field descriptions are written in the plugin's own words, each with a link to the AWS documentation page. JSONata function descriptions are adapted from the MIT-licensed JSONata documentation with attribution. No AWS documentation text and no ASL specification text is bundled.
 
 ## 6. What gets built
@@ -209,11 +222,11 @@ The chain of scopes a read can see ends at the item processor of a Distributed M
 
 ### 6.5 Stage 4: diagram
 
-**Mockup.** The file `2026-11-13-aslan-design-mockup.html` next to this document is part of the design. Open it in a browser. Figure 1 shows the structure view, editor and diagram with a state selected; the commissioner approved this arrangement. Figure 2 shows the diagram pane with a path selected, catch paths muted and the details panel collapsed. The mockup fixes arrangement and behaviour; exact colours, icons and spacing are left to the builder. Where the mockup and this text disagree, this text wins.
+**Mockup.** The file `2026-11-13-aslan-design-mockup.html` next to this document is part of the design. Open it in a browser. Figure 1 shows the structure view, editor and diagram with a state selected; the commissioner approved this arrangement. Figure 2 shows the diagram pane with a path selected, catch paths muted and the details panel collapsed. The mockup fixes arrangement and behaviour; exact colours, icons and spacing are left to the builder. Where the mockup and this text disagree, this text wins. The mockup is a web page, but the diagram is a native panel (section 5), and the mockup does not show the layout switch added on 2026-11-15.
 
 **Appearance (decided, from the mockup).** The diagram flows from top to bottom. A state is a rounded rectangle with a coloured bar on its left edge for the type, the state name in bold, and a smaller second line with the type and, for a Task, the resource label. A selected state has a highlighted fill and border. Transitions are solid lines with arrowheads, drawn with right-angle bends, and their labels sit on the line. Catch paths are dashed and red. A legend under the diagram names the type colours and the catch line. The details panel is a two-column table of labels and values.
 
-**Arrangement (decided).** ASL files open in an editor with three modes: editor only, split, diagram only. In split mode the diagram is on the right. Below the diagram is a details panel for the selected state, which can be collapsed so the diagram uses the whole pane.
+**Arrangement (decided).** ASL files open in an editor with three modes: editor only, split, diagram only. In split mode the diagram is on the right. Below the diagram is a details panel for the selected state, which can be collapsed so the diagram uses the whole pane. A toolbar above the diagram holds the catch switch, the layout switch and the zoom controls.
 
 **Content**
 
@@ -221,19 +234,26 @@ The chain of scopes a read can see ends at the item processor of a Distributed M
 - A line per transition: `Next`, each Choice rule (labelled with its condition, shortened, full text on hover), `Default`, and each Catcher (dashed, labelled "Catch"). The start state and terminal states are marked.
 - **(my call)** A Map state is a box containing its inner states; a Parallel state is a box containing one box per branch. Boxes can be collapsed.
 
+**Layout (decided, 2026-11-15).** The diagram has two layouts and a switch between them.
+
+- *Loose* gives every path its own line and room for longer labels. It suits small machines.
+- *Compact* places the states closer, lets the paths into one state share a line and cuts labels shorter. It is more crowded, and it is needed for large machines: the large synthetic definition is about 5,000 pixels wide in the loose layout and about 2,000 in the compact one.
+- **(my call)** A file opens in the loose layout when its machine has at most 25 states, nested ones included, and in the compact layout otherwise. Once the switch is used, the choice is remembered for that file.
+- **(my call)** The compact layout of the large synthetic definition is at most 2,200 pixels wide at full size. The layout options behind the two layouts are left to the builder.
+
 **Interaction**
 
 - **(decided)** Selection is shared. Clicking a node moves the caret to that state. Moving the caret in the editor or selecting in the structure view selects the node and brings it into view.
-- **(decided)** Catch paths have a three-way switch: normal colour, muted, hidden.
-- **(decided)** Any path can be selected. This highlights the path and the two states it connects.
+- **(decided)** Catch paths have a three-way switch: normal colour, muted, hidden. **(decided, 2026-11-15)** The switch never changes the layout: a hidden catch path keeps its place and is only not drawn, so no state moves when the switch is used.
+- **(decided)** Any path can be selected. This highlights the path and the two states it connects. The selected path is drawn over its whole length on top of the others, so it can be followed where paths share a line.
 - **(my call)** Selecting a path also moves the caret to the line that creates it.
-- **(my call)** Zoom, pan and fit to window. The diagram follows the IDE's light or dark theme.
+- **(my call)** Zoom, pan and fit to window. The diagram follows the IDE's light or dark theme. **(my call, 2026-11-15)** A diagram opens at full size with the selected state in view, not fitted to the pane: a large machine fitted to a pane cannot be read.
 - **(my call)** The diagram redraws shortly after typing stops. While the file cannot be read as a state machine, the last good diagram stays, marked as out of date.
-- **(my call)** The catch switch, the panel's collapsed state and the editor mode are remembered.
+- **(my call)** The catch switch, the panel's collapsed state and the editor mode are remembered, and for each file the layout chosen with the switch.
 
 **Details panel (decided: read-only).** For the selected state: type, resource, variables read, variables assigned, retry rules, catchers with their targets, and the next state. State and variable names are links into the source.
 
-**Without an embedded browser.** If the IDE runtime has none, the diagram pane shows a short explanation and the editor works as usual.
+**No browser.** The diagram needs no embedded browser and is available wherever the plugin runs (revised 2026-11-15).
 
 ## 7. Checking policy
 
@@ -327,6 +347,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - **Recorded reference parser.** `src/test/testData/jsonata` holds the distilled suite (`suite.json`) and the answers of the jsonata-js 2.0.6 parser for 6,168 expressions (`reference.json`), as described in section 6.3. To re-record, see `tools/jsonata-reference/README.md` and `src/test/testData/jsonata/README.md`; the recording runs downloaded code, so only on a checkout that has been checked.
 - **Recorded AWS answers.** `src/test/testData/aws` holds the definitions sent to the AWS validation and its answers, as described in section 7. They are re-recorded with the AWS command line when the rules of AWS may have changed; `src/test/testData/aws/README.md` describes how. Round 9 holds 185 definitions about JSONata: the syntax errors of the official suite, valid controls, the places where `$states.result` and `$states.errorOutput` exist, and expressions without an input. Round 10 holds 44 more: further places of a name without an input, further shapes of `$states` fields, and text around the delimiters. AWS parsed every expression as the reference parser does, including its quirks about `/`. Round 11 (2026-11-14, 45 definitions) asks about state machine variables: a `$reel` read from JSONPath and from JSONata in every relation to its assignment (none, before, the same state, later, inside or outside an inline or Distributed Map, a Parallel branch, a Catcher, a Choice rule), the names an `Assign` key may have, and an inner machine that assigns an outer name. Round 12 (2026-11-15, 11 definitions) follows up: an outer assignment only after a Map or Parallel state, in its own `Assign` or in one of its Catchers, an outer assignment before an inline Map in a JSONPath state, and the rejected names in JSONPath states. Round 13 (2026-11-15, 6 definitions) asks the finer points of that order: an outer assignment in a Catcher or a Choice rule whose `Next` leads to the Map, a state `Assign` whose only path to the Map is its Catcher, a Choice rule `Assign` on another rule's path, a loop back to the Map and two levels of nesting. Round 14 (2026-11-15, 4 definitions) asks whether an assignment in the Map or Parallel state itself counts when the flow leads back to the state: its own `Assign` with a Choice back to it or itself as its `Next`, a Catcher's `Assign` with a Pass back to the Map, and a Parallel state's own `Assign` with a Choice back to it. AWS rejects all four.
 - **A private file check.** The commissioner has a real definition from a closed-source project. It must never be committed, and neither its names nor its comments may appear in the repository. A test that runs only when a local setting points at such files asserts that they show no errors. It is not part of any shared build.
+- **The diagram.** The layout runs in the automated tests on the synthetic definitions: every state and every path has a place, paths run in right angles, the states of one machine do not overlap, the catch switch moves nothing, and the compact layout keeps its width limit. What the panel shows for a file and what a click at a point selects are tested without a window; the look is checked in a running IDE.
 - **In a running IDE.** Each stage ends with the plugin started in a sandbox IDE and exercised on the synthetic definition, since editor behaviour and the diagram cannot be fully covered by automated tests.
 - **Compatibility.** The JetBrains plugin verifier runs against 2026.2 and 2026.3.
 
@@ -335,7 +356,7 @@ A value that is a placeholder or a JSONata string never triggers the "wrong basi
 - Package and module structure, and the format of the reference data.
 - How checks are grouped into inspections, and their names.
 - Icons, exact colours and the wording of messages and descriptions.
-- Structure of the diagram's JavaScript, whether it needs a build step, and how it is tested.
+- Structure of the diagram panel and its painting, and the layout options of the two layouts.
 - Caching, debounce intervals and other performance measures. A 1,500-line file with several hundred expressions must stay responsive.
 - Code folding for multi-line expressions: **(my call)** none in stage 2.
 
@@ -361,3 +382,7 @@ These could not be verified and are handled as stated.
 | Names of local variables written with escapes, such as `$caf\u00e9` in JSON next to `$café` | Names are compared decoded from the host's escapes, so the two are the same variable. Navigation and highlighting follow them; a rename refuses where the raw text of an occurrence is not the name |
 | Arity of calls | The parameter model cannot express variadic and context arguments, so no check of the number of arguments exists (AWS does not check it either) |
 | The complete list of fields of the `$states.context` object and of predefined error names | Taken from the AWS documentation during stage 1 and 2 |
+| Whether a later IDE still ships Guava, which the layout library needs | Both supported versions ship it, and the library accepts any version from 15 on. If one stops, the plugin bundles its own copy; the plugin verifier, which runs against every supported version, would show the missing classes |
+| The Eclipse EMF jars refer to Eclipse runtime classes that the plugin does not carry | The layout never loads them: it ran in the IDE and the plugin verifier reports nothing. Checked again whenever the library version changes |
+| Following one path where paths share a line in the compact layout | Selecting the path draws it on top over its whole length. Whether that is enough is judged in the running IDE with the large definition |
+| The interactive part of the native panel (clicks, zoom, pan, hover) | Not covered by the spike of 2026-11-15, which drew pictures only; built and checked in stage 4 |
