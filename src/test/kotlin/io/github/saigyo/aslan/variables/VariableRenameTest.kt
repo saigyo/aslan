@@ -944,6 +944,19 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
     }
 
+    fun `test a rename refuses when a Result reused inside, through an ancestor or a merge key mentions the name`() {
+        val reused = listOf(
+            "Seed:\n  Type: Pass\n  Result:\n    a: &inner\n      query.$: §reel\n  Next: Call\nCall:\n  Type: §{CallType}\n  Parameters: *inner\n  End: true",
+            "Seed: &seed\n  Type: Pass\n  Result:\n    query.$: §reel\n  Next: Call\nCall:\n  Type: §{CallType}\n  Parameters: *seed\n  End: true",
+            "Seed:\n  Type: Pass\n  Result: &shared\n    query.$: §reel\n  Next: Call\n" +
+                "Call:\n  Type: §{CallType}\n  Parameters:\n    <<: *shared\n    extra: 1\n  End: true",
+        )
+        for (states in reused) {
+            val text = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n$states")
+            assertEquals(states, setOf(UNREAD_MENTION), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+        }
+    }
+
     /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
     private val deseret = String(Character.toChars(0x10400))
 

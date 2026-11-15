@@ -35,6 +35,23 @@ class VariableChecksTest : CheckTestCase() {
         "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\n" + states.trimIndent(),
     )
 
+    /** The Seed and Call states of the three ways a Result's data can be reused, with `§` for `$`. */
+    private val reusedResults = mapOf(
+        "inside" to "Seed:\n  Type: Pass\n  Result:\n    a: &inner\n      query.$: §reel\n  Next: Call\n" +
+            "Call:\n  Type: §{CallType}\n  Parameters: *inner\n  End: true",
+        "ancestor" to "Seed: &seed\n  Type: Pass\n  Result:\n    query.$: §reel\n  Next: Call\n" +
+            "Call:\n  Type: §{CallType}\n  Parameters: *seed\n  End: true",
+        "merge" to "Seed:\n  Type: Pass\n  Result: &shared\n    query.$: §reel\n  Next: Call\n" +
+            "Call:\n  Type: §{CallType}\n  Parameters:\n    <<: *shared\n    extra: 1\n  End: true",
+    )
+
+    fun `test a Result reused inside, through an ancestor or a merge key is no static data`() {
+        for ((case, states) in reusedResults) {
+            val text = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n$states", top = "")
+            assertEquals(case, emptyList<Any>(), variables(text, "$case.asl.yaml"))
+        }
+    }
+
     fun `test a Result that an alias reuses is no static data`() {
         // the alias may stand in a field that is evaluated, in a state whose Type a deployment tool fills in
         val text = machine(
@@ -499,6 +516,23 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), outer(films(catcher) + retry.replace("Next: Films", "End: true"), "control.asl.yaml"))
     }
 
+    fun `test the own Assign of a Parallel state with a way back to it is an error`() {
+        val back = "Again:\n  Type: Choice\n  Choices:\n    - Condition: '{% §states.input.again %}'\n      Next: Split\n  Default: Done\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(split("Assign:\n  reel: 1\nNext: Again") + back + done))
+        assertEquals(emptyList<Any>(), outer(split("Assign:\n  reel: 1\nNext: Again") + back.replace("Next: Split", "Next: Done") + done, "control.asl.yaml"))
+    }
+
+    fun `test the own Assign of an outer Map that loops back counts two levels down`() {
+        // the outer Map holds an inner Map whose processor assigns reel; the outer Map's own Assign loops back to it
+        val inner = "Inner:\n  Type: Map\n  Items: '{% §states.input.items %}'\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: INLINE\n" +
+            "    StartAt: SetInner\n    States:\n      SetInner:\n        Type: Pass\n        Assign:\n          reel: 2\n        End: true\n  End: true\n"
+        fun outerMap(next: String) =
+            "Films:\n  Type: Map\n  Items: '{% §states.input.items %}'\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: INLINE\n" +
+                "    StartAt: Inner\n    States:\n" + inner.prependIndent("      ") + "\n  Assign:\n    reel: 1\n  Next: $next\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(outerMap("Again") + again + done))
+        assertEquals(emptyList<Any>(), outer(outerMap("Done") + done, "control.asl.yaml"))
+    }
+
     private fun fetch(catcher: String, own: String = "") =
         "Fetch:\n  Type: Task\n  Resource: arn:aws:states:::lambda:invoke\n  Arguments:\n    FunctionName: catalog\n" + own +
             "  Catch:\n    - ErrorEquals: [States.ALL]\n" + catcher + "      Next: Split\n  Next: Done\n"
@@ -600,6 +634,22 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(
             listOf(VARIABLE_NOT_ASSIGNED to "\$reel", VARIABLE_NEVER_READ to "reel"),
             variables(distributed("", "Assign:\n  reel: 1\nEnd: true"), "own.asl.yaml"),
+        )
+    }
+
+    fun `test the own Assign of a Distributed Map with a loop back to it keeps the warning`() {
+        // round 14 asked only about the duplicate name: for a read inside the Map, the holder's assignments never count
+        assertEquals(
+            listOf(VARIABLE_NOT_ASSIGNED to "\$reel", VARIABLE_NEVER_READ to "reel"),
+            variables(distributed("", "Assign:\n  reel: 1\nNext: Each"), "loop.asl.yaml"),
+        )
+        val catcher = "Catch:\n  - ErrorEquals: [States.ALL]\n    Assign:\n      reel: 1\n    Next: Each\nEnd: true"
+        assertEquals(listOf(VARIABLE_NOT_ASSIGNED to "\$reel", VARIABLE_NEVER_READ to "reel"), variables(distributed("", catcher), "catch.asl.yaml"))
+        // an assignment in a Pass state before the Map, from which the Map is reached, is still the error; each of the
+        // two assignments is never read
+        assertEquals(
+            listOf(VARIABLE_NEVER_READ to "reel", DISTRIBUTED_MAP_OUTER_READ to "\$reel", VARIABLE_NEVER_READ to "reel"),
+            variables(distributed("Load:\n  Type: Pass\n" + reelOne + "  Next: Each\n", "Assign:\n  reel: 1\nNext: Each"), "pass.asl.yaml"),
         )
     }
 

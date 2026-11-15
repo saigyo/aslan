@@ -13,7 +13,7 @@ import io.github.saigyo.aslan.refs.variableNameProblem
 
 /**
  * The checks of the state machine variables, on the model of [AslDocument.variables], held to the answers of AWS
- * rounds 11 to 13. Where the file does not say every name a read can reach or which way a chain goes (`isOpen`), nothing is
+ * rounds 11 to 14. Where the file does not say every name a read can reach or which way a chain goes (`isOpen`), nothing is
  * concluded about the reads there, nor about whether an assignment is read; a name and an assignment of an outer name
  * are judged by what the file says. A read is reported on its host with the range of `$name`, an assignment on its key.
  */
@@ -89,7 +89,9 @@ internal object VariableChecks {
          */
         private fun outsideDistributedMap(read: JsonataRead): Boolean {
             val processor = model.chain(read.state.machine).lastOrNull()?.takeIf { it.owner != null } ?: return false
-            return outerAssignments.before(processor) { it.name == read.name }
+            // an assignment in a state that holds the processor does not count here, not even through a loop (round 14
+            // asked only about the duplicate name): the read stays the warning of an unassigned read
+            return outerAssignments.before(processor, holderCounts = false) { it.name == read.name }
         }
 
         /**
