@@ -11,10 +11,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.actionSystem.ex.ToolbarLabelAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.ui.JBColor
@@ -104,8 +104,13 @@ class DiagramPane(parent: Disposable) : DiagramView {
     private var selected: String? = null
     private var catchMode: CatchMode = DiagramPrefs.catchMode
 
+    /** The name of the box whose toggle was clicked last; the next [show] brings that box into view. */
+    private var toggled: String? = null
+
     private val catchSwitches = CatchMode.entries.associateWith { CatchSwitch(it) }
     private val layoutSwitches = LayoutMode.entries.associateWith { LayoutSwitch(it) }
+    internal val catchMenu = SwitchMenu({ "Catch: " + catchMode.title() }, { true }, CatchMode.entries.map { catchSwitches.getValue(it) })
+    internal val layoutMenu = SwitchMenu({ mode?.let { "Layout: " + it.title() } ?: "Layout" }, { mode != null }, LayoutMode.entries.map { layoutSwitches.getValue(it) })
     internal val zoomOut: AnAction = Zoom("Zoom Out", AllIcons.General.ZoomOut) { zoomAtCenter(1 / ZOOM_STEP) }
     internal val zoomIn: AnAction = Zoom("Zoom In", AllIcons.General.ZoomIn) { zoomAtCenter(ZOOM_STEP) }
     internal val fit: AnAction = Zoom("Fit to Window", AllIcons.General.FitContent) { fitToWindow() }
@@ -114,12 +119,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
     internal val toolbar: ActionToolbar
 
     init {
+        // two drop-downs instead of five buttons and two labels: the toolbar fits the diagram's side of the split
         val group = DefaultActionGroup().apply {
-            add(Label("Catch paths"))
-            CatchMode.entries.forEach { add(catchSwitches.getValue(it)) }
-            addSeparator()
-            add(Label("Layout"))
-            LayoutMode.entries.forEach { add(layoutSwitches.getValue(it)) }
+            add(catchMenu)
+            add(layoutMenu)
             addSeparator()
             add(zoomOut)
             add(zoomIn)
@@ -162,8 +165,12 @@ class DiagramPane(parent: Disposable) : DiagramView {
         diagram.message = if (model.root == null) EMPTY else null
         rebuild()
         showDetails()
+        val box = toggled
+        toggled = null
         when {
             diagram.viewport == null -> if (diagram.hasSize) place() else diagram.whenSized = ::place
+            // the new layout moves everything; the box just clicked stays where the user is looking
+            box != null -> reveal(layout.nodes.firstOrNull { it.collapsible && it.state?.name == box }?.id)
             modeChanged -> reveal(selected)
         }
         toolbar.updateActionsAsync()
@@ -181,7 +188,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
 
     private fun clicked(hit: Hit?) {
         when (hit) {
-            is Hit.Toggle -> onToggleBox(hit.stateName)
+            is Hit.Toggle -> {
+                toggled = hit.stateName
+                onToggleBox(hit.stateName)
+            }
             is Hit.State -> {
                 mark(hit.id)
                 onSelect(hit.id)
@@ -255,6 +265,7 @@ class DiagramPane(parent: Disposable) : DiagramView {
         catchMode = mode
         DiagramPrefs.catchMode = mode
         rebuild()
+        toolbar.updateActionsAsync()   // the drop-down's caption names the new mode
     }
 
     private fun recolour() {
@@ -263,11 +274,8 @@ class DiagramPane(parent: Disposable) : DiagramView {
         diagram.repaint()
     }
 
+    /** An option of the catch drop-down. */
     private inner class CatchSwitch(private val value: CatchMode) : DumbAwareToggleAction(value.title(), "Catch paths: ${value.title().lowercase()}", null) {
-        init {
-            templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
-        }
-
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
         override fun isSelected(e: AnActionEvent): Boolean = catchMode == value
@@ -278,11 +286,8 @@ class DiagramPane(parent: Disposable) : DiagramView {
         }
     }
 
+    /** An option of the layout drop-down. */
     private inner class LayoutSwitch(private val value: LayoutMode) : DumbAwareToggleAction(value.title(), "${value.title()} layout", null) {
-        init {
-            templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
-        }
-
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
         /** The mode of the last [show]: the switch paints nothing itself, the controller lays out again and shows. */
@@ -303,12 +308,29 @@ class DiagramPane(parent: Disposable) : DiagramView {
         override fun actionPerformed(e: AnActionEvent) = perform()
     }
 
-    private class Label(private val text: String) : ToolbarLabelAction() {
+    /**
+     * A drop-down of the toolbar: a popup group shown as its text with the platform's drop-down arrow. It shows
+     * [caption] (the switch and its current value) and offers [options], one per setting; it does nothing while
+     * [enabled] is false. A popup group rather than a `ComboBoxAction`: the combo button takes its padding from the look
+     * and feel's button border, which made the toolbar too wide for the diagram's side of the split.
+     */
+    internal class SwitchMenu(
+        private val caption: () -> String,
+        private val enabled: () -> Boolean,
+        internal val options: List<ToggleAction>,
+    ) : DefaultActionGroup(options), DumbAware {
         init {
-            templatePresentation.text = text
+            templatePresentation.isPopupGroup = true
+            templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
+            templatePresentation.text = caption()
         }
 
-        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            e.presentation.text = caption()
+            e.presentation.isEnabled = enabled()
+        }
     }
 
     private companion object {

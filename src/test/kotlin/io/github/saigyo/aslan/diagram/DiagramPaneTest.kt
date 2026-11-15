@@ -1,6 +1,8 @@
 package io.github.saigyo.aslan.diagram
 
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.ToggleAction
+import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
@@ -128,6 +130,13 @@ class DiagramPaneTest : DiagramTestCase() {
     private fun perform(action: ToggleAction) = action.actionPerformed(TestActionEvent.createTestEvent(action))
 
     private fun selected(action: ToggleAction) = action.isSelected(TestActionEvent.createTestEvent(action))
+
+    /** The text and whether the action is enabled, after an update. */
+    private fun caption(action: AnAction): Pair<String?, Boolean> {
+        val event = TestActionEvent.createTestEvent(action)
+        action.update(event)
+        return event.presentation.text to event.presentation.isEnabled
+    }
 
     private fun components(c: Component): List<Component> = listOf(c) + ((c as? Container)?.components.orEmpty().flatMap(::components))
 
@@ -378,12 +387,16 @@ class DiagramPaneTest : DiagramTestCase() {
         pane.onLayoutMode = { modes += it }
         val layout = lay(model, LayoutMode.LOOSE, pane)
         pane.show(model, layout, LayoutMode.LOOSE, "s1")
+        // a drop-down with the caption and the current value, whose options are the three settings
+        assertEquals(CatchMode.entries.map { pane.catchSwitch(it) }, pane.catchMenu.options)
+        assertEquals("Catch: Normal" to true, caption(pane.catchMenu))
         assertTrue(selected(pane.catchSwitch(CatchMode.NORMAL)))
         val view = pane.diagram.viewport
         val boxes = pane.boxes().map { it.id to it.bounds }
         assertTrue(pane.paths().any { it.kind == TransitionKind.CATCH && !it.muted })
         perform(pane.catchSwitch(CatchMode.MUTED))
         assertEquals(CatchMode.MUTED, DiagramPrefs.catchMode)
+        assertEquals("Catch: Muted" to true, caption(pane.catchMenu))
         assertTrue(pane.paths().filter { it.kind == TransitionKind.CATCH }.all { it.muted })
         perform(pane.catchSwitch(CatchMode.HIDDEN))
         assertEquals(CatchMode.HIDDEN, DiagramPrefs.catchMode)
@@ -401,6 +414,7 @@ class DiagramPaneTest : DiagramTestCase() {
         // a new pane starts with the remembered mode
         val next = pane()
         assertTrue(selected(next.catchSwitch(CatchMode.HIDDEN)))
+        assertEquals("Catch: Hidden" to true, caption(next.catchMenu))
         next.show(model, layout, LayoutMode.LOOSE, null)
         assertTrue(next.paths().none { it.kind == TransitionKind.CATCH })
     }
@@ -417,7 +431,11 @@ class DiagramPaneTest : DiagramTestCase() {
         val pane = pane(500, 400)
         val modes = ArrayList<LayoutMode>()
         pane.onLayoutMode = { modes += it }
+        // before the first diagram: the caption without a value, and the drop-down does nothing
+        assertEquals("Layout" to false, caption(pane.layoutMenu))
+        assertEquals(LayoutMode.entries.map { pane.layoutSwitch(it) }, pane.layoutMenu.options)
         pane.show(model, lay(model, LayoutMode.COMPACT, pane), LayoutMode.COMPACT, "s8")
+        assertEquals("Layout: Compact" to true, caption(pane.layoutMenu))
         assertTrue(selected(pane.layoutSwitch(LayoutMode.COMPACT)))
         assertFalse(selected(pane.layoutSwitch(LayoutMode.LOOSE)))
         val scene = pane.diagram.scene
@@ -425,6 +443,7 @@ class DiagramPaneTest : DiagramTestCase() {
         assertEquals(listOf(LayoutMode.LOOSE), modes)
         // it paints nothing itself: the mode of the last show stays until the next one
         assertSame(scene, pane.diagram.scene)
+        assertEquals("Layout: Compact" to true, caption(pane.layoutMenu))
         assertTrue(selected(pane.layoutSwitch(LayoutMode.COMPACT)))
         perform(pane.layoutSwitch(LayoutMode.COMPACT))
         assertEquals(listOf(LayoutMode.LOOSE), modes)
@@ -432,6 +451,7 @@ class DiagramPaneTest : DiagramTestCase() {
         drag(pane, 100 to 100, 3000 to 3000)
         assertFalse(pane.visible(pane.box("s8").bounds))
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s8")
+        assertEquals("Layout: Loose" to true, caption(pane.layoutMenu))
         assertTrue(selected(pane.layoutSwitch(LayoutMode.LOOSE)))
         assertFalse(selected(pane.layoutSwitch(LayoutMode.COMPACT)))
         assertTrue(pane.visible(pane.box("s8").bounds))
@@ -439,6 +459,71 @@ class DiagramPaneTest : DiagramTestCase() {
         drag(pane, 100 to 100, 3000 to 3000)
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s8")
         assertFalse(pane.visible(pane.box("s8").bounds))
+    }
+
+    fun `test every control of the toolbar is visible in a narrow pane`() {
+        val model = large()
+        val pane = pane(380, 700)
+        pane.show(model, lay(model, LayoutMode.COMPACT, pane), LayoutMode.COMPACT, null)
+        resize(pane, 380, 700)
+        val bar = pane.toolbar.component
+        assertTrue("${bar.preferredSize.width} " + bar.components.map { "${it.javaClass.simpleName} ${it.width}" }, bar.preferredSize.width <= bar.width)
+        // the two drop-downs and the three buttons, each whole inside the toolbar
+        val controls = components(bar).filterIsInstance<ActionButton>()
+        assertEquals(controls.map { it.javaClass.simpleName }.toString(), 5, controls.size)
+        for (control in controls) {
+            var visible = true
+            var c: Component? = control
+            while (c != null && c !== bar) {
+                visible = visible && c.isVisible
+                c = c.parent
+            }
+            val at = SwingUtilities.convertRectangle(control.parent, control.bounds, bar)
+            assertTrue("$control $at", visible && at.width > 0 && at.x >= 0 && at.maxX <= bar.width)
+        }
+    }
+
+    fun `test a toggled box stays in view`() {
+        val model = large()
+        val pane = pane(600, 800)
+        val toggles = ArrayList<String>()
+        pane.onToggleBox = { toggles += it }
+        val open = lay(model, LayoutMode.LOOSE, pane)
+        val id = open.nodes.single { it.state?.name == "PublishEvents" }.id
+        val edge = model.root!!.edges.first().id
+        pane.show(model, open, LayoutMode.LOOSE, edge)
+        // the view moved to the box, which is far from the selected path
+        pane.diagram.viewport = Viewport.around(pane.box(id).bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
+        fun toggle() = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.stateName == "PublishEvents" }.bounds
+        click(pane, pane.at(toggle()))
+        assertEquals(listOf("PublishEvents"), toggles)
+        val shut = lay(model, LayoutMode.LOOSE, pane, setOf("PublishEvents"))
+        // kept where it was, the view would show another place
+        assertFalse(pane.visible(shut.nodes.single { it.id == id }.bounds))
+        pane.show(model, shut, LayoutMode.LOOSE, edge)
+        assertTrue(pane.box(id).collapsed)
+        assertTrue(pane.onScreen(pane.box(id).bounds).toString(), pane.visible(pane.box(id).bounds))
+        assertEquals(listOf(edge), pane.paths().filter { it.selected }.map { it.id })
+        // a show that follows no toggle keeps zoom and position
+        drag(pane, 300 to 300, 0 to -500)
+        val moved = pane.diagram.viewport!!
+        pane.show(model, shut, LayoutMode.LOOSE, edge)
+        assertEquals(listOf(moved.scale, moved.tx, moved.ty), pane.diagram.viewport!!.let { listOf(it.scale, it.tx, it.ty) })
+        // and expanding it again
+        pane.diagram.viewport = Viewport.around(pane.box(id).bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
+        click(pane, pane.at(toggle()))
+        assertEquals(listOf("PublishEvents", "PublishEvents"), toggles)
+        val reopened = lay(model, LayoutMode.LOOSE, pane)
+        pane.show(model, reopened, LayoutMode.LOOSE, edge)
+        assertFalse(pane.box(id).collapsed)
+        val on = pane.onScreen(pane.box(id).bounds)
+        if (on.width <= pane.diagram.width - 48) {
+            assertTrue(on.toString(), pane.visible(pane.box(id).bounds))
+        } else {
+            // open, the box is wider than the pane: its left edge at the margin, its whole height inside
+            assertEquals(on.toString(), 24.0, on.x, 0.001)
+            assertTrue(on.toString(), on.y >= 0 && on.maxY <= pane.diagram.height)
+        }
     }
 
     fun `test collapsing the details panel is remembered`() {
