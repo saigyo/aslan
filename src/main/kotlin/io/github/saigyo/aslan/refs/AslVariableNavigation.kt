@@ -13,6 +13,8 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
+import com.intellij.psi.SmartPointerManager
+import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.impl.FakePsiElement
 import com.intellij.psi.search.PsiSearchScopeUtil
 import com.intellij.psi.util.PsiTreeUtil
@@ -94,22 +96,48 @@ class AslVariableFindUsagesHandlerFactory : FindUsagesHandlerFactory() {
  * the usage view show a YAML entry by the variable's name and the assignment's place. They are the PSI entries, not
  * go-to targets: a target holds a variable of the model it was made from, and any PSI change before the search runs
  * makes a new model that no longer knows it. Their usages are the same for each of them, so they are searched once,
- * from the entry the search starts on: the reads (through [AslReferencesSearcher]) and the keys of the other
- * assignments.
+ * from the first primary element that is still an assignment of the variable: the reads (through
+ * [AslReferencesSearcher]) and the keys of the other assignments.
+ *
+ * The platform keeps the handler and restores the primary elements through smart pointers when the search is run
+ * again (Rerun in the Find tool window), so nothing about the file is kept from the handler's creation: each search
+ * reads the variables and assignments of the file as it is then.
  */
-private class AslVariableFindUsagesHandler(element: PsiElement, variables: List<AslVariable>) : FindUsagesHandler(element) {
-    private val entries = AslVariableTargets.assignmentEntries(variables)
-    private val start = (element as? AslVariableTarget)?.entry?.takeIf { it in entries } ?: element.takeIf { it in entries } ?: entries.first()
+private class AslVariableFindUsagesHandler(element: PsiElement, private val variables: List<AslVariable>) : FindUsagesHandler(element) {
+    /** The entry the search starts on; a go-to target stands for its entry. */
+    private val start = SmartPointerManager.createPointer((element as? AslVariableTarget)?.entry ?: element)
 
-    override fun getPrimaryElements(): Array<PsiElement> = entries.toTypedArray()
+    /** The primary elements as last handed out, in the order the platform searches them. */
+    @Volatile
+    private var primaries: List<SmartPsiElementPointer<PsiElement>> = emptyList()
+
+    override fun getPrimaryElements(): Array<PsiElement> {
+        // the variables of the current model when the start is still an assignment; those of creation otherwise
+        val current = psiElement.takeIf { it.isValid }?.let { AslVariableTargets.variablesAssignedAt(it) }.orEmpty()
+        val entries = AslVariableTargets.assignmentEntries(current.ifEmpty { variables })
+        val pointers = SmartPointerManager.getInstance(project)
+        primaries = entries.map { pointers.createSmartPsiElementPointer(it) }
+        return entries.toTypedArray()
+    }
 
     override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean {
-        if (element != start) return true
+        val writes = runReadActionBlocking { writesIfSearcher(element, options) } ?: return true
         if (!super.processElementUsages(element, processor, options)) return false
-        val writes = runReadActionBlocking {
-            entries.filter { it != start && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
-        }
         return writes.all { processor.process(it) }
+    }
+
+    /**
+     * The keys of the other current assignments when [element] is the primary element that searches, the first of
+     * them that is still a valid assignment of its variables; null for any other element.
+     */
+    private fun writesIfSearcher(element: PsiElement, options: FindUsagesOptions): List<UsageInfo>? {
+        if (!element.isValid) return null
+        val entries = AslVariableTargets.assignmentEntries(AslVariableTargets.variablesAssignedAt(element))
+        if (element !in entries) return null
+        // the entry the search started on, else the first primary element that still is one of the assignments
+        val searcher = (listOf(start) + primaries).firstNotNullOfOrNull { pointer -> pointer.element?.takeIf { it.isValid && it in entries } } ?: element
+        if (searcher != element) return null
+        return entries.filter { it != element && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
     }
 
     private fun keyOf(entry: PsiElement): PsiElement = (entry as? YAMLKeyValue)?.key ?: (entry as? JsonProperty)?.nameElement ?: entry

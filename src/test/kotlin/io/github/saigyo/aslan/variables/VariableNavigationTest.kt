@@ -6,13 +6,16 @@ import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector.Access
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.navigation.ItemPresentationProviders
 import com.intellij.navigation.NavigationItem
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementDescriptionUtil
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewNodeTextLocation
@@ -199,7 +202,75 @@ class VariableNavigationTest : VariableTestCase() {
         assertFalse(UsageViewUtil.getType(shelve) == AslVariableDescriptionProvider.TYPE)
     }
 
-    fun `test find usages still finds everything after a PSI change between the handler and the search`() {
+    fun `test only assignments of an ASL file get the variable's presentation`() {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        // found through the public interface the provider is registered for
+        val ours = ItemPresentationProviders.getItemPresentation(catcher)
+        assertNotNull(ours)
+        assertEquals("reel", ours!!.presentableText)
+        assertEquals("Load, first Catcher", ours.locationString)
+        assertEquals("reel", catcher.presentation!!.presentableText)
+        // a state's key keeps YAML's own presentation
+        val shelve = entryAt(offsetsOf("Shelve:").single())
+        assertNull(ItemPresentationProviders.getItemPresentation(shelve))
+        // an Assign key in a YAML file that is no ASL file too
+        val plain = myFixture.configureByText("plain.yaml", "Load:\n  Assign:\n    reel: 1\n")
+        val key = PsiTreeUtil.findChildrenOfType(plain, YAMLKeyValue::class.java).single { it.keyText == "reel" }
+        assertNull(ItemPresentationProviders.getItemPresentation(key))
+        assertEquals("1", key.presentation!!.presentableText)
+    }
+
+    /**
+     * Find Usages started on the Catcher's `reel`, searched after [edit] as Rerun in the Find tool window does: with the
+     * handler made before the edit and its primary elements restored through smart pointers. Gives the text and host
+     * offset of each usage found, in file order.
+     */
+    private fun searchAfter(edit: (Document) -> Unit): List<Pair<String, Int>> {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(catcher, false)!!
+        val pointers = handler.primaryElements.map { SmartPointerManager.createPointer(it) }
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(hostFile())!!
+            edit(document)
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        val found = ArrayList<UsageInfo>()
+        val options = handler.getFindUsagesOptions(null)
+        for (element in pointers.mapNotNull { it.element }) handler.processElementUsages(element, { found += it; true }, options)
+        return found.map { inHost(it) }.sortedBy { it.second }
+    }
+
+    /** Every key and read of `reel` in the file as it is now, but the key of the Catcher of Load. */
+    private fun everyReelButTheCatcher(): List<Pair<String, Int>> {
+        val keys = offsetsOf("reel:")
+        val catcher = offsetsOf("reel: none").single()
+        return (keys.filter { it != catcher }.map { "reel" to it } + offsetsOf("\$reel").map { "\$reel" to it }).sortedBy { it.second }
+    }
+
+    fun `test a rerun of find usages finds an assignment added after the first search`() {
+        val found = searchAfter { document ->
+            val at = document.text.indexOf("    InputPath: \$reel.title")
+            document.insertString(at, "    Assign:\n      reel: 7\n")
+        }
+        assertEquals(4, offsetsOf("reel:").size)
+        assertEquals(everyReelButTheCatcher(), found)
+    }
+
+    fun `test a rerun of find usages leaves out an assignment deleted after the first search`() {
+        val found = searchAfter { document ->
+            // the whole line of the Choice rule's assignment, which also holds one read
+            val key = document.text.indexOf("reel: \"{% \$reel & '-checked' %}\"")
+            val start = document.text.lastIndexOf('\n', key) + 1
+            val end = document.text.indexOf('\n', key) + 1
+            document.deleteString(start, end)
+        }
+        assertEquals(2, offsetsOf("reel:").size)
+        assertEquals(everyReelButTheCatcher(), found)
+    }
+
+    fun `test find usages still finds everything after a PSI change in another file`() {
         configure(archive)
         val catcher = entryAt(offsetsOf("reel:")[1])
         val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(catcher, false)!!
