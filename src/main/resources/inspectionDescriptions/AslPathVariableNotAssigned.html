@@ -1,6 +1,6 @@
 <html>
 <body>
-<p>Reports a read <code>$name</code> in a JSONPath string, such as <code>InputPath</code> or a <code>.$</code> field, of a variable that is not assigned where the state can read it: assigned nowhere, only inside a Map or a Parallel branch, only in another branch, or only outside a Distributed Map. Step Functions rejects the definition: the variable is not defined.</p>
+<p>Reports a read <code>$name</code> in a JSONPath string, such as <code>InputPath</code> or a <code>.$</code> field, of a variable that is not defined where it is read: no state machine the state can read from assigns it. That is the case when it is assigned nowhere, only inside a Map or a Parallel branch, only in another branch, or only outside a Distributed Map. Step Functions rejects the definition: the variable is not defined.</p>
 <p>A state machine that does not say every name assigned in it, for example through a deployment-time placeholder in <code>Assign</code> or <code>States</code>, is not checked.</p>
 </body>
 </html>

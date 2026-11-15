@@ -169,7 +169,7 @@
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
         <localInspection shortName="AslPathVariableNotAssigned" implementationClass="io.github.saigyo.aslan.check.AslPathVariableNotAssignedInspection"
-                         displayName="JSONPath variable assigned nowhere" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+                         displayName="JSONPath variable not defined where it is read" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslVariableNotAssigned" implementationClass="io.github.saigyo.aslan.check.AslVariableNotAssignedInspection"
                          displayName="Variable not assigned where it is read" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslInvalidVariableName" implementationClass="io.github.saigyo.aslan.check.AslInvalidVariableNameInspection"

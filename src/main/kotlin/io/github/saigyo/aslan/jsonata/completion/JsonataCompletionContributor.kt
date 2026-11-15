@@ -20,6 +20,7 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslModel
+import io.github.saigyo.aslan.refs.variableNameProblem
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.ContextField
 import io.github.saigyo.aslan.spec.JsonataFunction
@@ -70,7 +71,8 @@ class JsonataCompletionContributor : CompletionContributor() {
             result.addElement(LookupElementBuilder.create("$$name").withTypeText("variable", true))
         }
         for (name in stateVariables.sorted()) {
-            if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || name == "states") continue
+            // a name that is no variable name, such as `re-el`, would not read back as one variable (`$re - el`)
+            if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || variableNameProblem(name) != null) continue
             result.addElement(LookupElementBuilder.create("$$name").withTypeText("state variable", true))
         }
     }

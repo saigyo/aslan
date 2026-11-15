@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.model
 
+import com.intellij.psi.PsiElement
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
@@ -59,22 +60,31 @@ object JsonPathReads {
     }
 
     /** The strings of [doc] that JSONPath evaluates (see [Collector]), with the state each belongs to; one entry per use through an alias. */
-    fun sites(doc: AslDocument): List<Pair<AslScalar, AslState>> {
+    fun sites(doc: AslDocument): List<Pair<AslScalar, AslState>> = collect(doc).first
+
+    /**
+     * The whole values of the places [sites] looks at, and of free-form fields, where the file does not settle them
+     * ([standsForAnyValue]): they may stand for a path or for `.$` entries that read any variable.
+     */
+    internal fun unsettled(doc: AslDocument): List<PsiElement> = collect(doc).second.distinct()
+
+    private fun collect(doc: AslDocument): Pair<List<Pair<AslScalar, AslState>>, List<PsiElement>> {
         val out = ArrayList<Pair<AslScalar, AslState>>()
+        val unsettled = ArrayList<PsiElement>()
         for (state in doc.allStates()) {
             val type = state.type ?: continue
             val obj = state.obj ?: continue
             if (!state.queryLanguageKnown || state.queryLanguage != QueryLanguage.JSONPATH) continue
-            Collector(state, out).walk(obj, AslSpec.structure(type.structure))
+            Collector(state, out, unsettled).walk(obj, AslSpec.structure(type.structure))
         }
-        return out
+        return out to unsettled
     }
 
     /**
      * Collects the certain string values of the entries whose key ends in `.$` inside free-form fields, of the fields
      * whose name ends in `Path` (not `ResultPath`) and of `Variable` in a Choice rule.
      */
-    private class Collector(val state: AslState, val out: MutableList<Pair<AslScalar, AslState>>) {
+    private class Collector(val state: AslState, val out: MutableList<Pair<AslScalar, AslState>>, val unsettled: MutableList<PsiElement>) {
         fun walk(o: AslObject, structure: StructureSpec) {
             for (entry in o.entries) {
                 if (isUnappliedMerge(entry)) continue
@@ -83,6 +93,7 @@ object JsonPathReads {
                 val kind = field.kind
                 val value = entry.value
                 when {
+                    (kind == ValueKind.FreeForm || isPathField(entry.key, structure)) && standsForAnyValue(value) -> unsettled += value.psi
                     kind == ValueKind.FreeForm -> freeForm(value)
                     value is AslScalar -> if (isPathField(entry.key, structure)) candidate(value)
                     kind is ValueKind.Struct && value is AslObject -> walk(value, AslSpec.structure(kind.id))
@@ -101,7 +112,8 @@ object JsonPathReads {
                 is AslObject -> for (entry in node.entries) {
                     if (isUnappliedMerge(entry)) continue
                     val value = entry.value
-                    if (entry.key.endsWith(".$") && value is AslScalar) candidate(value)
+                    if (entry.key.endsWith(".$") && standsForAnyValue(value)) unsettled += value.psi
+                    else if (entry.key.endsWith(".$") && value is AslScalar) candidate(value)
                     else freeForm(value)
                 }
                 is AslArray -> for (item in node.items) freeForm(item)

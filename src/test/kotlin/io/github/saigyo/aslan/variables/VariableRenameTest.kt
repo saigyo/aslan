@@ -724,6 +724,18 @@ class VariableRenameTest : VariableTestCase() {
         )
     }
 
+    fun `test conflict 6, a placeholder that may stand for an expression`() {
+        val text = jsonataMachine("Show:\n  Type: Pass\n  Output: §{OutputExpr}\n  Next: Read\nRead:\n  Type: Pass\n  Output: \"{% §reel %}\"\n  End: true")
+        // it may read the old name, which the rename would not change, and the new one, which the rename would make read
+        assertEquals(setOf(UNREAD_MENTION, NEW_NAME_MENTIONED), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+        // control: a placeholder inside free-form data is no expression of its own
+        val nested = text.replace("Output: §{OutputExpr}", "Output:\n      title: §{Title}")
+        assertEquals(
+            nested.replace("reel: 1", "film: 1").replace("{% §reel", "{% §film").replace("§", "$"),
+            renameAtCaret(withCaret(nested, "re|el: 1"), "film"),
+        )
+    }
+
     fun `test a rename leaves another branch's variable alone`() {
         val before = """
             QueryLanguage: JSONata

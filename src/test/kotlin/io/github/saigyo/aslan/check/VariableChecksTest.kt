@@ -288,6 +288,20 @@ class VariableChecksTest : CheckTestCase() {
         }
     }
 
+    fun `test never read is silent where a placeholder may stand for an expression`() {
+        // JSONata: the whole value of a field that takes an expression
+        val jsonata = loading("Show:\n  Type: Pass\n  Output: §{OutputExpr}\n  End: true")
+        assertEquals(emptyList<Any>(), variables(jsonata))
+        // control: a placeholder inside free-form data is no expression of its own
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(jsonata.replace("Output: §{OutputExpr}", "Output:\n      title: §{Title}"), "nested.asl.yaml"))
+        // JSONPath: the whole value of a path field, or of a key that ends in `.$`
+        val path = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\nShow:\n  Type: Pass\n  OutputPath: §{Path}\n  End: true", top = "")
+        assertEquals(emptyList<Any>(), variables(path, "path.asl.yaml"))
+        val dollarKey = path.replace("OutputPath: §{Path}", "Parameters:\n      title.$: §{Path}")
+        assertEquals(emptyList<Any>(), variables(dollarKey, "key.asl.yaml"))
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(path.replace("OutputPath: §{Path}", "OutputPath: §.title"), "plain.asl.yaml"))
+    }
+
     fun `test a Comment is no mention`() {
         val text = loading("Show:\n  Type: Pass\n  Comment: Shows §reel\n  End: true")
         assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(text))
@@ -434,6 +448,62 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(
             listOf(VARIABLE_NEVER_READ to "reel", VARIABLE_NOT_ASSIGNED to "\$frame"),
             variables(text.replace("§reel & §frame", "§reel() & §frame"), "callee.asl.yaml"),
+        )
+    }
+
+    /** A machine that assigns `reel`, with a Distributed Map whose processor assigns `frame` and holds a Map of [innerMode] that reads both. */
+    private fun nestedMaps(innerMode: String) = machine(
+        """
+        Load:
+          Type: Pass
+          Assign:
+            reel: 1
+          Next: Outer
+        Outer:
+          Type: Map
+          Items: "{% [1, 2] %}"
+          ItemProcessor:
+            ProcessorConfig:
+              Mode: DISTRIBUTED
+              ExecutionType: STANDARD
+            StartAt: Tag
+            States:
+              Tag:
+                Type: Pass
+                Assign:
+                  frame: 2
+                Next: Inner
+              Inner:
+                Type: Map
+                Items: "{% [1, 2] %}"
+                ItemProcessor:
+                  ProcessorConfig:
+                    Mode: $innerMode
+                    ExecutionType: STANDARD
+                  StartAt: Show
+                  States:
+                    Show:
+                      Type: Pass
+                      Output: "{% §reel & §frame %}"
+                      End: true
+                End: true
+          End: true
+        """,
+    )
+
+    fun `test a read inside a Distributed Map inside a Distributed Map`() {
+        // the inner processor reads neither the top-level variable nor the one of the outer processor
+        assertEquals(
+            listOf(VARIABLE_NEVER_READ to "reel", VARIABLE_NEVER_READ to "frame", DISTRIBUTED_MAP_OUTER_READ to "\$reel", DISTRIBUTED_MAP_OUTER_READ to "\$frame"),
+            variables(nestedMaps("DISTRIBUTED")),
+        )
+    }
+
+    fun `test a read inside an inline Map inside a Distributed Map`() {
+        // the inline processor reads the variable of the Distributed Map's processor, not the top-level one
+        assertEquals(
+            listOf(VARIABLE_NEVER_READ to "reel", DISTRIBUTED_MAP_OUTER_READ to "\$reel"),
+            variables(nestedMaps("INLINE"), "inline.asl.yaml"),
         )
     }
 

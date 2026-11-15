@@ -167,13 +167,17 @@ class AslVariables private constructor(private val doc: AslDocument, private val
     /** The chain of [machine]: the machine, then outward, ending after the processor of a Distributed Map. */
     fun chain(machine: AslStateMachine): List<AslStateMachine> = chains[machine].orEmpty()
 
-    private val mentions: VariableMentions by lazy { VariableMentions(doc.file) }
+    private val mentions: VariableMentions by lazy {
+        VariableMentions(doc.file, if (failed) emptyList() else doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc))
+    }
 
     /**
      * The strings of the file that hold `$name` more often than the model knows reads of [name] in them: a use the
      * model leaves out, such as a local or uncertain use in JSONata, an expression with no injected file or with a
      * syntax error, or a string of a state of unknown type. Every string counts but the key of an entry and a
-     * `Comment` that is no JSONata expression (see [VariableMentions]).
+     * `Comment` that is no JSONata expression (see [VariableMentions]). The whole value of a field that takes an
+     * expression or a path, where the file does not settle it (a placeholder such as `Output: ${OutputExpr}`), is
+     * given for every name: it may stand for an expression that reads any variable.
      */
     fun unknownMentions(name: String): List<PsiElement> = mentions.unknown(name, reads)
 

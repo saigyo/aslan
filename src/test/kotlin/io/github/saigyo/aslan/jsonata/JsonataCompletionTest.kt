@@ -150,6 +150,13 @@ class JsonataCompletionTest : JsonataTestCase() {
         assertEquals("state variable", lookupTypeText("\$reel"))
     }
 
+    fun `test no state variable whose name is no variable name`() {
+        // `$re-el` would read as `$re - el`
+        val items = complete(forked("re-el: 1\n              reel: 2", "\$re$caret"))
+        assertTrue(items.toString(), items.contains("\$reel"))
+        assertFalse(items.toString(), items.contains("\$re-el"))
+    }
+
     fun `test a local variable hides a state variable`() {
         val items = complete(forked("reel: 1", "(\$reel := 2; \$re$caret)"))
         assertEquals(items.toString(), 1, items.count { it == "\$reel" })
