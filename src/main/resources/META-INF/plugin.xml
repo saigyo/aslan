@@ -1,29 +1,64 @@
 <idea-plugin>
     <id>io.github.saigyo.aslan</id>
     <name>Aslan</name>
-    <vendor url="https://github.com/saigyo/aslan">saigyo</vendor>
+    <vendor email="aslan@kaixo.de" url="https://github.com/saigyo/aslan">saigyo</vendor>
 
     <description><![CDATA[
-        <p>Editor support for Amazon States Language definitions, the format of AWS Step Functions state machines. Works with definitions written in YAML and in JSON.</p>
+        <p>Editor support for AWS Step Functions state machine definitions (Amazon States Language) in YAML and JSON: completion, checks, JSONata, variable navigation and a live diagram.</p>
+        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/diagram.png" width="700" alt="A definition in the editor beside its diagram, with the selected state's details below"></p>
+        <p><b>Editing</b></p>
         <ul>
-            <li>Completion of field names, fixed values and state names</li>
-            <li>Validation with a separate inspection for each check; a problem is an error only where AWS documents that it rejects the definition</li>
-            <li>Quick documentation for fields and values, with links to the AWS documentation</li>
-            <li>Go to a state, find the transitions that point to it, and rename a state with all of them</li>
-            <li>Structure view that lists states by type</li>
-            <li>Highlighting of ASL field names, state names and transition targets</li>
-            <li>JSONata in <code>{% … %}</code> strings: highlighting and syntax checks exactly as Step Functions parses it (JSONata 2.0.6)</li>
-            <li>Six JSONata inspections, each of which can be switched off: syntax error, a field of <code>$states</code> that does not exist where it is used, an operator of JSONata 2.1, a field name, <code>$</code> or <code>$$</code> without an input, a call of an unknown function, and <code>$eval</code></li>
-            <li>JSONata completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation and parameter hints for the built-in functions and the Step Functions additions</li>
-            <li>Local JSONata variables: go to declaration, find usages, highlight usages and rename</li>
-            <li>State machine variables (<code>Assign</code> and <code>$name</code>): usage highlighting that tells assignments from reads, go to declaration, find usages, rename and completion after <code>$</code>. Next Highlighted Usage and Previous Highlighted Usage step through the highlighted usages (Ctrl+Option+Down and Ctrl+Option+Up in the default macOS keymap; the default Windows and Linux keymaps bind none, so assign one under Settings | Keymap)</li>
-            <li>Seven variable inspections, each of which can be switched off: a read of a variable that nothing assigns (two inspections), a read inside a Distributed Map of a variable that only an outer state machine assigns, an <code>Assign</code> key that Step Functions rejects as a name, an unusual name, an assignment of a name that an outer state machine assigns, and a variable that is never read</li>
-            <li>Brackets, quotes and comment toggling inside expressions</li>
-            <li>Support for <code>${name}</code> placeholders. An expression that contains <code>${</code> outside a string literal is not judged at all</li>
+            <li>Completion of field names, state types, fixed values, error names and state names; choosing a state type in a new YAML state inserts the fields it needs</li>
+            <li>Checks, each with its own inspection that can be switched off; a problem is an error only where AWS rejects the definition at deployment</li>
+            <li>Quick documentation for fields, state types and values, with links to the AWS documentation</li>
+            <li>Go to a state, find the transitions that name it, and rename it together with all of them</li>
+            <li>A structure view that lists the states with an icon for each type, nested for Map and Parallel states</li>
+            <li>Highlighting of ASL field names, state names, transition targets and <code>${name}</code> placeholders</li>
         </ul>
-        <p>Files named <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code> are recognised; more file name patterns can be added in the settings. The plugin makes no network requests.</p>
+        <p><b>JSONata</b></p>
+        <ul>
+            <li>Highlighting of <code>{% … %}</code> expressions and syntax checks exactly as Step Functions parses them (JSONata 2.0.6)</li>
+            <li>Inspections for a field of <code>$states</code> that does not exist where it is used, an operator of JSONata 2.1, a name evaluated without an input, an unknown function and <code>$eval</code></li>
+            <li>Completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation and parameter hints for functions</li>
+            <li>Go to declaration, find usages, usage highlighting and rename for local variables</li>
+        </ul>
+        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/jsonata.png" width="700" alt="A JSONata expression in YAML, highlighted, with the completion list of functions"></p>
+        <p><b>Variables</b></p>
+        <ul>
+            <li>State machine variables (<code>Assign</code> and <code>$name</code>) in JSONata and JSONPath states: usage highlighting in one colour for assignments and another for reads</li>
+            <li>Next Highlighted Usage and Previous Highlighted Usage step through the usages: Ctrl+Option+Down and Ctrl+Option+Up in the default macOS keymap; the default Windows and Linux keymaps bind none, so assign one under Settings | Keymap</li>
+            <li>Go to declaration, find usages, rename that refuses when it cannot keep the meaning, and completion after <code>$</code></li>
+            <li>Inspections for a read of a variable that nothing assigns, an <code>Assign</code> key that AWS rejects, an assignment of a name an outer state machine assigns, and a variable that is never read</li>
+        </ul>
+        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/variables.png" width="700" alt="A variable's assignments and reads highlighted in two colours, with Find Usages listing the reads"></p>
+        <p><b>Diagram</b></p>
+        <ul>
+            <li>A diagram of the state machine beside the editor, redrawn shortly after you stop typing; buttons switch between editor, both, and diagram</li>
+            <li>Selection shared with the editor: the caret selects its state, and a click on a state or a path moves the caret there</li>
+            <li>Choice paths labelled with their conditions, catch paths that can be shown, muted or hidden, and collapsible boxes for Map and Parallel states</li>
+            <li>A loose and a compact layout, zoom and fit to window, and a details panel with the selected state's resource, variables, retriers, catchers and next states</li>
+        </ul>
+        <p><b>Getting started</b></p>
+        <ol>
+            <li>Name the definition <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code>, or add your own pattern under Settings | Languages &amp; Frameworks | Amazon States Language.</li>
+            <li>Open the file. The editor is on the left and the diagram on the right; the buttons at the top right of the editor switch between editor, both, and diagram.</li>
+            <li>Click a state in the diagram or in the Structure tool window to go to it. Place the caret on a variable to see where it is assigned and read.</li>
+            <li>The checks are listed under Settings | Editor | Inspections | Amazon States Language; each can be switched off.</li>
+        </ol>
+        <p>A problem is shown as an error only where AWS rejects the definition at deployment; anything that deploys is at most a warning. Placeholders, YAML anchors and aliases, and the contents of free-form data fields are never reported, and a JSONata expression that contains <code>${</code> outside a string literal is not judged. The plugin makes no network requests.</p>
+        <p>Documentation: <a href="https://github.com/saigyo/aslan#readme">README</a>. Questions and problems: <a href="https://github.com/saigyo/aslan/issues">issue tracker</a>.</p>
         <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.</p>
     ]]></description>
+
+    <change-notes><![CDATA[
+        <p>1.0.0: First release.</p>
+        <ul>
+            <li>Editing: completion, checks, quick documentation, navigation and rename for states, and a structure view</li>
+            <li>JSONata: highlighting, syntax checks, inspections, completion, documentation and local variables</li>
+            <li>Variables: usage highlighting, stepping through usages, go to declaration, find usages, rename, completion and inspections</li>
+            <li>Diagram: a live diagram beside the editor, with shared selection, two layouts, a catch switch and a details panel</li>
+        </ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.yaml</depends>
