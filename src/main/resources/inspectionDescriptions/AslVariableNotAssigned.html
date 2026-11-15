@@ -1,0 +1,6 @@
+<html>
+<body>
+<p>Reports a read <code>$name</code> of a variable that is not assigned where the state can read it: neither in its own state machine nor in an outer one it can see. A Distributed Map's item processor cannot see the variables outside it, and a Parallel branch cannot see those of another branch.</p>
+<p>It is a warning: Step Functions accepts such a JSONata expression with a warning that the variable is possibly not defined. A call <code>$name(...)</code> of a name that is not assigned is treated as a function call. An expression that contains a deployment-time placeholder outside a string literal or has a syntax error is not checked, nor is a state machine that does not say every name assigned in it.</p>
+</body>
+</html>

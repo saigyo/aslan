@@ -79,6 +79,11 @@ class AslJsonataWithoutInputInspection : AslProblemInspection(AslProblem.JSONATA
 class AslUnknownJsonataFunctionInspection : AslProblemInspection(AslProblem.UNKNOWN_JSONATA_FUNCTION)
 class AslUnsupportedJsonataFunctionInspection : AslProblemInspection(AslProblem.UNSUPPORTED_JSONATA_FUNCTION)
 class AslChoiceWithoutDefaultInspection : AslProblemInspection(AslProblem.CHOICE_WITHOUT_DEFAULT)
+class AslPathVariableNotAssignedInspection : AslProblemInspection(AslProblem.PATH_VARIABLE_NOT_ASSIGNED)
+class AslVariableNotAssignedInspection : AslProblemInspection(AslProblem.VARIABLE_NOT_ASSIGNED)
+class AslInvalidVariableNameInspection : AslProblemInspection(AslProblem.INVALID_VARIABLE_NAME)
+class AslOuterVariableAssignedInspection : AslProblemInspection(AslProblem.OUTER_VARIABLE_ASSIGNED)
+class AslVariableNeverReadInspection : AslProblemInspection(AslProblem.VARIABLE_NEVER_READ)
 
 object AslInspections {
     /** One inspection per [AslProblem], in the order of the enum. */
@@ -129,5 +134,10 @@ object AslInspections {
         AslNewerJsonataOperatorInspection(),
         AslJsonataWithoutInputInspection(),
         AslChoiceWithoutDefaultInspection(),
+        AslPathVariableNotAssignedInspection(),
+        AslVariableNotAssignedInspection(),
+        AslInvalidVariableNameInspection(),
+        AslOuterVariableAssignedInspection(),
+        AslVariableNeverReadInspection(),
     )
 }

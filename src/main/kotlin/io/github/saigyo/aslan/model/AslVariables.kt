@@ -82,7 +82,7 @@ data class AslVariable(val name: String, val scope: AslStateMachine)
  * JSONata files. An instance made by [of] after the computation failed has no assignments and no reads, and every
  * state in it is open, so no check concludes anything from it.
  */
-class AslVariables private constructor(doc: AslDocument, private val failed: Boolean) {
+class AslVariables private constructor(private val doc: AslDocument, private val failed: Boolean) {
     internal constructor(doc: AslDocument) : this(doc, failed = false)
 
     /** In file order; one per use through an alias or merge. */
@@ -166,6 +166,16 @@ class AslVariables private constructor(doc: AslDocument, private val failed: Boo
 
     /** The chain of [machine]: the machine, then outward, ending after the processor of a Distributed Map. */
     fun chain(machine: AslStateMachine): List<AslStateMachine> = chains[machine].orEmpty()
+
+    private val mentions: VariableMentions by lazy { VariableMentions(doc.file) }
+
+    /**
+     * The strings of the file that hold `$name` more often than the model knows reads of [name] in them: a use the
+     * model leaves out, such as a local or uncertain use in JSONata, an expression with no injected file or with a
+     * syntax error, or a string of a state of unknown type. Every string counts but the key of an entry and a
+     * `Comment` that is no JSONata expression (see [VariableMentions]).
+     */
+    fun unknownMentions(name: String): List<PsiElement> = mentions.unknown(name, reads)
 
     private fun owningScope(name: String, machine: AslStateMachine): AslStateMachine? =
         chains[machine].orEmpty().lastOrNull { name in assigned[it].orEmpty() }

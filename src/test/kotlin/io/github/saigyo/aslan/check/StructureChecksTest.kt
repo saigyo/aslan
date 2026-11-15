@@ -92,7 +92,7 @@ class StructureChecksTest : CheckTestCase() {
         val bodies = listOf(
             "RoleArn: ${'$'}{ScanningTeamRoleArn}",
             "RoleArn: arn:aws:iam::${'$'}{Account}:role/scanning-team",
-            "RoleArn: '{% ${'$'}roleArn %}'",
+            "RoleArn: '{% ${'$'}states.input.roleArn %}'",
             "RoleArn: !GetAtt ScanningRole.Arn",
             "RoleArn: !Sub scanning-team",
             "${'$'}{RoleKey}: scanning-team",
@@ -230,7 +230,7 @@ class StructureChecksTest : CheckTestCase() {
 
     fun `test JSONata where allowed`() = assertEquals(
         emptyList<Any>(),
-        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: '{% ${'$'}t %}'\n")),
+        found(edit("    Next: Decide\n" to "    Next: Decide\n    TimeoutSeconds: '{% ${'$'}states.input.t %}'\n")),
     )
 
     fun `test unclosed delimiter`() = assertEquals(

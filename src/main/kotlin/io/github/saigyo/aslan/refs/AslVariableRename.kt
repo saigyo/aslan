@@ -1,7 +1,6 @@
 package io.github.saigyo.aslan.refs
 
 import com.intellij.json.psi.JsonProperty
-import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
@@ -37,7 +36,6 @@ import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.AslVariable
 import io.github.saigyo.aslan.model.AslVariables
 import io.github.saigyo.aslan.model.JsonataRead
-import io.github.saigyo.aslan.model.JsonataSites
 import io.github.saigyo.aslan.model.PathRead
 import io.github.saigyo.aslan.tree.AslEntry
 import io.github.saigyo.aslan.tree.QuotedScalars
@@ -45,7 +43,6 @@ import org.jetbrains.yaml.psi.YAMLAlias
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLMapping
-import org.jetbrains.yaml.psi.YAMLScalar
 import org.jetbrains.yaml.psi.YAMLSequence
 import java.awt.GridBagConstraints
 import javax.swing.JCheckBox
@@ -212,7 +209,7 @@ internal class AslVariableRename private constructor(
         }
 
         // 3: `$newName` that is no known read, such as a built-in function the rename would turn into a read
-        for (host in unknownMentions(newName)) {
+        for (host in model.unknownMentions(newName)) {
             out += RenameConflict(RenameConflictKind.NEW_NAME_MENTIONED, host, "\$$newName is used here as no state variable, and the rename could make it one")
         }
 
@@ -271,7 +268,7 @@ internal class AslVariableRename private constructor(
         }
 
         // 6: `$oldName` that is no known read: a use the model leaves out, which the rename would not change
-        for (host in unknownMentions(oldName)) {
+        for (host in model.unknownMentions(oldName)) {
             out += RenameConflict(RenameConflictKind.UNREAD_MENTION, host, "\$$oldName is used here in a way the rename cannot follow")
         }
         return out
@@ -338,50 +335,6 @@ internal class AslVariableRename private constructor(
         if (range.endOffset > text.length) null else range.substring(text)
     }
 
-    /**
-     * The strings of the file that hold `$name` (followed by no letter, digit or `_`) more often than the model knows
-     * reads of [name] in them. Every string counts but the key of an entry and a `Comment` that is no JSONata
-     * expression, since Step Functions evaluates neither. Comparing counts suffices: each known read is such a `$name`
-     * in its string, at its own place. A read in an expression with a syntax error does not count as known, since what
-     * the expression reads once it is complete is not known (Review Focus 5).
-     */
-    private fun unknownMentions(name: String): List<PsiElement> {
-        val known = HashMap<PsiElement, HashSet<Any>>()
-        for (read in model.reads) {
-            if (read.name != name) continue
-            when (read) {
-                is JsonataRead -> if (!PsiTreeUtil.hasErrorElements(read.variable.containingFile)) {
-                    known.getOrPut(read.site.scalar.psi) { HashSet() } += read.variable
-                }
-                is PathRead -> known.getOrPut(read.scalar.psi) { HashSet() } += read.range.startOffset
-            }
-        }
-        val out = ArrayList<PsiElement>()
-        for (string in PsiTreeUtil.findChildrenOfAnyType(document.file, YAMLScalar::class.java, JsonStringLiteral::class.java)) {
-            val text = decoded(string) ?: continue
-            if (isKey(string) || (isCommentValue(string) && !text.startsWith(JsonataSites.OPEN))) continue
-            if (mentions(text, name) > known[string].orEmpty().size) out += string
-        }
-        return out
-    }
-
-    private fun decoded(string: PsiElement): String? = when (string) {
-        is YAMLScalar -> string.textValue
-        is JsonStringLiteral -> string.value
-        else -> null
-    }
-
-    private fun isKey(string: PsiElement): Boolean {
-        val parent = string.parent
-        return (parent is JsonProperty && parent.nameElement == string) || (parent is YAMLKeyValue && parent.key == string)
-    }
-
-    private fun isCommentValue(string: PsiElement): Boolean = when (val parent = string.parent) {
-        is JsonProperty -> parent.name == "Comment" && parent.value == string
-        is YAMLKeyValue -> parent.keyText == "Comment" && parent.value == string
-        else -> false
-    }
-
     companion object {
         /** The rename of the variables [element] stands for, or null when it stands for none (see [renamedVariables]). */
         fun of(element: PsiElement): AslVariableRename? {
@@ -389,19 +342,6 @@ internal class AslVariableRename private constructor(
             val model = AslVariableTargets.modelOf(variables.first()) ?: return null
             val document = AslModel.of(variables.first().scope.obj.psi.containingFile) ?: return null
             return AslVariableRename(document, model, variables)
-        }
-
-        /** How many times [text] holds `$name` followed by no letter, digit or `_`. */
-        private fun mentions(text: String, name: String): Int {
-            val needle = "$$name"
-            var count = 0
-            var at = text.indexOf(needle)
-            while (at >= 0) {
-                val next = text.getOrNull(at + needle.length)
-                if (next == null || !(Character.isLetterOrDigit(next) || next == '_')) count++
-                at = text.indexOf(needle, at + 1)
-            }
-            return count
         }
 
         private fun isQuoted(text: String): Boolean = text.length >= 2 && (text[0] == '"' || text[0] == '\'') && text.last() == text[0]
