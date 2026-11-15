@@ -53,11 +53,19 @@ object JsonPathReads {
         return reads
     }
 
+    /** The name after the `$` at [dollar], scanned by code point so a supplementary letter belongs to it; UTF-16 offsets. */
     private fun readAt(text: String, dollar: Int): PathName? {
         var end = dollar + 1
-        while (end < text.length && (Character.isLetterOrDigit(text[end]) || text[end] == '_')) end++
+        while (end < text.length) {
+            val codePoint = text.codePointAt(end)
+            if (!isNamePart(codePoint)) break
+            end += Character.charCount(codePoint)
+        }
         return if (end == dollar + 1) null else PathName(text.substring(dollar + 1, end), dollar, end)
     }
+
+    /** A letter, a digit or `_`, the characters of a name after its first. */
+    internal fun isNamePart(codePoint: Int): Boolean = Character.isLetterOrDigit(codePoint) || codePoint == '_'.code
 
     /** The strings of [doc] that JSONPath evaluates (see [Collector]), with the state each belongs to; one entry per use through an alias. */
     fun sites(doc: AslDocument): List<Pair<AslScalar, AslState>> = collect(doc).first

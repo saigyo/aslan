@@ -594,4 +594,22 @@ class AslVariablesTest : VariableTestCase() {
         assertEquals(listOf("reel"), broken.readNames())
         assertNull(broken.variables.variableOf(broken.variables.reads.single()))
     }
+
+    /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
+    private val deseret = String(Character.toChars(0x10400))
+
+    fun `test a supplementary letter belongs to the name of a JSONPath read`() {
+        val doc = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$deseret: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$deseret\n  End: true"))
+        val read = doc.variables.reads.single() as PathRead
+        assertEquals("a$deseret", read.name)
+        assertEquals(TextRange(0, 4), read.range)
+        assertEquals(AslVariable("a$deseret", doc.root!!), doc.variables.variableOf(read))
+        assertEmpty(doc.variables.readsOf(AslVariable("a", doc.root!!)))
+    }
+
+    fun `test a supplementary letter after a name makes it no mention of the name`() {
+        val doc = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\nShow:\n  Type: Pass\n  Output: '{% §reel$deseret %}'\n  End: true", "QueryLanguage: JSONata"))
+        assertEquals(listOf("reel$deseret"), doc.readNames())
+        assertEmpty(doc.variables.unknownMentions("reel"))
+    }
 }

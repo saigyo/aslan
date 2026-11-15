@@ -83,14 +83,14 @@ internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiEl
             else -> false
         }
 
-        /** How many times [text] holds `$name` followed by no letter, digit or `_`. */
+        /** How many times [text] holds `$name` followed by no letter, digit or `_`; the code point after it decides. */
         fun mentions(text: String, name: String): Int {
             val needle = "$$name"
             var count = 0
             var at = text.indexOf(needle)
             while (at >= 0) {
-                val next = text.getOrNull(at + needle.length)
-                if (next == null || !(Character.isLetterOrDigit(next) || next == '_')) count++
+                val after = at + needle.length
+                if (after >= text.length || !JsonPathReads.isNamePart(text.codePointAt(after))) count++
                 at = text.indexOf(needle, at + 1)
             }
             return count

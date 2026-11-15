@@ -34,6 +34,12 @@ class VariableChecksTest : CheckTestCase() {
         "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\n" + states.trimIndent(),
     )
 
+    fun `test a name with a supplementary letter after it does not silence never-read`() {
+        val deseret = String(Character.toChars(0x10400))
+        val text = loading("Show:\n  Type: Pass\n  Output: '{% §reel$deseret %}'\n  End: true")
+        assertTrue(variables(text).toString(), VARIABLE_NEVER_READ to "reel" in variables(text))
+    }
+
     // PATH_VARIABLE_NOT_ASSIGNED
 
     fun `test the Result of a Pass state is no read`() {
