@@ -10,6 +10,7 @@ import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
 import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.AslVariable
@@ -123,6 +124,12 @@ internal object AslVariableTargets {
         val variables = variablesIn(host) ?: return emptyList()
         return variables.pathReadsAt(host).filter { variables.variableOf(it) != null }.map { it.range }.distinct()
             .map { AslVariableReadReference(host, it) }
+    }
+
+    /** Whether the JSONata expression injected into [host] reads a state machine variable. */
+    fun readsInJsonata(host: PsiElement): Boolean {
+        val file = JsonataPsi.injectedFile(host) ?: return false
+        return PsiTreeUtil.findChildrenOfType(file, JsonataVariableRef::class.java).any { readVariables(it).isNotEmpty() }
     }
 
     private fun readVariables(variable: JsonataVariableRef): List<AslVariable> {

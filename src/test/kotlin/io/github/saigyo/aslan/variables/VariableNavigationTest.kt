@@ -5,12 +5,18 @@ import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector.Access
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.find.findUsages.FindUsagesHandler
+import com.intellij.find.findUsages.FindUsagesManager
+import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
+import com.intellij.json.psi.JsonProperty
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.ItemPresentationProviders
 import com.intellij.navigation.NavigationItem
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementDescriptionUtil
 import com.intellij.psi.PsiDocumentManager
@@ -18,9 +24,12 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewNodeTextLocation
 import com.intellij.usageView.UsageViewUtil
+import com.intellij.usages.Usage
+import com.intellij.usages.UsageInfo2UsageAdapter
 import com.intellij.usages.UsageTarget
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
@@ -34,6 +43,7 @@ import io.github.saigyo.aslan.refs.AslVariableTargets
 import io.github.saigyo.aslan.refs.AslVariableUsageTypeProvider
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
+import java.util.Collections
 
 class VariableNavigationTest : VariableTestCase() {
     /**
@@ -421,5 +431,63 @@ class VariableNavigationTest : VariableTestCase() {
         val reads = offsetsOf("\$reel")
         assertEquals(listOf("\$reel" to reads[0]), myFixture.findUsages(entryAt(keys[0])).map { inHost(it) })
         assertEquals(listOf("\$reel" to reads[1]), myFixture.findUsages(entryAt(keys[1])).map { inHost(it) })
+    }
+
+    /**
+     * The usages Find Usages and the Show Usages popup get for [entry]: from the searcher the popup uses
+     * ([FindUsagesManager.createUsageSearcher]), which hands the platform's word search for the name to a shared
+     * collector and reports what that finds itself, past the handler. `myFixture.findUsages` has no such collector.
+     */
+    private fun popupUsages(entry: PsiElement): List<UsageInfo> {
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(entry, false)!!
+        val searcher = FindUsagesManager.createUsageSearcher(handler, handler.primaryElements, handler.secondaryElements, handler.getFindUsagesOptions(null))
+        val found = Collections.synchronizedList(ArrayList<Usage>())
+        // the search may not run on the EDT
+        val search = ApplicationManager.getApplication().executeOnPooledThread {
+            ProgressManager.getInstance().runProcess({ searcher.generate { found += it; true } }, EmptyProgressIndicator())
+        }
+        PlatformTestUtil.waitForFuture(search, 60_000)
+        return found.map { (it as UsageInfo2UsageAdapter).usageInfo }
+    }
+
+    /**
+     * The usage view and the Show Usages popup sort usages with the same comparator: by file, then by offset, then by
+     * the text of the row. Each read lay in its own injected file, so they all differed by file and fell through to the
+     * text, which starts with the line number: line 10 came before line 9. Checks that Find Usages on [entry], the only
+     * assignment, lists the twelve reads of `reel` on lines 9 to 20 once each and in that order, as reads, each in the
+     * host string at the read.
+     */
+    private fun assertReadsInFileOrder(entry: PsiElement) {
+        val usages = popupUsages(entry)
+        val tree = myFixture.getUsageViewTreeTextRepresentation(usages)
+        assertEquals(tree, 12, usages.size)
+        assertTrue(tree, usages.none { it.virtualFile is VirtualFileWindow })
+        // a usage's row starts with its line number, counted from 1
+        val lines = Regex("""^\s+(\d+)""", RegexOption.MULTILINE).findAll(tree).map { it.groupValues[1].toInt() }.toList()
+        assertEquals(tree, (9..20).toList(), lines)
+        assertEquals(offsetsOf("\$reel").map { "\$reel" to it }, usages.map { inHost(it) }.sortedBy { it.second })
+        assertTrue(usages.all { it.file == hostFile() })
+        val targets = arrayOf<UsageTarget>(PsiElement2UsageTargetAdapter(entry, true))
+        assertEquals(List(12) { AslVariableUsageTypeProvider.READ }, usages.map { AslVariableUsageTypeProvider().getUsageType(it.element!!, targets) })
+    }
+
+    fun `test find usages lists the reads in file order`() {
+        configure(
+            machine(
+                "Catalogue:\n  Type: Pass\n  QueryLanguage: JSONata\n  Assign:\n    reel: 1\n  Output:\n" +
+                    (1..12).joinToString("") { "    copy$it: \"{% §reel %}\"\n" } + "  End: true\n",
+            ),
+        )
+        assertReadsInFileOrder(entryAt(offsetsOf("reel:").single()))
+    }
+
+    fun `test find usages lists the reads in file order in JSON`() {
+        val copies = (1..12).joinToString(",\n") { "        \"copy$it\": \"{% §reel %}\"" }
+        val text = "{\n  \"QueryLanguage\": \"JSONata\",\n  \"StartAt\": \"Catalogue\",\n  \"States\": {\n    \"Catalogue\": {\n" +
+            "      \"Type\": \"Pass\",\n      \"Assign\": { \"reel\": 1 },\n      \"Output\": {\n$copies\n      },\n" +
+            "      \"End\": true\n    }\n  }\n}\n"
+        json(text.replace("§", "$"))
+        val key = hostFile().findElementAt(offsetsOf("\"reel\"").single())
+        assertReadsInFileOrder(PsiTreeUtil.getParentOfType(key, JsonProperty::class.java)!!)
     }
 }

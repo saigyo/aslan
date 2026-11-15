@@ -14,8 +14,9 @@ import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
  * Groups the usages of a state machine variable in Find Usages and in the rename preview: the key of an assignment
- * is a "Variable assignment", a `$name` in JSONata or a name in a JSONPath string that reads the variable is a
- * "Variable read". A search for anything else keeps the other providers' types.
+ * is a "Variable assignment", a `$name` in JSONata (or the string that holds the expression, as Find Usages reports
+ * it) or a name in a JSONPath string that reads the variable is a "Variable read". A search for anything else keeps
+ * the other providers' types.
  */
 class AslVariableUsageTypeProvider : UsageTypeProviderEx {
     override fun getUsageType(element: PsiElement): UsageType? = getUsageType(element, UsageTarget.EMPTY_ARRAY)
@@ -38,7 +39,8 @@ class AslVariableUsageTypeProvider : UsageTypeProviderEx {
     private fun isRead(element: PsiElement): Boolean {
         PsiTreeUtil.getNonStrictParentOfType(element, JsonataVariableRef::class.java)?.let { return AslVariableTargets.readReference(it) != null }
         val host = element as? YAMLScalar ?: element as? JsonStringLiteral ?: return false
-        return AslVariableTargets.pathReadReferences(host).isNotEmpty()
+        // Find Usages reports a read in JSONata as a usage of the string that holds the expression
+        return AslVariableTargets.pathReadReferences(host).isNotEmpty() || AslVariableTargets.readsInJsonata(host)
     }
 
     companion object {

@@ -17,10 +17,14 @@ import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.impl.FakePsiElement
 import com.intellij.psi.search.PsiSearchScopeUtil
+import com.intellij.psi.search.SearchScope
+import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.Processor
 import io.github.saigyo.aslan.AslIcons
+import io.github.saigyo.aslan.jsonata.psi.JsonataFile
+import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslVariable
 import org.jetbrains.yaml.psi.YAMLKeyValue
@@ -130,8 +134,33 @@ private class AslVariableFindUsagesHandler(element: PsiElement, private val vari
 
     override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean {
         val writes = runReadActionBlocking { writesIfSearcher(element, options) } ?: return true
-        if (!super.processElementUsages(element, processor, options)) return false
+        val reads = Processor<UsageInfo> { usage -> processor.process(runReadActionBlocking { inHost(usage) }) }
+        if (!super.processElementUsages(element, reads, options)) return false
         return writes.all { processor.process(it) }
+    }
+
+    /**
+     * The search for the references, without the shared collector of [options]. Find Usages and Show Usages pass one
+     * ([FindUsagesOptions.fastTrack]); the platform's word search for the variable's name puts its request there, and
+     * the platform runs it after the handler and reports the reads it finds itself, unconverted by [inHost]: each read
+     * would be listed twice, once in its expression and once in the host. With a collector of its own the search runs
+     * the word search within the query, which drops the duplicate references, and every reference reaches [inHost].
+     */
+    override fun createSearchParameters(target: PsiElement, scope: SearchScope, options: FindUsagesOptions?): ReferencesSearch.SearchParameters =
+        ReferencesSearch.SearchParameters(target, scope, false)
+
+    /**
+     * A read in an injected expression as a usage of the string that holds it, at the read's range there; any other
+     * usage as it is. The usage view and the Show Usages popup order usages by file, then by offset, then by the text
+     * of the row. Each expression is a file of its own, so reads in different expressions would be ordered by their
+     * text, which starts with the line number (10 before 9).
+     */
+    private fun inHost(usage: UsageInfo): UsageInfo {
+        val element = usage.element ?: return usage
+        val file = element.containingFile as? JsonataFile ?: return usage
+        val range = usage.rangeInElement ?: return usage
+        val (host, inHost) = JsonataPsi.rangeInHost(file, range.shiftRight(element.textRange.startOffset)) ?: return usage
+        return UsageInfo(host, inHost.startOffset, inHost.endOffset, usage.isNonCodeUsage)
     }
 
     /**
