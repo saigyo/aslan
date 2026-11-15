@@ -1,5 +1,7 @@
 package io.github.saigyo.aslan.diagram
 
+import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.util.Disposer
@@ -7,18 +9,22 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.PlatformTestUtil
 import io.github.saigyo.aslan.AslTestCase
 import io.github.saigyo.aslan.files.AslFiles
-import org.eclipse.elk.alg.layered.options.LayeredOptions
-import org.eclipse.elk.core.RecursiveGraphLayoutEngine
-import org.eclipse.elk.core.options.CoreOptions
-import org.eclipse.elk.core.options.Direction
-import org.eclipse.elk.core.options.EdgeRouting
-import org.eclipse.elk.core.util.BasicProgressMonitor
-import org.eclipse.elk.graph.util.ElkGraphUtil
-import org.jdom.Element
 
 class SplitEditorTest : AslTestCase() {
+    private val files = ArrayList<VirtualFile>()
+
+    override fun tearDown() {
+        try {
+            // the light project and its properties are shared with other test classes
+            val properties = PropertiesComponent.getInstance(project)
+            for (file in files) properties.unsetValue(DiagramPreviewEditor.layoutKey(file))
+        } finally {
+            super.tearDown()
+        }
+    }
+
     private fun file(name: String, text: String = "StartAt: A"): VirtualFile =
-        myFixture.configureByText(name, text).virtualFile
+        myFixture.configureByText(name, text).virtualFile.also { files += it }
 
     /** A split editor for [file], with its user interface built: the platform builds it in a later event. */
     private fun split(file: VirtualFile): TextEditorWithPreview {
@@ -29,16 +35,6 @@ class SplitEditorTest : AslTestCase() {
     }
 
     private fun TextEditorWithPreview.diagram(): DiagramPreviewEditor = previewEditor as DiagramPreviewEditor
-
-    /** The state of [editor] after it has been written to XML and read back, as when the IDE closes and reopens a file. */
-    private fun storedAndRead(editor: TextEditorWithPreview, file: VirtualFile): TextEditorWithPreview {
-        val provider = AslSplitEditorProvider()
-        val element = Element("provider")
-        provider.writeState(editor.getState(FileEditorStateLevel.FULL), project, element)
-        val reopened = split(file)
-        reopened.setState(provider.readState(element, project, file))
-        return reopened
-    }
 
     fun `test an ASL file is accepted and another YAML file is not`() {
         val provider = DiagramPreviewProvider()
@@ -66,10 +62,22 @@ class SplitEditorTest : AslTestCase() {
         val switched = file("switched.asl.yaml")
         val editor = split(switched)
         editor.diagram().layoutMode = LayoutMode.COMPACT
-        assertEquals(LayoutMode.COMPACT, storedAndRead(editor, switched).diagram().layoutMode)
+        Disposer.dispose(editor)
+        assertEquals(LayoutMode.COMPACT, split(switched).diagram().layoutMode)
 
-        val untouched = file("untouched.asl.yaml")
-        assertNull(storedAndRead(split(untouched), untouched).diagram().layoutMode)
+        assertNull(split(file("untouched.asl.yaml")).diagram().layoutMode)
+    }
+
+    fun `test an older or empty editor state leaves the chosen layout as it is`() {
+        val file = file("switched.asl.yaml")
+        val editor = split(file)
+        val before = editor.getState(FileEditorStateLevel.NAVIGATION)
+        editor.diagram().layoutMode = LayoutMode.COMPACT
+        editor.setState(before)
+        editor.diagram().setState(FileEditorState.INSTANCE)
+        assertEquals(LayoutMode.COMPACT, editor.diagram().layoutMode)
+        Disposer.dispose(editor)
+        assertEquals(LayoutMode.COMPACT, split(file).diagram().layoutMode)
     }
 
     fun `test the size rule`() {
@@ -78,19 +86,10 @@ class SplitEditorTest : AslTestCase() {
     }
 
     fun `test the layout library runs`() {
-        registerLayeredAlgorithm()
-        val root = ElkGraphUtil.createGraph()
-        root.setProperty(CoreOptions.ALGORITHM, LayeredOptions.ALGORITHM_ID)
-        root.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
-        root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
-        val first = ElkGraphUtil.createNode(root).apply { setDimensions(190.0, 40.0) }
-        val second = ElkGraphUtil.createNode(root).apply { setDimensions(190.0, 40.0) }
-        val edge = ElkGraphUtil.createSimpleEdge(first, second)
-
-        RecursiveGraphLayoutEngine().layout(root, BasicProgressMonitor())
-
+        val root = layOutTwoNodes()
+        val (first, second) = root.children.also { assertEquals(2, it.size) }
         assertTrue("the second node lies below the first", second.y >= first.y + first.height)
-        val section = edge.sections.single()
+        val section = root.containedEdges.single().sections.single()
         assertEquals(first.y + first.height, section.startY, 0.001)
         assertEquals(second.y, section.endY, 0.001)
     }

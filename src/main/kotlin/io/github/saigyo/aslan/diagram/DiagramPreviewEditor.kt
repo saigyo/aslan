@@ -5,7 +5,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
-import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.UserDataHolderBase
@@ -23,11 +22,12 @@ import javax.swing.SwingConstants
  */
 class DiagramPreviewEditor(private val project: Project, private val file: VirtualFile) : UserDataHolderBase(), FileEditor {
     private val properties = PropertiesComponent.getInstance(project)
-    private val layoutKey = "aslan.diagram.layout." + file.url
+    private val layoutKey = layoutKey(file)
 
     /**
      * The layout chosen for this file with the layout switch; null until the switch has been used. It is kept in the
-     * project's properties under the file's URL, so it survives closing the file and restarting the IDE.
+     * project's properties under the file's URL, so it survives closing the file and restarting the IDE. The editor
+     * state does not carry it: the navigation history restores old states, which would roll the choice back.
      */
     var layoutMode: LayoutMode? = properties.getValue(layoutKey)?.let { name -> LayoutMode.entries.firstOrNull { it.name == name } }
         set(value) {
@@ -60,11 +60,7 @@ class DiagramPreviewEditor(private val project: Project, private val file: Virtu
 
     override fun getFile(): VirtualFile = file
 
-    override fun getState(level: FileEditorStateLevel): FileEditorState = DiagramEditorState(layoutMode)
-
-    override fun setState(state: FileEditorState) {
-        if (state is DiagramEditorState) layoutMode = state.layoutMode
-    }
+    override fun setState(state: FileEditorState) {}
 
     override fun isModified(): Boolean = false
 
@@ -77,5 +73,10 @@ class DiagramPreviewEditor(private val project: Project, private val file: Virtu
     override fun dispose() {
         disposed = true
         textEditor = null
+    }
+
+    internal companion object {
+        /** The key of the project property that holds the chosen layout of [file]. */
+        fun layoutKey(file: VirtualFile): String = "aslan.diagram.layout." + file.url
     }
 }

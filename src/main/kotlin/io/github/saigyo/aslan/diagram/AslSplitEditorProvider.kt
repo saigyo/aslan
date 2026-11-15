@@ -4,8 +4,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
-import com.intellij.openapi.fileEditor.FileEditorState
-import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.fileEditor.TextEditorWithPreviewProvider
@@ -50,9 +48,4 @@ class DiagramPreviewProvider : FileEditorProvider, DumbAware {
     override fun getEditorTypeId(): String = "aslan-diagram"
 
     override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.PLACE_AFTER_DEFAULT_EDITOR
-}
-
-/** The chosen layout of the diagram pane, null until the layout switch has been used for the file. */
-class DiagramEditorState(val layoutMode: LayoutMode?) : FileEditorState {
-    override fun canBeMergedWith(otherState: FileEditorState, level: FileEditorStateLevel): Boolean = otherState is DiagramEditorState
 }
