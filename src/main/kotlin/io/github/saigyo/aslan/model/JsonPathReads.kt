@@ -1,6 +1,8 @@
 package io.github.saigyo.aslan.model
 
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
@@ -11,6 +13,8 @@ import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.ScalarType
+import org.jetbrains.yaml.psi.YAMLAlias
+import org.jetbrains.yaml.psi.YAMLFile
 
 /** A `$name` read in a JSONPath string: [name] without `$`; [start] and [end] in the decoded text, `$` included. */
 data class PathName(val name: String, val start: Int, val end: Int)
@@ -78,12 +82,23 @@ object JsonPathReads {
 
     /**
      * The `Result` values of the JSONPath Pass states, where they are written: AWS does not evaluate them
-     * (`r3-AC-pass-result-key`, `PASS_RESULT_IS_STATIC`), so a `$name` there is plain data.
+     * (`r3-AC-pass-result-key`, `PASS_RESULT_IS_STATIC`), so a `$name` there is plain data. Not a value that an alias
+     * or merge key elsewhere in the file reuses, through an anchor on it or on one of its ancestors: the reuse may be
+     * a field that is evaluated (`Parameters: *shared` in a state whose `Type` is a placeholder).
      */
-    internal fun staticValues(doc: AslDocument): List<PsiElement> = doc.allStates().mapNotNull { state ->
-        if (!isJsonPath(state) || state.type?.structure != StructureId.PASS) return@mapNotNull null
-        state.obj?.get(STATIC_RESULT)?.takeIf { !it.viaMerge }?.value?.takeIf { it.psi === it.usePsi }?.psi
-    }.distinct()
+    internal fun staticValues(doc: AslDocument): List<PsiElement> {
+        val reused = reusedAnchoredValues(doc.file)
+        return doc.allStates().mapNotNull { state ->
+            if (!isJsonPath(state) || state.type?.structure != StructureId.PASS) return@mapNotNull null
+            state.obj?.get(STATIC_RESULT)?.takeIf { !it.viaMerge }?.value?.takeIf { it.psi === it.usePsi }?.psi
+                ?.takeIf { value -> reused.none { PsiTreeUtil.isAncestor(it, value, false) } }
+        }.distinct()
+    }
+
+    /** The values that carry an anchor which an alias, a merge key's included, of [file] resolves to. */
+    private fun reusedAnchoredValues(file: PsiFile): List<PsiElement> =
+        if (file !is YAMLFile) emptyList()
+        else PsiTreeUtil.findChildrenOfType(file, YAMLAlias::class.java).mapNotNull { it.reference?.resolve()?.markedValue }.distinct()
 
     private const val STATIC_RESULT = "Result"
 

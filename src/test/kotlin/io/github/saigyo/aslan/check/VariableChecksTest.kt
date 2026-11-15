@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.check
 
+import com.intellij.codeHighlighting.HighlightDisplayLevel
 import io.github.saigyo.aslan.check.AslProblem.DISTRIBUTED_MAP_OUTER_READ
 import io.github.saigyo.aslan.check.AslProblem.INVALID_VARIABLE_NAME
 import io.github.saigyo.aslan.check.AslProblem.OUTER_VARIABLE_ASSIGNED
@@ -33,6 +34,22 @@ class VariableChecksTest : CheckTestCase() {
     private fun loading(states: String): String = machine(
         "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\n" + states.trimIndent(),
     )
+
+    fun `test a Result that an alias reuses is no static data`() {
+        // the alias may stand in a field that is evaluated, in a state whose Type a deployment tool fills in
+        val text = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n" +
+                "Seed:\n  Type: Pass\n  Result: &shared\n    query.$: §reel\n  Next: Call\n" +
+                "Call:\n  Type: §{CallType}\n  Parameters: *shared\n  End: true",
+            top = "",
+        )
+        // reel may be read there: never-read stays silent, and no error appears
+        assertEquals(emptyList<Any>(), variables(text))
+        assertEquals(emptyList<Any>(), marked(text.replace("§", "$")).filter { it.first.level == HighlightDisplayLevel.ERROR })
+        // without the alias the Result is static, as before
+        val unshared = text.replace(" &shared", "").replace("Parameters: *shared", "Parameters: {}")
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(unshared))
+    }
 
     fun `test a name with a supplementary letter after it does not silence never-read`() {
         val deseret = String(Character.toChars(0x10400))
