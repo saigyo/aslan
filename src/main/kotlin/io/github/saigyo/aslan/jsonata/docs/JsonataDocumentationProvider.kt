@@ -43,12 +43,8 @@ class JsonataDocumentationProvider : AbstractDocumentationProvider() {
         private fun variableHtml(ref: JsonataVariableRef): String? {
             if (ref.node.elementType != JsonataElements.VARIABLE_REF || isLocal(ref)) return null
             if (ref.variableName == "states") {
-                return AslDocumentation.page(
-                    AslDocumentation.esc(STATES), null,
-                    "The reserved variable of Step Functions with the fields input, result, errorOutput and context. Which of them " +
-                        "exist depends on the field the expression is in.",
-                    null,
-                )
+                val doc = AslSpec.statesVariableDoc
+                return AslDocumentation.page(AslDocumentation.esc(STATES), null, doc.description, doc.docUrl)
             }
             val function = AslSpec.jsonataFunction(ref.variableName) ?: return null
             val facts = when {

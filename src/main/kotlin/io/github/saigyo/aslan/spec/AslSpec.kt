@@ -55,6 +55,9 @@ object AslSpec {
 
     fun statesFieldDoc(field: StatesField): NamedDoc = statesFieldDocs.getValue(field)
 
+    /** What the reserved variable `$states` is, with the guide's section on it. */
+    val statesVariableDoc: NamedDoc = io.github.saigyo.aslan.spec.data.statesVariableDoc
+
     /** The fields of `$states.context`. */
     val contextFields: List<ContextField> = contextObjectFields
 }

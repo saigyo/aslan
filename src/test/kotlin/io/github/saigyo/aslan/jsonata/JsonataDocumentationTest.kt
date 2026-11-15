@@ -41,8 +41,11 @@ class JsonataDocumentationTest : JsonataTestCase() {
     }
 
     fun `test states and its fields`() {
-        assertNotNull(doc("\$sta<caret>tes.input"))
-        assertTrue(doc("\$states.res<caret>ult")!!.contains(AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description)))
+        val section = "https://docs.aws.amazon.com/step-functions/latest/dg/transforming-data.html#transforming-reserved-variable-states"
+        val states = doc("\$sta<caret>tes.input")!!
+        assertTrue(states, "reserved variable" in states && section in states)
+        val result = doc("\$states.res<caret>ult")!!
+        assertTrue(result.contains(AslDocumentation.esc(AslSpec.statesFieldDoc(StatesField.RESULT).description)) && section in result)
         val execution = AslSpec.contextFields.first { it.name == "Execution" }
         assertTrue(doc("\$states.context.Exec<caret>ution")!!.contains(AslDocumentation.esc(execution.description)))
         val id = execution.children.first { it.name == "Id" }

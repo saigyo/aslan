@@ -4,7 +4,11 @@ import io.github.saigyo.aslan.spec.ContextField
 import io.github.saigyo.aslan.spec.NamedDoc
 import io.github.saigyo.aslan.spec.StatesField
 
-private fun states(field: StatesField, description: String) = NamedDoc(field.text, description, Doc.JSONATA)
+/** What `$states` itself is. */
+internal val statesVariableDoc = NamedDoc("states", "The reserved variable of Step Functions with the fields input, result, errorOutput " +
+    "and context. Which of them exist depends on the field the expression is in.", Doc.STATES_VARIABLE)
+
+private fun states(field: StatesField, description: String) = NamedDoc(field.text, description, Doc.STATES_VARIABLE)
 
 /** What each field of `$states` holds. */
 internal val statesFieldDocs: Map<StatesField, NamedDoc> = listOf(

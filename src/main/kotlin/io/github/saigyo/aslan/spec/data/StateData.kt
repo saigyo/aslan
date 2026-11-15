@@ -27,6 +27,7 @@ internal object Doc {
     const val RESULT_WRITER = BASE + "input-output-resultwriter.html"
     const val ERRORS = BASE + "concepts-error-handling.html"
     const val JSONATA = BASE + "transforming-data.html"
+    const val STATES_VARIABLE = "$JSONATA#transforming-reserved-variable-states"
     fun page(name: String) = "$BASE$name.html"
 }
 
