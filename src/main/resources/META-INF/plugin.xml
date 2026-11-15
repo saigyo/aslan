@@ -168,5 +168,15 @@
                          displayName="JSONata function Step Functions does not support" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
         <localInspection shortName="AslChoiceWithoutDefault" implementationClass="io.github.saigyo.aslan.check.AslChoiceWithoutDefaultInspection"
                          displayName="Choice state without Default" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
+        <localInspection shortName="AslPathVariableNotAssigned" implementationClass="io.github.saigyo.aslan.check.AslPathVariableNotAssignedInspection"
+                         displayName="JSONPath variable assigned nowhere" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
+        <localInspection shortName="AslVariableNotAssigned" implementationClass="io.github.saigyo.aslan.check.AslVariableNotAssignedInspection"
+                         displayName="Variable not assigned where it is read" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslInvalidVariableName" implementationClass="io.github.saigyo.aslan.check.AslInvalidVariableNameInspection"
+                         displayName="Invalid variable name" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslOuterVariableAssigned" implementationClass="io.github.saigyo.aslan.check.AslOuterVariableAssignedInspection"
+                         displayName="Outer variable assigned in an inner state machine" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslVariableNeverRead" implementationClass="io.github.saigyo.aslan.check.AslVariableNeverReadInspection"
+                         displayName="Variable assigned but never read" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>
 </idea-plugin>
