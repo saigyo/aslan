@@ -62,6 +62,41 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(readerMap("Arguments:\n  a: §{A}"), "payload.asl.yaml"))
     }
 
+    fun `test a nested machine that is a placeholder may read every variable`() {
+        val load = "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n"
+        assertEquals(emptyList<Any>(), variables(machine(load + "Each:\n  Type: Map\n  Items: '{% [1] %}'\n  ItemProcessor: §{P}\n  End: true"), "p.asl.yaml"))
+        assertEquals(emptyList<Any>(), variables(machine(load + "Each:\n  Type: Map\n  Iterator: §{I}\n  End: true", top = ""), "i.asl.yaml"))
+        assertEquals(emptyList<Any>(), variables(machine(load + "Each:\n  Type: Parallel\n  Branches: §{B}\n  End: true"), "b.asl.yaml"))
+        assertEquals(emptyList<Any>(), variables(machine(load + "Each:\n  Type: Parallel\n  Branches:\n    - §{B}\n  End: true"), "item.asl.yaml"))
+    }
+
+    fun `test a placeholder item of a list of structures that may take JSONata may read every variable`() {
+        val text = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Call\n" +
+                "Call:\n  Type: Task\n  Resource: arn:aws:states:::lambda:invoke\n  Arguments:\n    FunctionName: catalog\n" +
+                "  Catch:\n    - §{Catcher}\n  End: true",
+        )
+        assertEquals(emptyList<Any>(), variables(text))
+    }
+
+    fun `test a placeholder structure that takes no expression or path leaves never-read alone`() {
+        // a retrier has no field that takes JSONata or a path
+        val retry = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Call\n" +
+                "Call:\n  Type: Task\n  Resource: arn:aws:states:::lambda:invoke\n  Arguments:\n    FunctionName: catalog\n" +
+                "  Retry: §{Retry}\n  End: true",
+        )
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(retry))
+        val config = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +
+                "Each:\n  Type: Map\n  Items: '{% [1] %}'\n  ItemProcessor:\n    ProcessorConfig: §{Config}\n    StartAt: Show\n" +
+                "    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
+        )
+        // neither has a processor's configuration, but a placeholder there leaves open whether the processor is a
+        // Distributed Map, and so which names its states see: the file says too little to judge any variable
+        assertEquals(emptyList<Any>(), variables(config, "config.asl.yaml"))
+    }
+
     fun `test a Result reused inside, through an ancestor or a merge key is no static data`() {
         for ((case, states) in reusedResults) {
             val text = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n$states", top = "")

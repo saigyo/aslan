@@ -233,11 +233,13 @@ internal class AslVariableRename private constructor(
         }
         // ... or a nested machine the model cannot follow (of a state whose type is a placeholder, or a placeholder
         // processor) in a machine that holds, encloses or lies inside a renamed variable's scope: one that is no
-        // mapping or list may hold anything, one that is may assign or read the old or the new name
+        // mapping or list may hold anything, one that is may assign or read the old or the new name, also through an
+        // alias or merge key or written with an escape, which its raw text does not show
         for (machine in document.allMachines().filter { m -> variables.any { inLine(m, it.scope) } }) {
             for (node in model.unresolvedNested(machine)) {
                 val settled = node is AslObject || node is AslArray
-                if (settled && node.psi.text.let { oldName !in it && newName !in it }) continue
+                val hidden = node.psi is YAMLAlias || PsiTreeUtil.findChildOfType(node.psi, YAMLAlias::class.java) != null || '\\' in node.psi.text
+                if (settled && !hidden && node.psi.text.let { oldName !in it && newName !in it }) continue
                 out += RenameConflict(
                     RenameConflictKind.REGION_OPEN, node.psi,
                     "A nested state machine here is not settled by the definition and may assign or read \$$oldName or \$$newName",

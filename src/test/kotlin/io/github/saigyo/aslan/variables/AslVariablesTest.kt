@@ -614,10 +614,32 @@ class AslVariablesTest : VariableTestCase() {
         val doc = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$acute: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$acute\n  End: true"))
         assertEmpty(doc.variables.reads)
         assertEquals(1, doc.variables.unknownMentions("a").size)
+        // inside the arguments of an intrinsic function too
+        val intrinsic = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n  Next: Show\nShow:\n  Type: Pass\n  Parameters:\n    v.$: States.Format('{}', §a$acute)\n  End: true"))
+        assertEmpty(intrinsic.variables.reads)
+        assertEquals(1, intrinsic.variables.unknownMentions("a").size)
         // a name followed by a space is still a read
         val spaced = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n  Next: Show\nShow:\n  Type: Pass\n  Parameters:\n    v.$: States.Format('{}', §a )\n  End: true"))
         assertEquals(listOf("a"), spaced.readNames())
         assertEmpty(spaced.variables.unknownMentions("a"))
+    }
+
+    fun `test only a placeholder structure that may hold an expression counts as a mention of every name`() {
+        fun map(field: String) = yamlModel(machine(
+            "Each:\n  Type: Map\n  Items: '{% [1] %}'\n$field\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: INLINE\n" +
+                "    StartAt: Show\n    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
+            "QueryLanguage: JSONata",
+        ))
+        // a reader configuration may hold MaxItems, which takes JSONata
+        assertEquals(1, map("  ItemReader:\n    Resource: arn:aws:states:::s3:getObject\n    ReaderConfig: §{C}").jsonataSites.unsettled.size)
+        // a retrier, and a processor's configuration, hold no such field
+        assertEmpty(map("  Retry: §{R}").jsonataSites.unsettled)
+        val config = yamlModel(machine(
+            "Each:\n  Type: Map\n  Items: '{% [1] %}'\n  ItemProcessor:\n    ProcessorConfig: §{C}\n" +
+                "    StartAt: Show\n    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
+            "QueryLanguage: JSONata",
+        ))
+        assertEmpty(config.jsonataSites.unsettled)
     }
 
     fun `test a supplementary letter after a name makes it no mention of the name`() {
