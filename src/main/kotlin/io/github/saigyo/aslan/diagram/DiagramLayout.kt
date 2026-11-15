@@ -209,17 +209,3 @@ object DiagramLayouter {
         }
     }
 }
-
-/** The placeholder of the diagram pane: two nodes and an edge, laid out with the layered algorithm. */
-internal fun layOutTwoNodes(): ElkNode {
-    registerLayeredAlgorithm()
-    val root = ElkGraphUtil.createGraph()
-    root.setProperty(CoreOptions.ALGORITHM, LayeredOptions.ALGORITHM_ID)
-    root.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
-    root.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
-    val first = ElkGraphUtil.createNode(root).apply { setDimensions(190.0, 40.0) }
-    val second = ElkGraphUtil.createNode(root).apply { setDimensions(190.0, 40.0) }
-    ElkGraphUtil.createSimpleEdge(first, second)
-    RecursiveGraphLayoutEngine().layout(root, BasicProgressMonitor())
-    return root
-}

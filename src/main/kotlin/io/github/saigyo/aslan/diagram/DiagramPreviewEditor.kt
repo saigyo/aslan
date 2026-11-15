@@ -1,60 +1,51 @@
 package io.github.saigyo.aslan.diagram
 
 import com.intellij.ide.util.PropertiesComponent
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.ui.components.JBLabel
-import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
-import javax.swing.JPanel
-import javax.swing.SwingConstants
 
 /**
- * The diagram pane of the split editor. For now a placeholder: it lays out two nodes off the UI thread and says when the
- * layout is ready. The platform creates it on the UI thread, so its Swing component is built in the constructor.
+ * The diagram pane of the split editor: a [DiagramPane] kept in step with the file by a [DiagramController]. The
+ * platform creates it on the UI thread, so the pane is built in the constructor; the pane and the controller are
+ * disposed with this editor.
  */
 class DiagramPreviewEditor(private val project: Project, private val file: VirtualFile) : UserDataHolderBase(), FileEditor {
     private val properties = PropertiesComponent.getInstance(project)
     private val layoutKey = layoutKey(file)
 
+    internal val pane = DiagramPane(this)
+
+    /** Created in [attach]. */
+    internal var controller: DiagramController? = null
+        private set
+
     /**
      * The layout chosen for this file with the layout switch; null until the switch has been used. It is kept in the
      * project's properties under the file's URL, so it survives closing the file and restarting the IDE. The editor
-     * state does not carry it: the navigation history restores old states, which would roll the choice back.
+     * state does not carry it: the navigation history restores old states, which would roll the choice back. The
+     * controller starts with it and sets it when the switch is used; setting it gives the controller the choice.
      */
-    var layoutMode: LayoutMode? = properties.getValue(layoutKey)?.let { name -> LayoutMode.entries.firstOrNull { it.name == name } }
+    var layoutMode: LayoutMode?
+        get() = properties.getValue(layoutKey)?.let { name -> LayoutMode.entries.firstOrNull { it.name == name } }
         set(value) {
-            field = value
             if (value == null) properties.unsetValue(layoutKey) else properties.setValue(layoutKey, value.name)
+            controller?.chosenMode = value
         }
-
-    private val label = JBLabel("", SwingConstants.CENTER)
-    private val panel = JPanel(BorderLayout()).apply { add(label, BorderLayout.CENTER) }
-    private var textEditor: TextEditor? = null
-
-    @Volatile
-    private var disposed = false
 
     /** Connects the pane to the text editor beside it; called once, when the split editor is created. */
     fun attach(textEditor: TextEditor) {
-        this.textEditor = textEditor
-        val application = ApplicationManager.getApplication()
-        application.executeOnPooledThread {
-            val states = layOutTwoNodes().children.size
-            application.invokeLater({ label.text = "Layout ready: $states states" }, ModalityState.any()) { disposed || project.isDisposed }
-        }
+        controller = DiagramController(project, file, textEditor.editor, pane, this, layoutMode) { layoutMode = it }
     }
 
-    override fun getComponent(): JComponent = panel
+    override fun getComponent(): JComponent = pane.component
 
-    override fun getPreferredFocusedComponent(): JComponent = panel
+    override fun getPreferredFocusedComponent(): JComponent = pane.diagram
 
     override fun getName(): String = "Diagram"
 
@@ -70,10 +61,7 @@ class DiagramPreviewEditor(private val project: Project, private val file: Virtu
 
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
 
-    override fun dispose() {
-        disposed = true
-        textEditor = null
-    }
+    override fun dispose() {}
 
     internal companion object {
         /** The key of the project property that holds the chosen layout of [file]. */
