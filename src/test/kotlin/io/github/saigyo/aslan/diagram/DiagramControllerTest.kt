@@ -11,6 +11,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
 import java.util.Collections
@@ -89,9 +90,14 @@ class DiagramControllerTest : DiagramTestCase() {
     /**
      * Holds the first [count] layouts that measure, each on its own thread, in the first measurement on that thread: the
      * n-th layout to arrive waits for the n-th release. With [ignoreInterrupts] an interrupt does not end the wait, as
-     * with a layout that never checks; without it the wait ends, the interrupt is kept, and the layout goes on.
+     * with a layout that never checks; without it the wait ends, the interrupt is kept, and the layout goes on. With
+     * [ignoredInterrupts] the wait swallows that many interrupts and ends at the next one.
      */
-    private class Stall(count: Int, private val ignoreInterrupts: Boolean) {
+    private class Stall(
+        count: Int,
+        ignoreInterrupts: Boolean,
+        private val ignoredInterrupts: Int = if (ignoreInterrupts) Int.MAX_VALUE else 0,
+    ) {
         val releases = List(count) { CountDownLatch(1) }
         val threads: MutableList<Thread> = Collections.synchronizedList(ArrayList())
 
@@ -102,12 +108,13 @@ class DiagramControllerTest : DiagramTestCase() {
                 threads += current
                 threads.size - 1
             }
+            var interrupts = 0
             while (true) {
                 try {
                     releases[n].await(60, TimeUnit.SECONDS)
                     return
                 } catch (_: InterruptedException) {
-                    if (!ignoreInterrupts) {
+                    if (++interrupts > ignoredInterrupts) {
                         current.interrupt()
                         return
                     }
@@ -399,13 +406,38 @@ class DiagramControllerTest : DiagramTestCase() {
         )
     }
 
-    fun `test a layout over the time limit is abandoned, and the next one does not wait for it`() {
-        val (controller, view) = open(archive)
+    /**
+     * Runs [block] with the short time limit and [stall] in place, catching the warnings of abandoned layouts, and checks
+     * that each abandoned layout, which marks the diagram out of date, logged one warning with the file's name and the
+     * limit. The stall is released at the end in any case.
+     */
+    private fun limited(controller: DiagramController, view: Recorder, stall: Stall, block: () -> Unit) {
         controller.timeLimitMs = LIMIT_MS
-        val stall = Stall(1, ignoreInterrupts = true)
         view.stall = stall
+        val warnings: MutableList<String> = Collections.synchronizedList(ArrayList())
+        val token = LoggedErrorProcessor.executeWith(object : LoggedErrorProcessor() {
+            override fun processWarn(category: String, message: String, t: Throwable?): Boolean {
+                if ("was left behind" !in message) return super.processWarn(category, message, t)
+                warnings += message
+                return false
+            }
+        })
         try {
             view.calls.clear()
+            block()
+            // the warning is logged before the mark is posted
+            assertEquals("one warning per abandoned layout", view.staleCount(), warnings.size)
+            for (w in warnings) assertTrue(w, "test.asl.yaml" in w && "$LIMIT_MS ms" in w)
+        } finally {
+            stall.releaseAll()
+            token.finish()
+        }
+    }
+
+    fun `test a layout over the time limit is abandoned, and the next one does not wait for it`() {
+        val (controller, view) = open(archive)
+        val stall = Stall(1, ignoreInterrupts = true)
+        limited(controller, view, stall) {
             PlatformTestUtil.waitForFuture(controller.refresh())
             waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
             assertTrue(view.shows.isEmpty())
@@ -421,18 +453,13 @@ class DiagramControllerTest : DiagramTestCase() {
             waitFor("the abandoned layout did not end") { !stuck.isAlive }
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertEquals("the abandoned result is not shown", 1, view.shows.size)
-        } finally {
-            stall.releaseAll()
         }
     }
 
     fun `test a layout over the time limit that heeds the interrupt ends`() {
         val (controller, view) = open(archive)
-        controller.timeLimitMs = LIMIT_MS
         val stall = Stall(1, ignoreInterrupts = false)
-        view.stall = stall
-        try {
-            view.calls.clear()
+        limited(controller, view, stall) {
             PlatformTestUtil.waitForFuture(controller.refresh())
             waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
             val stuck = stall.threads.single()
@@ -440,18 +467,13 @@ class DiagramControllerTest : DiagramTestCase() {
             assertEquals("it ended without a release", 1L, stall.releases.single().count)
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertTrue(view.shows.isEmpty())
-        } finally {
-            stall.releaseAll()
         }
     }
 
     fun `test while two abandoned layouts run, no further layout starts`() {
         val (controller, view) = open(archive)
-        controller.timeLimitMs = LIMIT_MS
         val stall = Stall(2, ignoreInterrupts = true)
-        view.stall = stall
-        try {
-            view.calls.clear()
+        limited(controller, view, stall) {
             controller.refresh()
             waitFor("the first layout was not abandoned") { view.staleCount() == 1 }
             controller.refresh()
@@ -464,12 +486,31 @@ class DiagramControllerTest : DiagramTestCase() {
             assertEquals("a third layout started", measured, view.measured.size)
             assertTrue(view.shows.isEmpty())
 
+            // an edit while the bound holds is not lost: once one abandoned layout ends, the file is laid out again
+            replace("  Failed:", rewind + "  Failed:")
+            delayed.last().run()
+            PlatformTestUtil.waitForFuture(controller.latest)
+            assertTrue(view.shows.isEmpty())
             stall.releases[0].countDown()
-            waitFor("the released layout did not end") { !stall.threads[0].isAlive }
-            PlatformTestUtil.waitForFuture(controller.refresh())
-            assertEquals(1, view.shows.size)
-        } finally {
-            stall.releaseAll()
+            waitFor("the edit was not shown after the bound lifted") { view.shows.isNotEmpty() }
+            assertTrue(view.shows.single().model.names().contains("Rewind"))
+            assertEquals(2, view.staleCount())
+        }
+    }
+
+    fun `test disposal interrupts an abandoned layout again`() {
+        val parent = Disposer.newDisposable(testRootDisposable, "controller")
+        val (controller, view) = control(file(archive), parent)
+        // the layout swallows the interrupt of its abandonment and heeds the next one
+        val stall = Stall(1, ignoreInterrupts = false, ignoredInterrupts = 1)
+        limited(controller, view, stall) {
+            controller.refresh()
+            waitFor("the layout was not abandoned") { view.staleCount() == 1 }
+            val stuck = stall.threads.single()
+            assertTrue(stuck.isAlive)
+            Disposer.dispose(parent)
+            waitFor("the abandoned layout did not end at disposal") { !stuck.isAlive }
+            assertEquals("it ended without a release", 1L, stall.releases.single().count)
         }
     }
 
@@ -498,7 +539,10 @@ class DiagramControllerTest : DiagramTestCase() {
     }
 
     private companion object {
-        /** The time limit of the tests of the limit; a layout of the small definition takes a few milliseconds. */
-        const val LIMIT_MS = 500L
+        /**
+         * The time limit of the tests of the limit. A layout of the small definition takes a few milliseconds, so a layout
+         * that must succeed stays well inside it even on a busy machine; each abandonment costs the test this long.
+         */
+        const val LIMIT_MS = 2_000L
     }
 }
