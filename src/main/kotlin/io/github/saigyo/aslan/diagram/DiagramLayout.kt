@@ -11,10 +11,13 @@ import org.eclipse.elk.core.math.ElkPadding
 import org.eclipse.elk.core.options.CoreOptions
 import org.eclipse.elk.core.options.Direction
 import org.eclipse.elk.core.options.EdgeRouting
+import org.eclipse.elk.core.options.PortConstraints
+import org.eclipse.elk.core.options.PortSide
 import org.eclipse.elk.core.util.BasicProgressMonitor
 import org.eclipse.elk.graph.ElkEdge
 import org.eclipse.elk.graph.ElkLabel
 import org.eclipse.elk.graph.ElkNode
+import org.eclipse.elk.graph.ElkPort
 import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.awt.geom.Point2D
 import java.awt.geom.Rectangle2D
@@ -70,9 +73,16 @@ object DiagramLayouter {
     private const val LABEL_HEIGHT = 14.0
     private const val LAYER_SPACING = 54.0
     private const val SIDE_PADDING = 14.0
-    /** Room at the top of a group for the state's name and type, and of a branch for its title. */
-    private const val GROUP_TOP = 34.0
-    private const val BRANCH_TOP = 26.0
+    /** The painter draws the start mark in the 12 pixels above a state, and the end mark in the 14 below it. */
+    private const val START_MARK = 12.0
+    private const val END_MARK = 14.0
+    private const val BOTTOM_PADDING = END_MARK + 4
+    /** The text at the top of a group (the state's name and type line, baseline at 31) and of a branch (its title, baseline at 17). */
+    private const val GROUP_TEXT = 34.0
+    private const val BRANCH_TEXT = 26.0
+    /** Room above the first state of a machine inside a group or a branch: its texts, then the start mark. */
+    private const val GROUP_TOP = GROUP_TEXT + START_MARK
+    private const val BRANCH_TOP = BRANCH_TEXT + START_MARK
 
     fun layout(model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure): DiagramLayout {
         val root = model.root ?: return DiagramLayout(0.0, 0.0, emptyList(), emptyList())
@@ -89,6 +99,7 @@ object DiagramLayouter {
     private class Run(val mode: LayoutMode, val collapsed: Set<String>, val measure: TextMeasure) {
         private val drafts = ArrayList<Pair<ElkNode, (Rectangle2D.Double) -> LaidNode>>()
         private val routed = ArrayList<Routed>()
+        private val ports = HashMap<Pair<ElkNode, PortSide>, ElkPort>()
 
         /** Adds the states and edges of [machine] to [parent], which shows it with [top] as its upper padding. */
         fun machine(machine: DiagramMachine, parent: ElkNode, top: Double) {
@@ -118,7 +129,11 @@ object DiagramLayouter {
             for (edge in machine.edges) {
                 val from = boxes[edge.from] ?: continue
                 val to = boxes[edge.to] ?: continue
-                val elk = ElkGraphUtil.createSimpleEdge(from, to)
+                val elk = if (mode == LayoutMode.COMPACT) {
+                    ElkGraphUtil.createSimpleEdge(port(from, PortSide.SOUTH), port(to, PortSide.NORTH))
+                } else {
+                    ElkGraphUtil.createSimpleEdge(from, to)
+                }
                 val label = edge.label?.let { DiagramLabels.shorten(it, mode.maxLabel) }?.let { text ->
                     ElkGraphUtil.createLabel(text, elk).apply {
                         setDimensions(measure.width(text, LABEL_SIZE, false) + LABEL_PADDING, LABEL_HEIGHT)
@@ -146,6 +161,17 @@ object DiagramLayouter {
 
         private fun box(parent: ElkNode): ElkNode = ElkGraphUtil.createNode(parent).apply { setDimensions(STATE_WIDTH, STATE_HEIGHT) }
 
+        /**
+         * The one port on [side] of [node]. In the compact layout every path leaves a state at the bottom and enters at the
+         * top, so the paths into a state share a line, and a path that leads back enters at the top as in a flow chart.
+         * ELK's merged edges did the sharing per side after cycle breaking had turned such a path, so it shared the point
+         * where the paths leave; with ports, edge merging has no effect and is not set.
+         */
+        private fun port(node: ElkNode, side: PortSide): ElkPort = ports.getOrPut(node to side) {
+            node.setProperty(CoreOptions.PORT_CONSTRAINTS, PortConstraints.FIXED_SIDE)
+            ElkGraphUtil.createPort(node).apply { setProperty(CoreOptions.PORT_SIDE, side) }
+        }
+
         /** The absolute place of [node]'s top left corner; ELK places a node relative to its parent. */
         private fun origin(node: ElkNode): Point2D.Double {
             var x = 0.0
@@ -167,7 +193,7 @@ object DiagramLayouter {
             node.setProperty(CoreOptions.ALGORITHM, LayeredOptions.ALGORITHM_ID)
             node.setProperty(CoreOptions.DIRECTION, Direction.DOWN)
             node.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
-            node.setProperty(CoreOptions.PADDING, ElkPadding(top, SIDE_PADDING, SIDE_PADDING, SIDE_PADDING))
+            node.setProperty(CoreOptions.PADDING, ElkPadding(top, SIDE_PADDING, BOTTOM_PADDING, SIDE_PADDING))
             node.setProperty(LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS, LAYER_SPACING)
             // the default, greedy cycle breaking may turn a path that closes no loop upwards; depth first turns only loops
             node.setProperty(LayeredOptions.CYCLE_BREAKING_STRATEGY, CycleBreakingStrategy.DEPTH_FIRST)
@@ -179,7 +205,6 @@ object DiagramLayouter {
             if (mode == LayoutMode.COMPACT) {
                 node.setProperty(LayeredOptions.NODE_PLACEMENT_STRATEGY, NodePlacementStrategy.NETWORK_SIMPLEX)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
-                node.setProperty(LayeredOptions.MERGE_EDGES, true)
             }
         }
     }
