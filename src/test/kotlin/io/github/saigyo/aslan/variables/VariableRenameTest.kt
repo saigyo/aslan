@@ -1,6 +1,7 @@
 package io.github.saigyo.aslan.variables
 
 import com.intellij.codeInsight.TargetElementUtil
+import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
@@ -8,8 +9,10 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.BaseRefactoringProcessor.ConflictsInTestsException
+import com.intellij.refactoring.rename.RenameProcessor
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import com.intellij.refactoring.rename.RenameUtil
+import com.intellij.usageView.UsageInfo
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslModel
@@ -215,6 +218,36 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(renamedArchive.replace("§", "$"), renameAtCaret(withCaret(archive, "{% §re|el %}"), "film"))
         assertEquals(renamedArchive.replace("§", "$"), renameAtCaret(withCaret(archive, "InputPath: §re|el"), "film"))
         assertEquals(renamedArchive.replace("§", "$"), renameAtCaret(withCaret(archive, "§re|el, §shelf)"), "film"))
+    }
+
+    /** The rename to `film` of [element], with the usages the platform shows in the preview. */
+    private class PreviewProcessor(element: PsiElement) : RenameProcessor(element.project, element, "film", false, false) {
+        fun usages(): List<UsageInfo> = findUsages().toList()
+    }
+
+    /** The host offset where the name ends in [usage]. */
+    private fun nameEnd(usage: UsageInfo): Int {
+        val element = usage.element!!
+        val range = usage.rangeInElement!!.shiftRight(element.textRange.startOffset)
+        return InjectedLanguageManager.getInstance(project).injectedToHost(element, range).endOffset
+    }
+
+    /**
+     * The preview of a rename lists every place it writes: the element it starts on, the keys of the other assignments
+     * as writes and every read, each once.
+     */
+    fun `test the rename preview lists every assignment and every read`() {
+        val everyName = Regex("film").findAll(renamedArchive.replace("§", "$")).map { it.range.last + 1 }.toList()
+        for (marker in listOf("    re|el: none", "{% §re|el %}", "InputPath: §re|el")) {
+            configure(withCaret(archive, marker))
+            val element = targetAtCaret()
+            val usages = PreviewProcessor(element).usages()
+            val own = listOfNotNull((AslVariableTargets.assignmentEntryAt(element) as? YAMLKeyValue)?.key?.textRange?.endOffset)
+            assertEquals(marker, everyName, (own + usages.map { nameEnd(it) }).sorted())
+            val detector = ReadWriteAccessDetector.findDetector(entry("reel:"))!!
+            val writes = usages.count { detector.getReferenceAccess(entry("reel:"), it.reference!!) == ReadWriteAccessDetector.Access.Write }
+            assertEquals(marker, 3 - own.size, writes)
+        }
     }
 
     /**

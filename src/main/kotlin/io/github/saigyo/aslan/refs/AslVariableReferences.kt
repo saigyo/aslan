@@ -7,6 +7,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementResolveResult
 import com.intellij.psi.PsiPolyVariantReferenceBase
 import com.intellij.psi.PsiReference
+import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
 import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
@@ -36,6 +37,16 @@ class AslVariableReadReference(element: PsiElement, range: TextRange) : PsiPolyV
         if (element is AslVariableTarget) return element.variable in AslVariableTargets.variablesAt(this.element, rangeInElement.startOffset)
         return declarations().any { element.manager.areElementsEquivalent(it, element) }
     }
+
+    override fun getVariants(): Array<Any> = emptyArray()
+}
+
+/**
+ * The name in the key of an assignment, as a usage of the rename of a variable that starts on [target]: it lists the key
+ * in the rename preview. It exists only for the preview; the rename writes the key itself, and nothing else asks for it.
+ */
+class AslVariableKeyReference(key: PsiElement, range: TextRange, private val target: PsiElement) : PsiReferenceBase<PsiElement>(key, range, true) {
+    override fun resolve(): PsiElement = target
 
     override fun getVariants(): Array<Any> = emptyArray()
 }
@@ -87,6 +98,12 @@ internal object AslVariableTargets {
         variables.flatMap { variable -> modelOf(variable)?.assignmentsOf(variable).orEmpty().map { it.entry.entryPsi } }
             .distinct()
             .sortedBy { it.textRange.startOffset }
+
+    /** A go-to target for each assignment of [variables], with its place, in file order. */
+    fun assignmentTargets(variables: List<AslVariable>): List<AslVariableTarget> =
+        variables.flatMap { variable ->
+            modelOf(variable)?.assignmentsOf(variable).orEmpty().map { AslVariableTarget(variable, it.entry.entryPsi, it.placeText) }
+        }.distinct().sortedBy { it.entry.textRange.startOffset }
 
     /** A reference for each distinct place that reads [variable], in file order. */
     fun readReferences(variable: AslVariable): List<PsiReference> =
