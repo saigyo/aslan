@@ -935,6 +935,15 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(7, variables.reads.count { it.name == "reel" })
     }
 
+    fun `test a rename refuses when a Result that an alias reuses mentions the name`() {
+        val text = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n" +
+                "Seed:\n  Type: Pass\n  Result: &shared\n    query.$: §reel\n  Next: Call\n" +
+                "Call:\n  Type: §{CallType}\n  Parameters: *shared\n  End: true",
+        )
+        assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+    }
+
     /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
     private val deseret = String(Character.toChars(0x10400))
 
