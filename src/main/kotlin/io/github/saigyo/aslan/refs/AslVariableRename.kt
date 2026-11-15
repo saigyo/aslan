@@ -202,14 +202,20 @@ internal class AslVariableRename private constructor(
         for (assignment in model.assignments) {
             val renamed = assignment in renamedAssignments
             if (!renamed && assignment.name != newName) continue
-            val clash = order.before(assignment.state.machine) { outer ->
+            val clash = order.order(assignment.state.machine) { outer ->
                 if (renamed) outer.name == newName && outer !in renamedAssignments else outer in renamedAssignments
             }
-            if (clash) {
-                out += RenameConflict(
+            when (clash) {
+                OuterAssignments.Order.BEFORE -> out += RenameConflict(
                     RenameConflictKind.OUTER_ASSIGNMENT, assignment.entry.entryPsi,
                     "After the rename, \$$newName would be assigned here after an outer state machine assigns it, which Step Functions rejects",
                 )
+                // the checks stay silent where the outer flow is not known; the rename cannot tell that it is safe
+                OuterAssignments.Order.UNKNOWN -> out += RenameConflict(
+                    RenameConflictKind.OUTER_ASSIGNMENT, assignment.entry.entryPsi,
+                    "After the rename, an outer state machine whose flow the definition does not settle would also assign \$$newName, possibly before this one",
+                )
+                OuterAssignments.Order.NOT_BEFORE -> {}
             }
         }
         for (read in model.reads) {

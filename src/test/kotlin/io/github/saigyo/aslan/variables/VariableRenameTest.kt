@@ -957,6 +957,29 @@ class VariableRenameTest : VariableTestCase() {
         }
     }
 
+    /**
+     * `reel` assigned in Load before the Distributed Map Each, whose processor assigns `count`; Route ends the machine
+     * with [routeTail] (a placeholder `Next` leaves the flow of the top level unknown).
+     */
+    private fun countingMap(routeTail: String) = machine(
+        "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +
+            "Each:\n  Type: Map\n  Items: '{% [1, 2] %}'\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: DISTRIBUTED\n" +
+            "      ExecutionType: STANDARD\n    StartAt: Count\n    States:\n      Count:\n        Type: Pass\n        Assign:\n" +
+            "          count: 1\n        End: true\n  Next: Route\n" +
+            "Route:\n  Type: Pass\n  $routeTail",
+        top = "QueryLanguage: JSONata",
+    )
+
+    fun `test a rename refuses where an outer flow that is not known may put the new name before a nested one`() {
+        val unknown = countingMap("Next: §{NextState}")
+        assertTrue(RenameConflictKind.OUTER_ASSIGNMENT in assertRenameConflict(withCaret(unknown, "re|el: 1"), "count"))
+        // the known path refuses too
+        val known = countingMap("End: true")
+        assertTrue(RenameConflictKind.OUTER_ASSIGNMENT in assertRenameConflict(withCaret(known, "re|el: 1"), "count", "known.asl.yaml"))
+        // with the flow unknown but the new name assigned nowhere nested, the rename runs
+        assertEquals(unknown.replace("reel: 1", "film: 1").replace("§", "$"), renameAtCaret(withCaret(unknown, "re|el: 1"), "film", "film.asl.yaml"))
+    }
+
     /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
     private val deseret = String(Character.toChars(0x10400))
 
