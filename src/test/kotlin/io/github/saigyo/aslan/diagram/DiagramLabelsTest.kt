@@ -103,4 +103,31 @@ class DiagramLabelsTest : AslTestCase() {
         assertEquals(Label("Catch", null), DiagramLabels.catcher(catchers[2]))
         assertEquals(Label("Catch", null), DiagramLabels.catcher(catchers[3]))
     }
+
+    fun `test a placeholder as operand is not shown as a value`() {
+        assertEquals("Rule 1", rule("Variable: §.count\nNumericGreaterThan: §{Threshold}\nNext: A").text)
+        assertEquals("Rule 1", rule("Variable: §.name\nStringEquals: \"reel-§{Suffix}\"\nNext: A").text)
+        assertEquals("count > 3", rule("Variable: §.count\nNumericGreaterThan: 3\nNext: A").text)
+    }
+
+    private fun condition(expression: String) =
+        rule("Condition: \"{% " + expression.replace("\\", "\\\\").replace("\"", "\\\"") + " %}\"\nNext: A", language = QueryLanguage.JSONATA).text
+
+    fun `test white space inside a quoted literal is kept`() {
+        assertEquals("\$states.input.code = 'A  B'", condition("§states.input.code   =   'A  B'"))
+        assertEquals("\$x = \"A   B\" and \$y", condition("§x =  \"A   B\"  and   §y"))
+        assertEquals("\$x = `A   B` and \$y", condition("§x =  `A   B`  and   §y"))
+        assertEquals("\$x = 'it\\'s  here' and \$y", condition("§x = 'it\\'s  here'    and §y"))
+        assertEquals("a b", condition("   a      b  "))
+    }
+
+    fun `test an unclosed quote keeps the rest as written`() {
+        assertEquals("\$x = 'A   B", condition("§x  =  'A   B"))
+        assertEquals("\$x = 'A \\", condition("§x  =  'A \\"))
+    }
+
+    fun `test the written text of a rule keeps white space inside literals`() {
+        val label = rule("And:\n  - Variable: §.a\n    StringEquals: 'x    y'\nNext: A")
+        assertTrue(label.title!!, label.title!!.contains("'x    y'"))
+    }
 }

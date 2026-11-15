@@ -24,6 +24,31 @@ class DiagramBuilderTest : DiagramTestCase() {
         assertEquals("m1", map.machines[0].id)
     }
 
+    fun `test a state has a path that tells equal names in different machines apart`() {
+        val (model, _) = build(twins)
+        val fan = model.root!!.states.single()
+        assertEquals("Fan", fan.path)
+        val first = fan.machines[0].states.single()
+        val second = fan.machines[1].states.single()
+        assertEquals(firstEach, first.path)
+        assertEquals(secondEach, second.path)
+        assertEquals(firstEach + "\u00000\u0000One", first.machines[0].states.single().path)
+        // the path does not depend on the IDs, which shift with edits
+        val (again, _) = build("# a comment\n" + twins)
+        assertEquals(secondEach, again.root!!.states.single().machines[1].states.single().path)
+    }
+
+    fun `test End true is terminal however it is capitalised`() {
+        for (written in listOf("true", "True", "TRUE")) {
+            val (model, _) = build("StartAt: A\nStates:\n  A:\n    Type: Pass\n    End: $written")
+            val state = model.root!!.states.single()
+            assertTrue(written, state.terminal)
+            assertEquals(written, "End", model.details.getValue(state.id).single { it.label == "Next" }.items.single().text)
+        }
+        val (off, _) = build("StartAt: A\nStates:\n  A:\n    Type: Pass\n    End: False")
+        assertFalse(off.root!!.states.single().terminal)
+    }
+
     fun `test start and terminal states are marked`() {
         val (model, _) = build(archive)
         val root = model.root!!

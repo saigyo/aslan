@@ -183,10 +183,10 @@ class DiagramController(
                 remember(mode)
             }
         }
-        view.onToggleBox = { name ->
+        view.onToggleBox = { path ->
             if (!disposed) {
                 val collapsed = choices.collapsed
-                choices = Choices(choices.mode, if (name in collapsed) collapsed - name else collapsed + name)
+                choices = Choices(choices.mode, if (path in collapsed) collapsed - path else collapsed + path)
                 relayout()
             }
         }

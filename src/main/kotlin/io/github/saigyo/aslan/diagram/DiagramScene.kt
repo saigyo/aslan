@@ -25,15 +25,15 @@ sealed interface SceneItem {
         val edgeId: String, val text: String, val bounds: Rectangle2D.Double, val tooltip: String?, val selected: Boolean, val muted: Boolean,
     ) : SceneItem
 
-    /** The control of a Map or Parallel state, by the state's name; [collapsed] says what a click on it undoes. */
-    class Toggle(val stateName: String, val bounds: Rectangle2D.Double, val collapsed: Boolean) : SceneItem
+    /** The control of a Map or Parallel state, by the state's path; [collapsed] says what a click on it undoes. */
+    class Toggle(val statePath: String, val bounds: Rectangle2D.Double, val collapsed: Boolean) : SceneItem
 }
 
 /** What lies at a point of the diagram. */
 sealed interface Hit {
     data class State(val id: String) : Hit
     data class Edge(val id: String) : Hit
-    data class Toggle(val stateName: String) : Hit
+    data class Toggle(val statePath: String) : Hit
 }
 
 /**
@@ -53,7 +53,7 @@ class DiagramScene(
 
     /** Where in diagram coordinates the point is; [tolerance] is how far from a path's line it still counts. */
     fun hit(x: Double, y: Double, tolerance: Double): Hit? {
-        toggles.lastOrNull { it.bounds.contains(x, y) }?.let { return Hit.Toggle(it.stateName) }
+        toggles.lastOrNull { it.bounds.contains(x, y) }?.let { return Hit.Toggle(it.statePath) }
         // a state is never taken from under a path that ends at it, but a path inside a group is found before the group
         boxes.lastOrNull { it.kind == LaidNode.Kind.STATE && it.bounds.contains(x, y) }?.let { return Hit.State(it.id) }
         for (path in pathsByPriority) {
@@ -97,6 +97,8 @@ class DiagramScene(
         const val TOGGLE_SIZE = 16.0
         const val TOGGLE_ROOM = 24.0
         private const val ELLIPSIS = "…"
+        /** No box shows more than this many code points of a name or a second line. */
+        private const val FIT_MAX = 512
         /** The length of a hover text and of one of its lines, in characters. */
         private const val HOVER_MAX = 600
         private const val HOVER_LINE = 80
@@ -124,7 +126,7 @@ class DiagramScene(
             val toggles = layout.nodes.filter { it.collapsible }.map { node ->
                 val b = node.bounds
                 SceneItem.Toggle(
-                    node.state!!.name,
+                    node.state!!.path,
                     Rectangle2D.Double(b.maxX - TOGGLE_ROOM + (TOGGLE_ROOM - TOGGLE_SIZE) / 2 - 2, b.y + 10, TOGGLE_SIZE, TOGGLE_SIZE),
                     node.collapsed,
                 )
@@ -197,16 +199,24 @@ class DiagramScene(
             return lines
         }
 
-        /** [text] if it is at most [room] wide, else its longest start that with an ellipsis still is. */
+        /**
+         * [text] if it is at most [room] wide, else its longest start that with an ellipsis still is. The text is first cut
+         * to [FIT_MAX] code points, as no box shows more, and the start is found by bisection, so a very long text takes
+         * few measurements.
+         */
         private fun fit(text: String, size: Int, bold: Boolean, room: Double, measure: TextMeasure): String {
-            if (measure.width(text, size, bold) <= room) return text
-            var end = text.codePointCount(0, text.length)
-            while (end > 0) {
-                end--
-                val cut = text.substring(0, text.offsetByCodePoints(0, end)) + ELLIPSIS
-                if (measure.width(cut, size, bold) <= room) return cut
+            val total = text.codePointCount(0, text.length)
+            val bounded = if (total > FIT_MAX) text.substring(0, text.offsetByCodePoints(0, FIT_MAX)) else text
+            if (total <= FIT_MAX && measure.width(bounded, size, bold) <= room) return text
+            // the width grows with the length: bisect for the most code points that fit with the ellipsis
+            var low = 0
+            var high = if (total > FIT_MAX) FIT_MAX else total - 1
+            fun cut(points: Int) = bounded.substring(0, bounded.offsetByCodePoints(0, points)) + ELLIPSIS
+            while (low < high) {
+                val middle = (low + high + 1) / 2
+                if (measure.width(cut(middle), size, bold) <= room) low = middle else high = middle - 1
             }
-            return ELLIPSIS
+            return cut(low)
         }
     }
 }

@@ -42,8 +42,8 @@ class DiagramSceneTest : DiagramTestCase() {
             assertEquals(lay.nodes.map { it.id }, scene.boxes().map { it.id })
             assertEquals(lay.edges.map { it.edge.id }, scene.paths().map { it.id })
             assertEquals(lay.edges.filter { it.label != null }.map { it.edge.id }.sorted(), scene.labels().map { it.edgeId }.sorted())
-            assertEquals(lay.nodes.filter { it.collapsible }.map { it.state!!.name }.sorted(), scene.toggles().map { it.stateName }.sorted())
-            assertEquals(listOf("Each", "Both"), scene.toggles().map { it.stateName })
+            assertEquals(lay.nodes.filter { it.collapsible }.map { it.state!!.name }.sorted(), scene.toggles().map { it.statePath }.sorted())
+            assertEquals(listOf("Each", "Both"), scene.toggles().map { it.statePath })
             assertEquals(lay.width, scene.width, 0.0)
             assertEquals(lay.height, scene.height, 0.0)
             // the order: boxes, paths, labels, toggles
@@ -176,6 +176,22 @@ class DiagramSceneTest : DiagramTestCase() {
         assertEquals(listOf(name.take(80), name.substring(80, 160), name.drop(160)), sceneOf(named(name)).boxes().single { it.type == "Pass" }.tooltip!!.split('\n'))
     }
 
+    fun `test a very long text is fitted with few measurements`() {
+        val resource = "r".repeat(200_000)
+        val model = build("StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: $resource\n    End: true\n").first
+        val lay = layout(model)
+        var calls = 0
+        val counting = TextMeasure { text, size, bold -> calls++; measure.width(text, size, bold) }
+        val box = DiagramScene.of(lay, null, CatchMode.NORMAL, counting).boxes().single { it.type == "Task" }
+        assertTrue("$calls calls", calls <= 40)
+        val room = lay.nodes.single { it.id == box.id }.bounds.width - DiagramScene.PAD_LEFT - DiagramScene.PAD_RIGHT
+        assertTrue(box.sub.endsWith("…"))
+        assertTrue(measure.width(box.sub, DiagramScene.SUB_SIZE, false) <= room)
+        // the longest start that fits: one more character would not
+        val more = box.sub.dropLast(1) + "r…"
+        assertTrue(measure.width(more, DiagramScene.SUB_SIZE, false) > room)
+    }
+
     fun `test texts that look like markup are kept as they are`() {
         val scene = sceneOf(named("<html><b>Scan"))
         assertEquals("<html><b>Scan", scene.boxes().single { it.type == "Pass" }.name)
@@ -212,13 +228,21 @@ class DiagramSceneTest : DiagramTestCase() {
 
     private fun Rectangle2D.inner() = Rectangle2D.Double(x + 4, y + 4, width - 8, height - 8)
 
+    fun `test a toggle carries the path of its box`() {
+        val model = build(twins).first
+        val scene = sceneOf(model)
+        assertEquals(listOf(firstEach, secondEach), scene.toggles().map { it.statePath }.filter { it.endsWith("Each") })
+        val second = scene.toggles().single { it.statePath == secondEach }.bounds
+        assertEquals(Hit.Toggle(secondEach), scene.hit(second.centerX, second.centerY, 4.0))
+    }
+
     fun `test hit finds the innermost state, a path near its line, and a toggle before its box`() {
         val scene = sceneOf(small())
         val frame = scene.box("s3").bounds
         assertEquals(Hit.State("s3"), scene.hit(frame.centerX, frame.centerY, 4.0))
         val map = scene.box("s2").bounds
         assertEquals(Hit.State("s2"), scene.hit(map.x + 3, map.y + 3, 1.0))
-        val toggle = scene.toggles().single { it.stateName == "Each" }.bounds
+        val toggle = scene.toggles().single { it.statePath == "Each" }.bounds
         assertTrue(map.contains(toggle))
         assertEquals(Hit.Toggle("Each"), scene.hit(toggle.centerX, toggle.centerY, 4.0))
         val points = scene.path("s0.c0").points

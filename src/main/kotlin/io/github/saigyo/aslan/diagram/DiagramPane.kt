@@ -47,7 +47,7 @@ interface DiagramView {
     var onNavigate: (offset: Int) -> Unit
 
     /** A click on a box's toggle. */
-    var onToggleBox: (stateName: String) -> Unit
+    var onToggleBox: (statePath: String) -> Unit
 
     /** The layout switch. */
     var onLayoutMode: (LayoutMode) -> Unit
@@ -88,7 +88,7 @@ object DiagramText {
 class DiagramPane(parent: Disposable) : DiagramView {
     override var onSelect: (id: String?) -> Unit = {}
     override var onNavigate: (offset: Int) -> Unit = {}
-    override var onToggleBox: (stateName: String) -> Unit = {}
+    override var onToggleBox: (statePath: String) -> Unit = {}
     override var onLayoutMode: (LayoutMode) -> Unit = {}
 
     private val fonts = FontMeasure()
@@ -105,7 +105,7 @@ class DiagramPane(parent: Disposable) : DiagramView {
     private var selected: String? = null
     private var catchMode: CatchMode = DiagramPrefs.catchMode
 
-    /** The name of the box whose toggle was clicked last; the next [show] brings that box into view. */
+    /** The path of the box whose toggle was clicked last; the next [show] brings that box into view. */
     private var toggled: String? = null
 
     private val catchSwitches = CatchMode.entries.associateWith { CatchSwitch(it) }
@@ -171,7 +171,7 @@ class DiagramPane(parent: Disposable) : DiagramView {
         when {
             diagram.viewport == null -> if (diagram.hasSize) place() else diagram.whenSized = ::place
             // the new layout moves everything; the box just clicked stays where the user is looking
-            box != null -> reveal(layout.nodes.firstOrNull { it.collapsible && it.state?.name == box }?.id)
+            box != null -> reveal(layout.nodes.firstOrNull { it.collapsible && it.state?.path == box }?.id)
             // with nothing to reveal, the old zoom and position belong to another layout: start again
             modeChanged -> if (selected?.let { diagram.scene?.bounds(it) } != null) reveal(selected) else place()
         }
@@ -192,8 +192,8 @@ class DiagramPane(parent: Disposable) : DiagramView {
     private fun clicked(hit: Hit?) {
         when (hit) {
             is Hit.Toggle -> {
-                toggled = hit.stateName
-                onToggleBox(hit.stateName)
+                toggled = hit.statePath
+                onToggleBox(hit.statePath)
             }
             is Hit.State -> {
                 mark(hit.id)

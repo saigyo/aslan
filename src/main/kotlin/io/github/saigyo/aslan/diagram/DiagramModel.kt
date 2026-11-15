@@ -62,9 +62,15 @@ class DiagramModel(val root: DiagramMachine?, val details: Map<String, List<Deta
 /** A state machine of the diagram; [title] is "Branch n" for a Parallel branch, else null; [start] is the ID of the state `StartAt` names. */
 class DiagramMachine(val id: String, val title: String?, val start: String?, val states: List<DiagramState>, val edges: List<DiagramEdge>)
 
-/** A state; [sub] is the second line of its node; [range] the text of its entry; [offset] the start of its key. */
+/**
+ * A state; [sub] is the second line of its node; [range] the text of its entry; [offset] the start of its key. [path]
+ * identifies the state by its place and survives a rebuild of the model, which the [id] does not: the name for a state of
+ * the top machine, else the path of the enclosing state, the index of the machine in that state and the name, joined by
+ * [PATH_SEPARATOR].
+ */
 class DiagramState(
     val id: String,
+    val path: String,
     val name: String,
     val type: String?,
     val sub: String,
@@ -92,6 +98,9 @@ class DetailItem(val text: String, val prefix: String = "", val kind: Kind = Kin
     enum class Kind { PLAIN, STATE, VARIABLE }
 }
 
+/** The character between the parts of a [DiagramState.path]; a state name cannot hold it in a definition that is read. */
+const val PATH_SEPARATOR = "\u0000"
+
 object DiagramBuilder {
     private const val BRANCH = "Branch "
     private const val SEPARATOR = " · "
@@ -116,31 +125,34 @@ object DiagramBuilder {
         doc.allMachines().forEachIndexed { i, m -> machineIds[m] = "m$i" }
         val builder = Builder(stateIds, machineIds)
         val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(doc, it) }
-        return DiagramModel(builder.machine(root, null), details, doc.allStates().size)
+        return DiagramModel(builder.machine(root, null, null), details, doc.allStates().size)
     }
 
     /** Whether the state ends the machine: a Succeed or Fail state, or `End: true` written as a certain boolean. */
     internal fun isTerminal(state: AslState): Boolean {
         if (state.typeName == "Succeed" || state.typeName == "Fail") return true
         val end = state.obj?.get("End")?.value as? AslScalar ?: return false
-        return end.type == ScalarType.BOOLEAN && !end.ambiguous && !end.dynamic && end.text == "true"
+        return end.type == ScalarType.BOOLEAN && !end.ambiguous && !end.dynamic && end.text.equals("true", ignoreCase = true)
     }
 
     private class Builder(val stateIds: IdentityHashMap<AslState, String>, val machineIds: IdentityHashMap<AslStateMachine, String>) {
-        fun machine(machine: AslStateMachine, title: String?): DiagramMachine {
-            val states = machine.states.map { state(it) }
+        /** [owner] is the path of the state that holds [machine], index [index] of its machines, or null for the top machine. */
+        fun machine(machine: AslStateMachine, title: String?, owner: String?, index: Int = 0): DiagramMachine {
+            val prefix = owner?.let { it + PATH_SEPARATOR + index + PATH_SEPARATOR }.orEmpty()
+            val states = machine.states.map { state(it, prefix) }
             val edges = machine.states.flatMap { edges(it) }
             val startName = (machine.startAt?.value as? AslScalar)?.takeIf { it.type == ScalarType.STRING }?.text
             val start = startName?.let { machine.state(it) }?.let { stateIds[it] }
             return DiagramMachine(machineIds.getValue(machine), title, start, states, edges)
         }
 
-        private fun state(state: AslState): DiagramState {
+        private fun state(state: AslState, prefix: String): DiagramState {
             val parallel = state.type?.structure == StructureId.PARALLEL
-            val machines = state.children.mapIndexed { i, child -> machine(child, if (parallel) "$BRANCH${i + 1}" else null) }
+            val path = prefix + state.name
+            val machines = state.children.mapIndexed { i, child -> machine(child, if (parallel) "$BRANCH${i + 1}" else null, path, i) }
             val range = state.entry.entryPsi.textRange
             return DiagramState(
-                stateIds.getValue(state), state.name, state.typeName, sub(state), isTerminal(state),
+                stateIds.getValue(state), path, state.name, state.typeName, sub(state), isTerminal(state),
                 state.entry.keyPsi.textRange.startOffset, range, machines,
             )
         }

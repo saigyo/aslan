@@ -25,7 +25,7 @@ class DiagramSelectionTest : DiagramTestCase() {
         override val component: JComponent = JPanel()
         override var onSelect: (id: String?) -> Unit = {}
         override var onNavigate: (offset: Int) -> Unit = {}
-        override var onToggleBox: (stateName: String) -> Unit = {}
+        override var onToggleBox: (statePath: String) -> Unit = {}
         override var onLayoutMode: (LayoutMode) -> Unit = {}
         /** While set, the first measurement waits for it, so a layout can be held on its thread. */
         @Volatile

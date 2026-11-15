@@ -43,7 +43,6 @@ object DiagramLabels {
         "IsBoolean" to "boolean", "IsTimestamp" to "timestamp",
     )
     private val operatorPrefix = Regex("""^(String|Numeric|Timestamp|Boolean)""")
-    private val whiteSpace = Regex("""\s+""")
 
     /** The label of a Task's `Resource`: the service and action of an integration, an activity or a function, else the text as written. */
     fun resource(text: String): String {
@@ -109,7 +108,7 @@ object DiagramLabels {
         if (Placeholders.contains(variable.text)) return null
         val operator = rule.entries.singleOrNull { it.key in comparisonOperatorNames } ?: return null
         val value = operator.value as? AslScalar ?: return null
-        if (value.dynamic) return null
+        if (value.dynamic || Placeholders.contains(value.text)) return null
         val name = operator.key
         val condition = typeTests[name]?.let { test ->
             if (value.type != ScalarType.BOOLEAN) return null
@@ -139,5 +138,30 @@ object DiagramLabels {
         return text.substring(0, text.offsetByCodePoints(0, max - 1)) + ELLIPSIS
     }
 
-    private fun collapse(text: String) = text.trim().replace(whiteSpace, " ")
+    /**
+     * [text] with each run of white space outside quoted literals as one space, and trimmed. The content of a literal
+     * between `'`, `"` or backticks is kept as written; inside `'…'` and `"…"` a backslash escapes the next character.
+     * An unclosed literal keeps the rest of the text as written.
+     */
+    private fun collapse(text: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            if (c == '\'' || c == '"' || c == '`') {
+                var end = i + 1
+                while (end < text.length && text[end] != c) end += if (text[end] == '\\' && c != '`') 2 else 1
+                val stop = minOf(end + 1, text.length)
+                out.append(text, i, stop)
+                i = stop
+            } else if (c.isWhitespace()) {
+                while (i < text.length && text[i].isWhitespace()) i++
+                out.append(' ')
+            } else {
+                out.append(c)
+                i++
+            }
+        }
+        return out.toString().trim(' ')
+    }
 }

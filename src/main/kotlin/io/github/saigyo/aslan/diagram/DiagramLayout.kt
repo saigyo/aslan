@@ -127,7 +127,7 @@ object DiagramLayouter {
                 val box = box(parent)
                 boxes[state.id] = box
                 val collapsible = state.machines.isNotEmpty()
-                val shut = collapsible && state.name in collapsed
+                val shut = collapsible && state.path in collapsed
                 val kind = if (collapsible && !shut) LaidNode.Kind.GROUP else LaidNode.Kind.STATE
                 val start = state.id == machine.start
                 drafts += box to { bounds -> LaidNode(state.id, kind, bounds, state, null, start, shut, collapsible) }

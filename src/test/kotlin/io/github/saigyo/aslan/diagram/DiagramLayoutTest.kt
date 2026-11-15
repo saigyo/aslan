@@ -137,6 +137,18 @@ class DiagramLayoutTest : DiagramTestCase() {
         }
     }
 
+    fun `test collapsing one of two boxes of the same name shuts only that box`() {
+        val model = build(twins).first
+        for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode, setOf(secondEach))
+            val boxes = layout.nodes.filter { it.collapsible && it.state!!.name == "Each" }
+            assertEquals(listOf(firstEach, secondEach), boxes.map { it.state!!.path })
+            assertEquals(listOf(false, true), boxes.map { it.collapsed })
+            // the open Map still shows its inner state, the shut one does not
+            assertEquals(1, layout.nodes.count { it.state?.name == "One" })
+        }
+    }
+
     fun `test a collapsed Map is a plain node and its inner states are not laid out`() {
         val model = build(archive).first
         for (mode in LayoutMode.entries) {

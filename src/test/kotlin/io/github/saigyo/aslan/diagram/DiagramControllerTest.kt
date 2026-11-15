@@ -57,7 +57,7 @@ class DiagramControllerTest : DiagramTestCase() {
         override val component: JComponent = JPanel()
         override var onSelect: (id: String?) -> Unit = {}
         override var onNavigate: (offset: Int) -> Unit = {}
-        override var onToggleBox: (stateName: String) -> Unit = {}
+        override var onToggleBox: (statePath: String) -> Unit = {}
         override var onLayoutMode: (LayoutMode) -> Unit = {}
 
         override val measure = TextMeasure { text, _, _ ->
@@ -383,6 +383,15 @@ class DiagramControllerTest : DiagramTestCase() {
         assertSame(model, view.last.model)
         assertEquals(LaidNode.Kind.GROUP, view.last.layout.nodes.single { it.id == each }.kind)
         assertEquals(3, view.shows.size)
+    }
+
+    fun `test collapsing one of two boxes of the same name leaves the other open`() {
+        val (controller, view) = open(twins)
+        view.onToggleBox(secondEach)
+        PlatformTestUtil.waitForFuture(controller.latest)
+        val boxes = view.last.layout.nodes.filter { it.collapsible && it.state!!.name == "Each" }
+        assertEquals(listOf(firstEach, secondEach), boxes.map { it.state!!.path })
+        assertEquals(listOf(false, true), boxes.map { it.collapsed })
     }
 
     fun `test the layout runs off the UI thread and outside a read action`() {

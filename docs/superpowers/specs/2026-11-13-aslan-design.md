@@ -455,7 +455,7 @@ These could not be verified and are handled as stated.
 | A new selection after an edit | After an edit, a box that becomes selected is not brought into view until the caret moves. Known, left for a later version |
 | Layouts of a hidden diagram | Layouts also run while the diagram is hidden in the editor-only mode. Known, left for a later version |
 | A file renamed to a name that is not an ASL name | It keeps its split editor, with the diagram marked out of date, until it is reopened. Known, left for a later version |
-| IntelliJ IDEA 2026.3 | Only the plugin verifier covers it, and it reports the plugin compatible; the IDE in which the plugin ran was 2026.2.3 |
+| IntelliJ IDEA 2026.3 | The plugin verifier reports the plugin compatible. The automated tests and the observed sessions ran in 2026.2.3; in 2026.3 the commissioner installed the distribution file and found the diagram working, with a click on a state, on a path and on a link in the details |
 | What was not observed in a running IDE | Light edit mode, remote development, the Windows and Linux desktops, and keyboard and screen reader access to the diagram. None of them was tried in stage 4 |
 | The screenshots | They come from the sandbox IDE, which runs without a licence, so the title bar of every full-window picture shows "Unlock Ultimate". The Problems tool window in the validation picture shows the demo project's location in its first row, which cannot be hidden |
 | Signing and uploading | Left to the commissioner, as are the Marketplace tags, which `docs/marketplace/listing.md` only suggests |

@@ -60,6 +60,41 @@ abstract class DiagramTestCase : AslTestCase() {
             Type: Fail
     """
 
+    /** Two Parallel branches that each hold a Map named `Each`; the paths of the two differ. */
+    protected val twins = """
+        StartAt: Fan
+        States:
+          Fan:
+            Type: Parallel
+            Branches:
+              - StartAt: Each
+                States:
+                  Each:
+                    Type: Map
+                    ItemProcessor:
+                      StartAt: One
+                      States:
+                        One:
+                          Type: Pass
+                          End: true
+                    End: true
+              - StartAt: Each
+                States:
+                  Each:
+                    Type: Map
+                    ItemProcessor:
+                      StartAt: One
+                      States:
+                        One:
+                          Type: Pass
+                          End: true
+                    End: true
+            End: true
+    """
+
+    protected val firstEach = "Fan\u00000\u0000Each"
+    protected val secondEach = "Fan\u00001\u0000Each"
+
     protected fun file(text: String, name: String = "test.asl.yaml"): PsiFile = yaml(text.replace('§', '$'), name)
 
     protected fun build(text: String): Pair<DiagramModel, PsiFile> {
