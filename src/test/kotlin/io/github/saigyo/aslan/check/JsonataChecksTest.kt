@@ -246,6 +246,13 @@ class JsonataChecksTest : CheckTestCase() {
         assertEquals(nothing, inside(sum))
     }
 
+    fun `test a call of an assigned name that is no built-in function is still unknown`() {
+        // the model reads $myfn as the variable, but a state machine variable holds no function
+        val text = assigning("myfn: 1", "'{% \$myfn(1) %}'")
+        assertEquals(listOf("myfn"), AslModel.of(myFixture.configureByText("myfn.asl.yaml", text))!!.variables.reads.map { it.name })
+        assertEquals(listOf(UNKNOWN_JSONATA_FUNCTION to "\$myfn"), inside(text))
+    }
+
     fun `test a variable named like a built-in function shared with a state that does not assign it is still checked`() {
         // the second state reads the expression too, but no assignment makes eval visible there: it is the function
         val text = "QueryLanguage: JSONata\nStartAt: P\nStates:\n  P:\n    Type: Parallel\n    Branches:\n" +
