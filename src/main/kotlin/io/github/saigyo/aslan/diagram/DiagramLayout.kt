@@ -21,6 +21,7 @@ import org.eclipse.elk.graph.ElkPort
 import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.awt.geom.Point2D
 import java.awt.geom.Rectangle2D
+import java.util.concurrent.CancellationException
 
 /** The two layouts of the diagram; [maxLabel] is the number of characters at which a label on a path is cut. */
 enum class LayoutMode(val maxLabel: Int) {
@@ -62,8 +63,22 @@ class LaidEdge(val edge: DiagramEdge, val points: List<Point2D.Double>, val labe
 class LaidLabel(val text: String, val bounds: Rectangle2D.Double)
 
 /**
- * Lays out a [DiagramModel] with ELK's layered algorithm, from top to bottom. Called from any thread, one call at a
- * time; it holds no PSI and takes no read action.
+ * A progress monitor that answers [isCanceled] with whether the thread that made it has been interrupted. ELK asks it
+ * before each phase of the layered algorithm and before each graph of the recursion, and returns early when it is true.
+ * Its sub-monitors are of the same kind: ELK hands them to the phases.
+ */
+private class InterruptMonitor(private val thread: Thread = Thread.currentThread()) : BasicProgressMonitor() {
+    override fun isCanceled(): Boolean = thread.isInterrupted
+
+    override fun doSubTask(work: Float, maxHierarchyLevels: Int): BasicProgressMonitor =
+        InterruptMonitor(thread).withMaxHierarchyLevels(if (maxHierarchyLevels > 0) maxHierarchyLevels - 1 else maxHierarchyLevels)
+}
+
+/**
+ * Lays out a [DiagramModel] with ELK's layered algorithm, from top to bottom. Called from any thread; each call builds
+ * its own graph, and a call left behind over the time limit may still run beside the next one. It holds no PSI and
+ * takes no read action. An interrupt of the calling thread cancels it: ELK stops at its next
+ * phase, and [layout] throws a [CancellationException] and leaves the thread interrupted.
  */
 object DiagramLayouter {
     private const val STATE_WIDTH = 190.0
@@ -90,7 +105,10 @@ object DiagramLayouter {
         val graph = ElkGraphUtil.createGraph()
         val run = Run(mode, collapsed, measure)
         run.machine(root, graph, SIDE_PADDING)
-        RecursiveGraphLayoutEngine().layout(graph, BasicProgressMonitor())
+        val monitor = InterruptMonitor()
+        RecursiveGraphLayoutEngine().layout(graph, monitor)
+        // a cancelled run leaves the graph partly laid out
+        if (monitor.isCanceled()) throw CancellationException("The layout was interrupted")
         return DiagramLayout(graph.width, graph.height, run.nodes(), run.edges())
     }
 

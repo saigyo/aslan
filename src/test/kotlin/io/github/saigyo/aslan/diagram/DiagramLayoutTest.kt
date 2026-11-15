@@ -1,10 +1,13 @@
 package io.github.saigyo.aslan.diagram
 
+import com.intellij.testFramework.PlatformTestUtil
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.TransitionKind
 import java.awt.geom.Line2D
 import java.awt.geom.Rectangle2D
 import java.io.File
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import kotlin.math.abs
 
 class DiagramLayoutTest : DiagramTestCase() {
@@ -382,5 +385,25 @@ class DiagramLayoutTest : DiagramTestCase() {
             "StartAt: A\nStates:\n  A:\n    Type: Parallel\n    Branches:\n      - StartAt: X\n        States: {}\n    End: true",
         )
         for (text in texts) for (mode in LayoutMode.entries) lay(build(text).first, mode)
+    }
+
+    fun `test a layout on an interrupted thread ends with a cancellation and keeps the interrupt`() {
+        val model = build(archive).first
+        // the outcome of the layout, and whether its thread was still interrupted after it
+        val outcome = CompletableFuture<Pair<Throwable?, Boolean>>()
+        val thread = Thread({
+            Thread.currentThread().interrupt()
+            val thrown = try {
+                lay(model, LayoutMode.LOOSE)
+                null
+            } catch (e: Throwable) {
+                e
+            }
+            outcome.complete(thrown to Thread.interrupted())
+        }, "interrupted layout")
+        thread.start()
+        val (thrown, interrupted) = PlatformTestUtil.waitForFuture(outcome)
+        assertInstanceOf(thrown, CancellationException::class.java)
+        assertTrue("the thread is still interrupted", interrupted)
     }
 }

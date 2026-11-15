@@ -33,7 +33,9 @@ private val log = logger<DiagramController>()
  * Keeps [view] in step with [file] (decision 4): after a change of the document and a delay, it builds the model in a
  * non-blocking read action, lays it out on a thread of its own, outside any read action, and hands both to the view on
  * the UI thread. A result is dropped when the document has changed since its model was built, when the layout's choices
- * have changed since it was made, when a newer result has been handed over, or once [parent] is disposed.
+ * have changed since it was made, when a newer result has been handed over, or once [parent] is disposed. A layout that
+ * takes longer than [timeLimitMs] is interrupted and left behind, and the diagram is marked out of date; the layouts
+ * after it run on a new thread.
  *
  * [chosen] is the layout chosen for the file before, and [remember] keeps a choice made with the layout switch. Create
  * and use it on the UI thread; [refresh] may be called from any thread.
@@ -82,7 +84,8 @@ class DiagramController(
     /** The state or edge ID of [shown] that is selected, or null; every show is given it. UI thread. */
     private var selected: String? = null
 
-    /** The newest model a refresh has laid out, which a new layout of the same model takes. Layout thread only. */
+    /** The newest model a refresh has laid out, which a new layout of the same model takes. Set on a layout thread. */
+    @Volatile
     private var newest: Built? = null
 
     /** The modification stamp of the document that [shown] was built from. UI thread. */
@@ -100,10 +103,17 @@ class DiagramController(
     /** The delayed refresh after the last change, if it has not run. UI thread. */
     private var pending: Future<*>? = null
 
-    /** The thread of the layouts, used for nothing else; it ends when idle and when [parent] is disposed. */
-    private val layoutThread: ExecutorService = ThreadPoolExecutor(0, 1, IDLE_SECONDS, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
-        Thread(task, LAYOUT_THREAD).apply { isDaemon = true }
-    }
+    /** Guards [layoutThread] and [abandoned], which the time limit changes from the scheduler's thread. */
+    private val lock = Any()
+
+    /**
+     * The thread of the layouts, used for nothing else; it ends when idle and when [parent] is disposed. A layout over
+     * the time limit is left behind on it, and a new one takes the layouts after it.
+     */
+    private var layoutThread: ExecutorService = newLayoutThread()
+
+    /** The number of layouts left behind over the time limit that have not ended yet. */
+    private var abandoned = 0
 
     /** Schedules a task after the delay; tests replace it to run the delay themselves. */
     internal var delay: (Runnable) -> Future<*> = { task ->
@@ -117,6 +127,10 @@ class DiagramController(
             CARET_DELAY_MS, TimeUnit.MILLISECONDS,
         )
     }
+
+    /** How long one layout may take before it is interrupted and left behind; tests set a short one. */
+    @Volatile
+    internal var timeLimitMs = TIME_LIMIT_MS
 
     /** The future of the last request, for tests. */
     @Volatile
@@ -139,8 +153,10 @@ class DiagramController(
             pending = null
             pendingCaret?.cancel(false)
             pendingCaret = null
-            // a layout that runs finishes, and the ones queued end at once; the thread ends after them
-            layoutThread.shutdown()
+            // the layout that runs is interrupted, and the ones queued end at once; the thread ends after them
+            synchronized(lock) {
+                layoutThread.shutdownNow().filterIsInstance<LayoutTask>().forEach { it.done.complete(false) }
+            }
         }
         document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
@@ -248,29 +264,87 @@ class DiagramController(
 
     /** Runs [work] on the layout thread and hands its result over; a null result, or none at all, completes [done] as dropped. */
     private fun onLayoutThread(done: CompletableFuture<Boolean>, work: () -> Result?) {
-        try {
-            layoutThread.execute {
-                var passed = false
+        synchronized(lock) {
+            if (!disposed) {
                 try {
-                    val result = if (disposed) null else work()
-                    if (result != null) {
-                        ApplicationManager.getApplication().invokeLater({
-                            try {
-                                done.complete(handOver(result))
-                            } finally {
-                                done.complete(false)   // no effect when handed over; a waiting test ends if the view threw
-                            }
-                        }, ModalityState.any())
-                        passed = true
-                    }
-                } catch (e: Exception) {
-                    if (!disposed) log.error("Cannot lay out the diagram of ${file.name}", e)
-                } finally {
-                    if (!passed) done.complete(false)
+                    layoutThread.execute(LayoutTask(done, work))
+                    return
+                } catch (_: RejectedExecutionException) {
+                    // disposed meanwhile
                 }
             }
-        } catch (_: RejectedExecutionException) {
-            done.complete(false)   // disposed meanwhile
+        }
+        done.complete(false)
+    }
+
+    private fun newLayoutThread(): ExecutorService = ThreadPoolExecutor(0, 1, IDLE_SECONDS, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
+        Thread(task, LAYOUT_THREAD).apply { isDaemon = true }
+    }
+
+    /**
+     * One layout on a layout thread, watched by the time limit. When the limit passes first, the layout is interrupted
+     * and left behind ([abandon]); its result is dropped if it ever ends. While [MAX_ABANDONED] layouts are left behind
+     * and still running, no layout starts.
+     */
+    private inner class LayoutTask(val done: CompletableFuture<Boolean>, private val work: () -> Result?) : Runnable {
+        /** [RUNNING] until the layout ends ([ENDED]) or is left behind ([ABANDONED]), whichever comes first. Guarded by [lock]. */
+        private var state = RUNNING
+
+        override fun run() {
+            if (disposed || synchronized(lock) { abandoned >= MAX_ABANDONED }) {
+                done.complete(false)
+                return
+            }
+            val limit = timeLimitMs
+            val watchdog = AppExecutorUtil.getAppScheduledExecutorService().schedule({ abandon(limit) }, limit, TimeUnit.MILLISECONDS)
+            var passed = false
+            try {
+                val result = work()
+                if (result != null && end()) {
+                    ApplicationManager.getApplication().invokeLater({
+                        try {
+                            done.complete(handOver(result))
+                        } finally {
+                            done.complete(false)   // no effect when handed over; a waiting test ends if the view threw
+                        }
+                    }, ModalityState.any())
+                    passed = true
+                }
+            } catch (e: Exception) {
+                // an interrupt ends the layout with a cancellation; a layout left behind may end with anything
+                if (!disposed && e !is CancellationException && end()) log.error("Cannot lay out the diagram of ${file.name}", e)
+            } finally {
+                watchdog.cancel(false)
+                synchronized(lock) {
+                    if (state == RUNNING) state = ENDED else if (state == ABANDONED) abandoned--
+                }
+                if (!passed) done.complete(false)
+            }
+        }
+
+        /** Whether the layout ended before the time limit, and so its result counts. */
+        private fun end(): Boolean = synchronized(lock) {
+            if (state == RUNNING) state = ENDED
+            state == ENDED
+        }
+
+        /**
+         * On the scheduler's thread, when [limit] has passed. The thread of the layout is shut down, which interrupts it;
+         * the layouts queued behind it move to a new thread, and the diagram is marked out of date before any of them
+         * can be shown.
+         */
+        private fun abandon(limit: Long) {
+            synchronized(lock) {
+                if (disposed || state != RUNNING) return
+                state = ABANDONED
+                abandoned++
+                ApplicationManager.getApplication().invokeLater({ if (!disposed) view.setStale() }, ModalityState.any())
+                val old = layoutThread
+                layoutThread = newLayoutThread()
+                old.shutdownNow().forEach(layoutThread::execute)
+            }
+            done.complete(false)
+            log.warn("The layout of the diagram of ${file.name} took longer than $limit ms and was left behind")
         }
     }
 
@@ -315,6 +389,12 @@ class DiagramController(
         const val DELAY_MS = 300L
         const val CARET_DELAY_MS = 100L
         const val IDLE_SECONDS = 30L
+        /** The large synthetic definition takes well under a second. */
+        const val TIME_LIMIT_MS = 10_000L
+        const val MAX_ABANDONED = 2
+        const val RUNNING = 0
+        const val ENDED = 1
+        const val ABANDONED = 2
         const val LAYOUT_THREAD = "Aslan diagram layout"
         val EMPTY = DiagramModel(null, emptyMap(), 0)
         val EMPTY_LAYOUT = DiagramLayout(0.0, 0.0, emptyList(), emptyList())

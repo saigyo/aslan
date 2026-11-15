@@ -65,8 +65,12 @@ class DiagramControllerTest : DiagramTestCase() {
                 held.countDown()
                 it.await(30, TimeUnit.SECONDS)
             }
+            stall?.enter()
             6.0 * text.length
         }
+
+        @Volatile
+        var stall: Stall? = null
 
         override fun show(model: DiagramModel, layout: DiagramLayout, mode: LayoutMode, selected: String?) {
             calls += Shown(model, layout, mode, selected, ApplicationManager.getApplication().isDispatchThread)
@@ -81,6 +85,43 @@ class DiagramControllerTest : DiagramTestCase() {
             calls += Stale
         }
     }
+
+    /**
+     * Holds the first [count] layouts that measure, each on its own thread, in the first measurement on that thread: the
+     * n-th layout to arrive waits for the n-th release. With [ignoreInterrupts] an interrupt does not end the wait, as
+     * with a layout that never checks; without it the wait ends, the interrupt is kept, and the layout goes on.
+     */
+    private class Stall(count: Int, private val ignoreInterrupts: Boolean) {
+        val releases = List(count) { CountDownLatch(1) }
+        val threads: MutableList<Thread> = Collections.synchronizedList(ArrayList())
+
+        fun enter() {
+            val current = Thread.currentThread()
+            val n = synchronized(threads) {
+                if (threads.any { it === current } || threads.size >= releases.size) return
+                threads += current
+                threads.size - 1
+            }
+            while (true) {
+                try {
+                    releases[n].await(60, TimeUnit.SECONDS)
+                    return
+                } catch (_: InterruptedException) {
+                    if (!ignoreInterrupts) {
+                        current.interrupt()
+                        return
+                    }
+                }
+            }
+        }
+
+        fun releaseAll() = releases.forEach { it.countDown() }
+    }
+
+    private fun waitFor(message: String, condition: () -> Boolean) =
+        PlatformTestUtil.waitWithEventsDispatching(message, condition, 30)
+
+    private fun Recorder.staleCount() = calls.count { it === Recorder.Stale }
 
     /** The delays the controller asked for, in order; none runs until a test runs it. */
     private val delayed = ArrayList<FutureTask<*>>()
@@ -356,5 +397,108 @@ class DiagramControllerTest : DiagramTestCase() {
             { Thread.getAllStackTraces().keys.none { it.name == "Aslan diagram layout" && it.isAlive } },
             30,
         )
+    }
+
+    fun `test a layout over the time limit is abandoned, and the next one does not wait for it`() {
+        val (controller, view) = open(archive)
+        controller.timeLimitMs = LIMIT_MS
+        val stall = Stall(1, ignoreInterrupts = true)
+        view.stall = stall
+        try {
+            view.calls.clear()
+            PlatformTestUtil.waitForFuture(controller.refresh())
+            waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
+            assertTrue(view.shows.isEmpty())
+            val stuck = stall.threads.single()
+
+            replace("  Failed:", rewind + "  Failed:")
+            delayed.last().run()
+            PlatformTestUtil.waitForFuture(controller.latest)
+            assertTrue(view.last.model.names().contains("Rewind"))
+            assertTrue("the first layout is still held", stuck.isAlive)
+
+            stall.releaseAll()
+            waitFor("the abandoned layout did not end") { !stuck.isAlive }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertEquals("the abandoned result is not shown", 1, view.shows.size)
+        } finally {
+            stall.releaseAll()
+        }
+    }
+
+    fun `test a layout over the time limit that heeds the interrupt ends`() {
+        val (controller, view) = open(archive)
+        controller.timeLimitMs = LIMIT_MS
+        val stall = Stall(1, ignoreInterrupts = false)
+        view.stall = stall
+        try {
+            view.calls.clear()
+            PlatformTestUtil.waitForFuture(controller.refresh())
+            waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
+            val stuck = stall.threads.single()
+            waitFor("the interrupted layout did not end") { !stuck.isAlive }
+            assertEquals("it ended without a release", 1L, stall.releases.single().count)
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertTrue(view.shows.isEmpty())
+        } finally {
+            stall.releaseAll()
+        }
+    }
+
+    fun `test while two abandoned layouts run, no further layout starts`() {
+        val (controller, view) = open(archive)
+        controller.timeLimitMs = LIMIT_MS
+        val stall = Stall(2, ignoreInterrupts = true)
+        view.stall = stall
+        try {
+            view.calls.clear()
+            controller.refresh()
+            waitFor("the first layout was not abandoned") { view.staleCount() == 1 }
+            controller.refresh()
+            waitFor("the second layout was not abandoned") { view.staleCount() == 2 }
+            assertEquals(2, stall.threads.size)
+
+            val measured = view.measured.size
+            PlatformTestUtil.waitForFuture(controller.refresh())
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertEquals("a third layout started", measured, view.measured.size)
+            assertTrue(view.shows.isEmpty())
+
+            stall.releases[0].countDown()
+            waitFor("the released layout did not end") { !stall.threads[0].isAlive }
+            PlatformTestUtil.waitForFuture(controller.refresh())
+            assertEquals(1, view.shows.size)
+        } finally {
+            stall.releaseAll()
+        }
+    }
+
+    fun `test disposal while a layout is held leaves no thread behind`() {
+        val parent = Disposer.newDisposable(testRootDisposable, "controller")
+        val (controller, view) = control(file(archive), parent)
+        val stall = Stall(1, ignoreInterrupts = true)
+        view.stall = stall
+        try {
+            view.calls.clear()
+            val pending = controller.refresh()
+            waitFor("the layout did not start") { stall.threads.size == 1 }
+            Disposer.dispose(parent)
+            stall.releaseAll()
+            PlatformTestUtil.waitForFuture(pending)
+            val stuck = stall.threads.single()
+            waitFor("the layout thread is still running") { !stuck.isAlive }
+            waitFor("a layout thread is still running") {
+                Thread.getAllStackTraces().keys.none { it.name == "Aslan diagram layout" && it.isAlive }
+            }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertTrue(view.calls.isEmpty())
+        } finally {
+            stall.releaseAll()
+        }
+    }
+
+    private companion object {
+        /** The time limit of the tests of the limit; a layout of the small definition takes a few milliseconds. */
+        const val LIMIT_MS = 500L
     }
 }
