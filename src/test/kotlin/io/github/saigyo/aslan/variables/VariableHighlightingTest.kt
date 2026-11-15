@@ -1,14 +1,20 @@
 package io.github.saigyo.aslan.variables
 
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType
+import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingComputer
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingResult
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.util.ProperTextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
+import io.github.saigyo.aslan.highlight.ElementUnderCaretUsageAction
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import java.io.File
 
@@ -227,9 +233,10 @@ class VariableHighlightingTest : VariableTestCase() {
 
     private val intake by lazy { File("src/test/testData/clean/film-archive-intake.asl.yaml").readText() }
 
-    /** Configures the film archive fixture with the caret one character into the first occurrence of [word]. */
-    private fun intakeAt(word: String) {
-        val at = intake.indexOf(word)
+    /** Configures the film archive fixture with the caret one character into the [index]th occurrence of [word]. */
+    private fun intakeAt(word: String, index: Int = 0) {
+        var at = -1
+        repeat(index + 1) { at = intake.indexOf(word, at + 1) }
         assertTrue(at >= 0)
         yaml(intake.substring(0, at + 1) + "<caret>" + intake.substring(at + 1), "film-archive-intake.asl.yaml")
     }
@@ -254,6 +261,69 @@ class VariableHighlightingTest : VariableTestCase() {
     fun `test the automatic highlighting from an assignment marks every usage`() {
         intakeAt("rejection:")
         assertEquals(everyRejection(), automaticHighlights())
+    }
+
+    /**
+     * Runs the automatic highlighting of the element under the caret as the daemon does, then [action] (Next or
+     * Previous Highlighted Usage) [times] times, and gives the host line (1-based) the caret ends on.
+     */
+    private fun lineAfter(action: String, times: Int = 1): Int {
+        var line = -1
+        IdentifierHighlighterPassFactory.doWithIdentifierHighlightingEnabled(project) {
+            myFixture.doHighlighting()
+            // the background highlighter starts on a caret move
+            val host = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+            val caret = host.caretModel.offset
+            host.caretModel.moveToOffset(caret - 1)
+            host.caretModel.moveToOffset(caret)
+            IdentifierHighlighterPassFactory.waitForIdentifierHighlighting(host)
+            assertTrue(usageHighlights(host) > 0)
+            repeat(times) { myFixture.performEditorAction(action) }
+            line = host.document.getLineNumber(host.caretModel.offset) + 1
+        }
+        return line
+    }
+
+    /** How many highlights of the usages of the element under the caret the markup of [editor] holds. */
+    private fun usageHighlights(editor: Editor): Int {
+        var count = 0
+        DaemonCodeAnalyzerEx.processHighlights(editor.markupModel as MarkupModelEx, project, null, 0, editor.document.textLength) {
+            if (it.type == HighlightInfoType.ELEMENT_UNDER_CARET_READ || it.type == HighlightInfoType.ELEMENT_UNDER_CARET_WRITE) count++
+            true
+        }
+        return count
+    }
+
+    private fun lineOf(word: String, index: Int = 0): Int {
+        var at = -1
+        repeat(index + 1) { at = intake.indexOf(word, at + 1) }
+        return intake.substring(0, at).count { it == '\n' } + 1
+    }
+
+    fun `test next and previous highlighted usage from inside an expression step through the whole definition`() {
+        val reads = (0 until 5).map { lineOf("\$rejection", it) }
+        // the first read of the Output of RejectBatch, then the next one in it
+        intakeAt("\$rejection")
+        assertEquals(reads[1], lineAfter("GotoNextElementUnderCaretUsage"))
+        // from the last read of that expression on to the next read outside it
+        intakeAt("\$rejection", 2)
+        assertEquals(reads[3], lineAfter("GotoNextElementUnderCaretUsage"))
+        // and back from the first read to the last assignment before it
+        intakeAt("\$rejection")
+        assertEquals(lineOf("rejection:", 18), lineAfter("GotoPrevElementUnderCaretUsage"))
+    }
+
+    fun `test the two actions are ours and keep the platform's text`() {
+        for (id in listOf("GotoNextElementUnderCaretUsage", "GotoPrevElementUnderCaretUsage")) {
+            val action = ActionManager.getInstance().getAction(id)
+            assertInstanceOf(action, ElementUnderCaretUsageAction::class.java)
+            assertFalse(id, action.templatePresentation.text.isNullOrBlank())
+        }
+    }
+
+    fun `test next highlighted usage on a key is the platform's action`() {
+        intakeAt("rejection:", 1)
+        assertEquals(lineOf("rejection:", 2), lineAfter("GotoNextElementUnderCaretUsage"))
     }
 
     fun `test a local JSONata variable keeps stage 2's highlighting`() {
