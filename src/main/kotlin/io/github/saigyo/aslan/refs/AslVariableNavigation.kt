@@ -8,7 +8,7 @@ import com.intellij.find.findUsages.FindUsagesOptions
 import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
@@ -107,7 +107,7 @@ private class AslVariableFindUsagesHandler(element: PsiElement, variables: List<
     override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean {
         if (element != start) return true
         if (!super.processElementUsages(element, processor, options)) return false
-        val writes = ReadAction.compute<List<UsageInfo>, RuntimeException> {
+        val writes = runReadActionBlocking {
             entries.filter { it != start && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
         }
         return writes.all { processor.process(it) }
