@@ -185,6 +185,46 @@ class DiagramLayoutTest : DiagramTestCase() {
         for ((name, model) in definitions()) for (mode in LayoutMode.entries) assertNoOverlap("$name $mode", model, lay(model, mode))
     }
 
+    fun `test the start and end marks of a state stay clear of its group's texts and border`() {
+        // the painter draws the start mark in the 12 pixels above a state and the end mark in the 14 below it; a group's
+        // type line has its baseline 31 below the group's top, a branch's title 17; text reaches about 3 below its baseline
+        val startMark = 12.0
+        val endMark = 14.0
+        val text = mapOf(LaidNode.Kind.GROUP to 34.0, LaidNode.Kind.BRANCH to 20.0)
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            for (machine in model.machines()) {
+                val holder = layout.nodes.firstOrNull { it.id == machine.id }
+                    ?: layout.nodes.firstOrNull { n -> n.state?.machines?.any { it.id == machine.id } == true }
+                val area = holder?.bounds ?: Rectangle2D.Double(0.0, 0.0, layout.width, layout.height)
+                val top = area.minY + (holder?.let { text.getValue(it.kind) } ?: 0.0)
+                for (state in machine.states) {
+                    val box = layout.node(state.id).bounds
+                    if (state.id == machine.start) assertTrue("$name $mode ${state.id}", box.minY - startMark >= top)
+                    assertTrue("$name $mode ${state.id}", box.maxY + endMark <= area.maxY)
+                }
+            }
+        }
+    }
+
+    fun `test a path that leads back does not end where paths leave`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            val ends = layout.edges.filter { it.edge.from != it.edge.to }.groupBy { it.edge.to }
+            for (e in layout.edges) {
+                if (e.edge.from == e.edge.to) continue
+                val start = e.points.first()
+                for (incoming in ends[e.edge.from].orEmpty()) {
+                    val end = incoming.points.last()
+                    assertFalse(
+                        "$name $mode ${incoming.edge.id} ends where ${e.edge.id} leaves, at $end",
+                        abs(end.x - start.x) < 0.01 && abs(end.y - start.y) < 0.01,
+                    )
+                }
+            }
+        }
+    }
+
     fun `test a state that leads to itself and two edges between the same states lay out`() {
         val loops = build(
             """
