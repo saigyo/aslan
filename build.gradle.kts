@@ -1,5 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import java.time.Duration
 
 plugins {
     id("org.jetbrains.kotlin.jvm")
@@ -41,5 +42,6 @@ intellijPlatform {
 }
 
 tasks.test {
+    timeout.set(Duration.ofMinutes(30))
     systemProperty("aslan.privateFixtures", providers.gradleProperty("aslan.privateFixtures").getOrElse(""))
 }
