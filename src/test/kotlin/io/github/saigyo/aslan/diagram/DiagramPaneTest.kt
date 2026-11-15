@@ -313,6 +313,59 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue(pane.visible(Rectangle2D.Double(0.0, 0.0, pane.scene().width, pane.scene().height)))
     }
 
+    /** The large definition in the loose layout, panned to its far right part. */
+    private fun farRight(pane: DiagramPane, model: DiagramModel, selected: String?) {
+        val loose = lay(model, LayoutMode.LOOSE, pane)
+        pane.show(model, loose, LayoutMode.LOOSE, selected)
+        val v = pane.diagram.viewport!!
+        val tx = pane.diagram.width - loose.width
+        assertTrue("${loose.width}", loose.width > pane.diagram.width + 3000)
+        pane.diagram.viewport = Viewport(1.0, tx, v.ty)
+    }
+
+    fun `test a layout switch with nothing selected places the view like a first view`() {
+        val model = large()
+        val pane = pane(600, 800)
+        farRight(pane, model, null)
+        val compact = lay(model, LayoutMode.COMPACT, pane)
+        pane.show(model, compact, LayoutMode.COMPACT, null)
+        assertEquals(1.0, pane.diagram.viewport!!.scale)
+        val box = pane.box(model.root!!.start!!).bounds
+        assertTrue("${pane.onScreen(box)}", pane.visible(box))
+    }
+
+    fun `test a layout switch with a selection reveals the selection`() {
+        val model = large()
+        val last = "s${model.stateCount - 1}"
+        val pane = pane(600, 800)
+        farRight(pane, model, last)
+        pane.show(model, lay(model, LayoutMode.COMPACT, pane), LayoutMode.COMPACT, last)
+        val box = pane.box(last).bounds
+        assertTrue("${pane.onScreen(box)}", pane.visible(box))
+    }
+
+    fun `test a view that shows no box after a show is placed like a first view`() {
+        val model = large()
+        val pane = pane(600, 800)
+        farRight(pane, model, null)
+        // the same mode, a much smaller diagram: the view lies beyond it
+        val small = small()
+        pane.show(small, lay(small, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        assertTrue(pane.boxes().any { pane.onScreen(it.bounds).intersects(0.0, 0.0, pane.diagram.width.toDouble(), pane.diagram.height.toDouble()) })
+        val start = pane.box(small.root!!.start!!).bounds
+        assertTrue("${pane.onScreen(start)}", pane.visible(start))
+        // with a selection the view is placed around it
+        farRight(pane, model, null)
+        pane.show(small, lay(small, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s1")
+        val box = pane.box("s1").bounds
+        assertTrue("${pane.onScreen(box)}", pane.visible(box))
+        // a box still partly visible keeps zoom and position exactly
+        val kept = Viewport(1.0, pane.diagram.width - pane.box("s1").bounds.minX - 10, 5.0)
+        pane.diagram.viewport = kept
+        pane.show(small, lay(small, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        assertSame(kept, pane.diagram.viewport)
+    }
+
     fun `test a selected path is kept by show`() {
         val model = small()
         val pane = pane()
@@ -459,8 +512,9 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue(selected(pane.layoutSwitch(LayoutMode.LOOSE)))
         assertFalse(selected(pane.layoutSwitch(LayoutMode.COMPACT)))
         assertTrue(pane.visible(pane.box("s8").bounds))
-        // in the same mode it does not
-        drag(pane, 100 to 100, 3000 to 3000)
+        // in the same mode it does not, while another box stays in view
+        pane.diagram.viewport = Viewport.around(pane.box("s0").bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
+        assertFalse(pane.visible(pane.box("s8").bounds))
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s8")
         assertFalse(pane.visible(pane.box("s8").bounds))
     }

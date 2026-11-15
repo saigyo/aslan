@@ -28,6 +28,7 @@ import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.awt.geom.Rectangle2D
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -171,8 +172,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
             diagram.viewport == null -> if (diagram.hasSize) place() else diagram.whenSized = ::place
             // the new layout moves everything; the box just clicked stays where the user is looking
             box != null -> reveal(layout.nodes.firstOrNull { it.collapsible && it.state?.name == box }?.id)
-            modeChanged -> reveal(selected)
+            // with nothing to reveal, the old zoom and position belong to another layout: start again
+            modeChanged -> if (selected?.let { diagram.scene?.bounds(it) } != null) reveal(selected) else place()
         }
+        if (diagram.viewport != null && diagram.hasSize && !anyBoxVisible()) place()
         toolbar.updateActionsAsync()
     }
 
@@ -239,6 +242,17 @@ class DiagramPane(parent: Disposable) : DiagramView {
         val start = if (chosen == null) root.start?.let(s::bounds) else null
         diagram.viewport = if (start != null) top.reveal(start, diagram.size, REVEAL_MARGIN) else top
         diagram.repaint()
+    }
+
+    /** Whether some box of the scene lies at least partly in the pane under the current view. */
+    private fun anyBoxVisible(): Boolean {
+        val s = diagram.scene ?: return true
+        val v = diagram.viewport ?: return true
+        val pane = Rectangle2D.Double(0.0, 0.0, diagram.width.toDouble(), diagram.height.toDouble())
+        val boxes = s.items.filterIsInstance<SceneItem.Box>()
+        return boxes.isEmpty() || boxes.any {
+            pane.intersects(it.bounds.x * v.scale + v.tx, it.bounds.y * v.scale + v.ty, it.bounds.width * v.scale, it.bounds.height * v.scale)
+        }
     }
 
     private fun reveal(id: String?) {
