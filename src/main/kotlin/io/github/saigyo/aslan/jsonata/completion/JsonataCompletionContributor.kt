@@ -7,6 +7,7 @@ import com.intellij.codeInsight.completion.CompletionUtil
 import com.intellij.codeInsight.completion.InsertHandler
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
@@ -18,6 +19,7 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataPath
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
+import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.spec.AslSpec
 import io.github.saigyo.aslan.spec.ContextField
 import io.github.saigyo.aslan.spec.JsonataFunction
@@ -43,7 +45,7 @@ class JsonataCompletionContributor : CompletionContributor() {
         val prefix = position.text.take((parameters.offset - start).coerceIn(0, position.textLength))
         val matching = result.withPrefixMatcher(prefix)
         if (type == T.VARIABLE) {
-            if (prefix.startsWith("$")) addVariables(position, matching)
+            if (prefix.startsWith("$")) addVariables(position, parameters, matching)
         } else {
             val previous = previousLeaf(position)
             if (previous?.node?.elementType == T.DOT) addAfterDot(position, parameters, matching)
@@ -52,15 +54,35 @@ class JsonataCompletionContributor : CompletionContributor() {
         result.stopHere()
     }
 
-    /** A function hidden by a local variable of the same name is not offered: `$name` there is the variable. */
-    private fun addVariables(position: PsiElement, result: CompletionResultSet) {
+    /**
+     * A function hidden by a local variable or a state variable of the same name is not offered: `$name` there is the
+     * variable. A name that is both is offered once, as the local one.
+     */
+    private fun addVariables(position: PsiElement, parameters: CompletionParameters, result: CompletionResultSet) {
         val locals = JsonataScopes.visibleNames(position)
-        for (function in AslSpec.jsonataFunctions.filter { it.supported && it.name !in locals }) result.addElement(functionItem(function))
+        val stateVariables = stateVariables(parameters) - locals
+        for (function in AslSpec.jsonataFunctions.filter { it.supported && it.name !in locals && it.name !in stateVariables }) {
+            result.addElement(functionItem(function))
+        }
         result.addElement(LookupElementBuilder.create("\$states").withTypeText("reserved variable", true).bold())
         for (name in locals) {
             if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || name == "states") continue
             result.addElement(LookupElementBuilder.create("$$name").withTypeText("variable", true))
         }
+        for (name in stateVariables.sorted()) {
+            if (name.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED) || name == "states") continue
+            result.addElement(LookupElementBuilder.create("$$name").withTypeText("state variable", true))
+        }
+    }
+
+    /** The state machine variables every site of the expression sees; none when it has no site. */
+    private fun stateVariables(parameters: CompletionParameters): Set<String> {
+        val file = parameters.originalFile as? JsonataFile ?: return emptySet()
+        val sites = JsonataPsi.sites(file)
+        if (sites.isEmpty()) return emptySet()
+        val host = InjectedLanguageManager.getInstance(file.project).getInjectionHost(file) ?: return emptySet()
+        val variables = AslModel.of(host.containingFile)?.variables ?: return emptySet()
+        return sites.map { variables.visibleNames(it.state) }.reduce { a, b -> a intersect b }
     }
 
     private fun functionItem(function: JsonataFunction): LookupElement {
