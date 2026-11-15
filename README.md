@@ -17,7 +17,9 @@ Aslan is a plugin for JetBrains IDEs that gives editor support for AWS Step Func
 
 From the JetBrains Marketplace, once the plugin is published there: open Settings | Plugins, search for "Aslan" on the Marketplace tab and install it.
 
-From a zip built locally: run `./gradlew buildPlugin`, which writes `build/distributions/aslan-1.0.0.zip`. In Settings | Plugins, choose Install Plugin from Disk in the gear menu and select the zip.
+From a release: download `aslan-<version>.zip` from the [releases page](https://github.com/saigyo/aslan/releases). In Settings | Plugins, choose Install Plugin from Disk in the gear menu and select the zip; do not unpack it.
+
+From a zip built locally: run `./gradlew buildPlugin`, which writes `build/distributions/aslan-1.0.0.zip`, and install it from disk in the same way.
 
 ## Getting started
 
@@ -137,6 +139,17 @@ To check that definitions kept outside the repository show no errors, run the te
 The test reads the definition files directly in that directory. Without the property it looks in a git-ignored
 `private-fixtures/` directory, and it does nothing when it finds no definitions. A failure names the problem and the line,
 never the file content.
+
+## Releasing
+
+A release is made by pushing a tag. Set `version` in `gradle.properties` and the change notes in `plugin.xml`, merge that to `main`, then tag the commit on `main` and push the tag:
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The Release workflow checks that the tag matches the version and that the commit is on `main`, runs the tests and the plugin verifier, and publishes a GitHub release with the plugin zip and the change notes. The zip is not signed.
 
 ## Design
 
