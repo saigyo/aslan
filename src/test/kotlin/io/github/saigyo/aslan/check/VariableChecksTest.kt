@@ -62,6 +62,27 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(readerMap("Arguments:\n  a: §{A}"), "payload.asl.yaml"))
     }
 
+    /** `reel` assigned in Load and read nowhere, then the state Use with [use] as its further lines. */
+    private fun loadThenUse(use: String, top: String) =
+        machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Use\nUse:\n" + use.trimIndent().prependIndent("  ") + "\n  End: true", top = top)
+
+    fun `test a whole placeholder in a state of unknown type or query language may read every variable`() {
+        // the file cannot say which fields such a state evaluates, so every whole placeholder in it counts
+        val unknown = mapOf(
+            "type-inputpath" to loadThenUse("Type: §{T}\nInputPath: §{P}", "QueryLanguage: JSONPath"),
+            "language-inputpath" to loadThenUse("Type: Pass\nQueryLanguage: §{L}\nInputPath: §{P}", "QueryLanguage: JSONPath"),
+            "language-output" to loadThenUse("Type: Pass\nQueryLanguage: §{L}\nOutput: §{P}", "QueryLanguage: JSONPath"),
+            "type-output" to loadThenUse("Type: §{T}\nOutput: §{P}", "QueryLanguage: JSONata"),
+            "top-language-output" to loadThenUse("Type: Pass\nOutput: §{P}", "QueryLanguage: §{L}"),
+            "type-result" to loadThenUse("Type: §{T}\nResult: §{P}", "QueryLanguage: JSONPath"),
+            "type-parameters" to loadThenUse("Type: §{T}\nParameters:\n  x.$: §{P}", "QueryLanguage: JSONPath"),
+            "type-reader" to loadThenUse("Type: §{T}\nItemReader:\n  ReaderConfig: §{R}", "QueryLanguage: JSONata"),
+        )
+        for ((name, text) in unknown) assertEquals(name, emptyList<Any>(), variables(text, "$name.asl.yaml"))
+        // a placeholder Type alone stands for no field that reads, nor does a placeholder Comment
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(loadThenUse("Type: §{T}\nComment: §{C}", "QueryLanguage: JSONata"), "alone.asl.yaml"))
+    }
+
     fun `test a nested machine that is a placeholder may read every variable`() {
         val load = "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n"
         assertEquals(emptyList<Any>(), variables(machine(load + "Each:\n  Type: Map\n  Items: '{% [1] %}'\n  ItemProcessor: §{P}\n  End: true"), "p.asl.yaml"))

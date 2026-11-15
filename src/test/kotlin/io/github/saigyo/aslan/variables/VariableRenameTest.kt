@@ -1033,6 +1033,15 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(map.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(map, "re|el: 1"), "frame", "map.asl.yaml"))
     }
 
+    fun `test a rename refuses where a state of unknown type has a whole placeholder`() {
+        val text = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Use\nUse:\n  Type: §{T}\n  Output: §{Out}\n  End: true",
+            top = "QueryLanguage: JSONata",
+        )
+        // the placeholder may mention either name
+        assertEquals(setOf(UNREAD_MENTION, NEW_NAME_MENTIONED), assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+    }
+
     fun `test a rename refuses where a whole structure the file does not settle may read the name`() {
         fun readerMap(reader: String) = machine(
             "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +

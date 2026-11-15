@@ -155,6 +155,30 @@ class AslVariables private constructor(private val doc: AslDocument, private val
     private fun unsettledNested(): List<PsiElement> =
         doc.allMachines().flatMap { unresolvedNested(it) }.filter { standsForAnyValue(it) }.map { it.psi }
 
+    /**
+     * The whole placeholders, tags and unresolved values in a state whose type or query language is not known: the file
+     * cannot say which of its fields are evaluated, so each may read any variable once replaced. Not the fields that no
+     * state type evaluates, and not the nested machines the model builds, whose states are judged on their own.
+     */
+    private fun unjudgedPlaceholders(): List<PsiElement> {
+        val out = ArrayList<PsiElement>()
+        for (state in doc.allStates()) {
+            if (state.type != null && state.queryLanguageKnown) continue
+            val obj = state.obj ?: continue
+            val nested = state.children.mapTo(HashSet()) { it.obj.psi }
+            for (entry in obj.entries) if (entry.key !in NEVER_EVALUATED) collectWhole(entry.value, nested, out)
+        }
+        return out
+    }
+
+    private fun collectWhole(node: AslNode, nested: Set<PsiElement>, out: MutableList<PsiElement>) {
+        when {
+            standsForAnyValue(node) -> out += node.psi
+            node is AslObject -> if (node.psi !in nested) node.entries.forEach { collectWhole(it.value, nested, out) }
+            node is AslArray -> node.items.forEach { collectWhole(it, nested, out) }
+        }
+    }
+
     private fun unresolvedNested(state: AslState): List<AslNode> {
         val obj = state.obj ?: return emptyList()
         val out = ArrayList<AslNode>()
@@ -208,7 +232,7 @@ class AslVariables private constructor(private val doc: AslDocument, private val
 
     private val mentions: VariableMentions by lazy {
         if (failed) VariableMentions(doc.file, emptyList())
-        else VariableMentions(doc.file, doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc) + unsettledNested(), JsonPathReads.staticValues(doc))
+        else VariableMentions(doc.file, doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc) + unsettledNested() + unjudgedPlaceholders(), JsonPathReads.staticValues(doc))
     }
 
     /**
@@ -217,7 +241,8 @@ class AslVariables private constructor(private val doc: AslDocument, private val
      * syntax error, or a string of a state of unknown type. Every string counts but the key of an entry and a
      * `Comment` that is no JSONata expression (see [VariableMentions]). The whole value of a field that takes an
      * expression or a path, where the file does not settle it (a placeholder such as `Output: ${OutputExpr}`), is
-     * given for every name: it may stand for an expression that reads any variable.
+     * given for every name: it may stand for an expression that reads any variable. So is every such whole value in a
+     * state whose type or query language is not known, since the file cannot say which of its fields are evaluated.
      */
     fun unknownMentions(name: String): List<PsiElement> = mentions.unknown(name, reads)
 
@@ -365,6 +390,9 @@ class AslVariables private constructor(private val doc: AslDocument, private val
 
         /** The first token of a plain scalar's text, and the token of a quoted scalar, quotes included. */
         private val CONTENT_TOKENS = setOf(YAMLTokenTypes.TEXT, YAMLTokenTypes.SCALAR_STRING, YAMLTokenTypes.SCALAR_DSTRING)
+
+        /** The fields of a state that no state type evaluates, whatever its query language. */
+        private val NEVER_EVALUATED = setOf("Type", "QueryLanguage", "Comment", "Next", "End", "Default")
 
         /**
          * The variables of [doc]. Making them never throws (except to cancel), as for the model itself: on any other
