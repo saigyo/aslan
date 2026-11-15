@@ -604,7 +604,7 @@ class AslVariablesTest : VariableTestCase() {
         assertEquals("a$deseret", read.name)
         assertEquals(TextRange(0, 4), read.range)
         assertEquals(AslVariable("a$deseret", doc.root!!), doc.variables.variableOf(read))
-        assertEmpty(doc.variables.readsOf(AslVariable("a", doc.root!!)))
+        assertEmpty(doc.variables.readsOf(AslVariable("a", doc.root)))
     }
 
     fun `test a supplementary letter after a name makes it no mention of the name`() {
