@@ -59,7 +59,6 @@ class DiagramController(
         val choices: Choices,
         val layout: DiagramLayout?,
         val mode: LayoutMode,
-        val refreshed: Boolean,
     )
 
     private val document = editor.document
@@ -88,6 +87,9 @@ class DiagramController(
 
     /** The modification stamp of the document that [shown] was built from. UI thread. */
     private var shownStamp = 0L
+
+    /** Counts caret moves and clicks; a delayed selection that was posted before the latest one does nothing. UI thread. */
+    private var caretMoves = 0
 
     /** The delayed selection after the last caret move, if it has not run. UI thread. */
     private var pendingCaret: Future<*>? = null
@@ -164,7 +166,8 @@ class DiagramController(
             override fun caretPositionChanged(event: CaretEvent) {
                 if (disposed || movingCaret) return
                 pendingCaret?.cancel(false)
-                pendingCaret = caretDelay(Runnable { caretMovedNow() })
+                val move = ++caretMoves
+                pendingCaret = caretDelay(Runnable { if (move == caretMoves) caretMovedNow() })
             }
         }, parent)
         view.onSelect = { id -> if (!disposed) selectFromView(id) }
@@ -176,7 +179,6 @@ class DiagramController(
 
     /** Selects the state at the caret of the last model shown, unless the document has changed since. UI thread. */
     internal fun caretMovedNow() {
-        pendingCaret = null
         val model = shown
         if (disposed || model == null || document.modificationStamp != shownStamp) return
         selected = model.stateAt(editor.caretModel.offset)
@@ -187,13 +189,15 @@ class DiagramController(
     private fun selectFromView(id: String?) {
         pendingCaret?.cancel(false)
         pendingCaret = null
+        caretMoves++
         if (id == null) {
             selected = null
             return
         }
         val offset = shown?.offsets?.get(id) ?: return
         selected = id
-        moveCaret(offset, selecting = false)
+        // the offsets are those of the model shown; the document may have changed since
+        if (document.modificationStamp == shownStamp) moveCaret(offset, selecting = false)
     }
 
     private fun moveCaret(offset: Int, selecting: Boolean) {
@@ -274,10 +278,10 @@ class DiagramController(
     private fun lay(request: Long, built: Built, refreshed: Boolean): Result {
         val model = built.model
         val choices = choices
-        if (model == null) return Result(request, built, choices, null, choices.mode ?: LayoutMode.defaultFor(0), refreshed)
+        if (model == null) return Result(request, built, choices, null, choices.mode ?: LayoutMode.defaultFor(0))
         if (refreshed) newest = built
         val mode = choices.mode ?: LayoutMode.defaultFor(model.stateCount)
-        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure), mode, refreshed)
+        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure), mode)
     }
 
     /** On the UI thread; whether the view was given the result. */
@@ -295,8 +299,8 @@ class DiagramController(
         // the choices changed after this layout was made: the new layout they asked for follows
         if (result.choices !== choices) return false
         handedOver = result.request
-        // a new diagram after an edit selects the state at the caret; a new layout of the same model keeps the selection
-        if (result.refreshed) selected = model.stateAt(editor.caretModel.offset)
+        // a model not shown before selects the state at the caret; a new layout of the model shown keeps the selection
+        if (model !== shown) selected = model.stateAt(editor.caretModel.offset)
         show(model, result.layout!!, result.mode, result.built.stamp)
         return true
     }
