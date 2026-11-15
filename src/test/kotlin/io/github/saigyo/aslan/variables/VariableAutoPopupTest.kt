@@ -53,6 +53,12 @@ class VariableAutoPopupTest : VariableTestCase() {
         assertTrue(lookupStrings().toString(), lookupStrings().orEmpty().contains("\$reel"))
     }
 
+    fun `test typing a dollar sign in a string literal of an expression opens nothing`() {
+        configure("\"{% 'costs <caret>' & §reel %}\"".replace("§", "$"))
+        tester.typeWithPauses("$")
+        assertNull(lookupStrings())
+    }
+
     fun `test typing a dollar sign outside an expression opens nothing`() {
         configure("\"costs <caret>\"")
         tester.typeWithPauses("$")
