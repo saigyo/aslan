@@ -140,14 +140,16 @@ internal object JsonataChecks {
 
         /**
          * The callee of a call that is neither a local variable nor a known function, and any use of a function Step
-         * Functions does not run. Not a `$name` that every state using the expression reads as a state machine
-         * variable: an assignment there makes the name the variable's, and AWS accepts the read (`r11-j-builtin-name`).
+         * Functions does not run. Not a built-in name that every state using the expression reads as a state machine
+         * variable: an assignment there makes the name the variable's (decision 2), and AWS accepts the read
+         * (`r11-j-builtin-name`). A call of any other name stays unknown, assigned or not: a state machine variable holds
+         * a JSON value, never a function.
          */
         private fun function(variable: JsonataVariableRef) {
             val name = JsonataScopes.localName(variable) ?: return
             if (JsonataScopes.declarations(variable).isNotEmpty()) return
-            if (readAsStateVariable(variable)) return
             val known = AslSpec.jsonataFunction(name)
+            if (known != null && readAsStateVariable(variable)) return
             val call = variable.parent as? JsonataCall
             when {
                 known != null && !known.supported ->
