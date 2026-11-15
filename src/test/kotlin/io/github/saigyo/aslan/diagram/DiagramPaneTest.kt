@@ -224,12 +224,35 @@ class DiagramPaneTest : DiagramTestCase() {
         assertEquals(listOf(around.tx, around.ty), listOf(v.tx, v.ty))
         assertTrue(pane.box(last).selected)
 
-        val top = pane(800, 700)
-        top.show(model, layout, LayoutMode.COMPACT, null)
-        val t = top.diagram.viewport!!
+        // a diagram narrower than the pane opens at its top, in the middle
+        val small = small()
+        val narrow = pane(1200, 700)
+        val smallLayout = lay(small, LayoutMode.COMPACT, narrow)
+        assertTrue(smallLayout.width < narrow.diagram.width)
+        narrow.show(small, smallLayout, LayoutMode.COMPACT, null)
+        val t = narrow.diagram.viewport!!
         assertEquals(1.0, t.scale)
-        assertEquals(0.0, t.ty)
-        assertEquals((top.diagram.width - layout.width) / 2, t.tx, 0.001)
+        assertEquals((narrow.diagram.width - smallLayout.width) / 2, t.tx, 0.001)
+        // the top, moved down only as far as the margin around the start state asks
+        val top = Viewport.around(null, java.awt.Dimension(1, 1), narrow.diagram.size)
+        val expected = Viewport(1.0, t.tx, top.ty).reveal(narrow.box("s0").bounds, narrow.diagram.size, 24)
+        assertEquals(expected.ty, t.ty, 0.001)
+        assertTrue(t.ty in 0.0..24.0)
+    }
+
+    fun `test the first diagram without a selection shows the start state`() {
+        val model = large()
+        val start = model.root!!.start!!
+        for (mode in LayoutMode.entries) {
+            val pane = pane(600, 800)
+            val layout = lay(model, mode, pane)
+            assertTrue("$mode ${layout.width}", layout.width > pane.diagram.width)
+            pane.show(model, layout, mode, null)
+            val v = pane.diagram.viewport!!
+            assertEquals(1.0, v.scale)
+            val box = pane.box(start).bounds
+            assertTrue("$mode ${pane.onScreen(box)}", pane.visible(box))
+        }
     }
 
     fun `test a pane without a size sets its view when it gets one`() {
@@ -316,16 +339,16 @@ class DiagramPaneTest : DiagramTestCase() {
         val states = pane.boxes().filter { it.kind == LaidNode.Kind.STATE }
         val far = states.maxBy { it.bounds.maxY }
         assertFalse(pane.visible(far.bounds))
+        // well inside the view: the margin that select keeps around what it reveals is 24 pixels
+        val near = states.first { it.id != far.id && pane.visible(it.bounds, 30.0) }
+        val view = pane.diagram.viewport
+        pane.select(near.id)
+        assertSame(view, pane.diagram.viewport)
+        assertEquals(listOf(near.id), pane.boxes().filter { it.selected }.map { it.id })
         pane.select(far.id)
         assertTrue(pane.visible(far.bounds))
         assertTrue(pane.box(far.id).selected)
         assertEquals(model.details.getValue(far.id).map { it.label }, pane.rowLabels())
-        val view = pane.diagram.viewport
-        // well inside the view: the margin that select keeps around what it reveals is 24 pixels
-        val near = pane.boxes().first { it.kind == LaidNode.Kind.STATE && it.id != far.id && pane.visible(it.bounds, 30.0) }
-        pane.select(near.id)
-        assertSame(view, pane.diagram.viewport)
-        assertEquals(listOf(near.id), pane.boxes().filter { it.selected }.map { it.id })
         // a path, and nothing
         val edge = pane.paths().first { it.kind == TransitionKind.NEXT }.id
         pane.select(edge)

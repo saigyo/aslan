@@ -215,13 +215,19 @@ class DiagramPane(parent: Disposable) : DiagramView {
     }
 
     /**
-     * Sets the first view: full size around what is selected, or the top of the diagram. A model without a machine sets
-     * none, so that the first diagram with one still gets its first view.
+     * Sets the first view: full size around what is selected; with nothing selected the top of the diagram, moved the
+     * least that brings the start state of the root machine into view (a file opens with the caret outside every state,
+     * and the start of a wide diagram need not lie at its top left). A model without a machine sets none, so that the
+     * first diagram with one still gets its first view.
      */
     private fun place() {
         val s = diagram.scene ?: return
-        if (model?.root == null) return
-        diagram.viewport = Viewport.around(selected?.let(s::bounds), DiagramSize(s.width, s.height), diagram.size)
+        val root = model?.root ?: return
+        val size = DiagramSize(s.width, s.height)
+        val chosen = selected?.let(s::bounds)
+        val top = Viewport.around(chosen, size, diagram.size)
+        val start = if (chosen == null) root.start?.let(s::bounds) else null
+        diagram.viewport = if (start != null) top.reveal(start, diagram.size, REVEAL_MARGIN) else top
         diagram.repaint()
     }
 

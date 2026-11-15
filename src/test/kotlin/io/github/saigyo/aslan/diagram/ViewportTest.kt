@@ -29,7 +29,14 @@ class ViewportTest : TestCase() {
         val v = Viewport.around(null, size(400.0, 2000.0), Dimension(600, 400))
         assertEquals(1.0, v.scale, 0.0)
         assertEquals(0.0, v.ty, 0.0)
-        assertEquals(100.0, v.tx, 0.001)   // the diagram's middle is the pane's middle
+        assertEquals(100.0, v.tx, 0.001)   // narrower than the pane: the diagram's middle is the pane's middle
+    }
+
+    fun `test around without a state shows the top left of a diagram wider than the pane`() {
+        val v = Viewport.around(null, size(4000.0, 2000.0), Dimension(600, 400))
+        assertEquals(1.0, v.scale, 0.0)
+        assertEquals(0.0, v.ty, 0.0)
+        assertEquals(0.0, v.tx, 0.0)   // the diagram's left edge at the pane's left edge
     }
 
     fun `test fit shows the whole diagram and never enlarges it`() {

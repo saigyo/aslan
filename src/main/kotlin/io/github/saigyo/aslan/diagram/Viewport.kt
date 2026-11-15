@@ -37,9 +37,12 @@ class Viewport(val scale: Double, val tx: Double, val ty: Double) {
         const val MIN_SCALE = 0.2
         const val MAX_SCALE = 3.0
 
-        /** Scale 1 with [rect] in the middle of [pane]; without a rectangle the top of the diagram, its middle in the middle of the pane. */
+        /**
+         * Scale 1 with [rect] in the middle of [pane]. Without a rectangle the top of the diagram: in the middle of the
+         * pane when the diagram is narrower, else with its left edge at the pane's.
+         */
         fun around(rect: Rectangle2D?, size: Dimension2D, pane: Dimension): Viewport =
-            if (rect == null) Viewport(1.0, (pane.width - size.width) / 2, 0.0)
+            if (rect == null) Viewport(1.0, maxOf(0.0, (pane.width - size.width) / 2), 0.0)
             else Viewport(1.0, pane.width / 2.0 - rect.centerX, pane.height / 2.0 - rect.centerY)
 
         /**
