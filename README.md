@@ -68,7 +68,7 @@ JSONata is recognised in `{% … %}` strings where Step Functions evaluates it: 
 
 ### State machine variables
 
-<img src="docs/images/variables.png" width="800" alt="A variable with the caret on it: its two assignments and three reads highlighted in two colours, and the Find Usages tool window listing the reads">
+<img src="docs/images/variables.png" width="800" alt="A variable with the caret on it: one assignment and two reads highlighted in two colours in the editor, and the Find Usages tool window listing its three reads">
 
 Each key of an `Assign` is an assignment, and each `$name` that is no local variable, built-in function or `$states` is a read of the variable of the same scope. This works in YAML and JSON, in JSONata and JSONPath states. Two Parallel branches that assign the same name have two variables.
 
@@ -89,14 +89,14 @@ An ASL file opens in a split editor, with the text on the left and the diagram o
 
 - **States** are boxes with the state's name and, on a second line, its type and for a Task a short form of its resource (for example "Task · DynamoDB putItem"). A bar at the left edge has the type's colour; the legend below the diagram names the colours. The start state has a mark above it, a terminal state a mark below it.
 - **Map and Parallel states** are boxes around their inner states, a Parallel state with one box for each branch. The "−" and "+" control collapses and expands such a box while the file is open.
-- **Paths** run top to bottom with right-angle bends. A Choice path is labelled with its condition and the default path with "Default"; a rule that does not fit on one line is labelled "Rule n". Long labels and names are cut; hovering a cut label or a "Rule n" label shows the whole condition, and hovering a cut name shows the whole name. Catch paths are dashed and red and labelled "Catch"; hovering one shows its error names.
+- **Paths** run top to bottom with right-angle bends. A Choice path is labelled with its condition and the default path with "Default"; a rule the label cannot state in a few words (`And`, `Or`, `Not`, a placeholder, or a rule still being typed) is labelled "Rule n". Long labels and names are cut; hovering a cut label or a "Rule n" label shows the whole condition, and hovering a cut name shows the whole name. Catch paths are dashed and red and labelled "Catch"; hovering one shows its error names.
 - **Catch: Normal, Muted, Hidden** in the toolbar draws catch paths normally, faint, or not at all. No state moves when you change it.
 - **Layout: Loose, Compact.** The loose layout gives every path its own line and room for longer labels; the compact layout places states closer and lets paths into one state share a line. A machine with at most 25 states, nested ones included, opens in the loose layout, a larger one in the compact layout. A layout you choose is remembered for the file, as long as it is not renamed or moved.
 - **Selection is shared with the editor.** Moving the caret selects the state it is in. Clicking a box moves the caret to the state's name and shows the state's details. Clicking a path marks the path and its two states and moves the caret to the line that creates it. Clicking the background clears the selection. Selecting a state in the Structure tool window moves the caret, so the diagram follows. With its default settings the Structure tool window does not follow a click in the diagram; its option Always Select Opened Element makes it follow the editor.
 - **The details panel** below the diagram shows the selected state's type, resource, the variables it reads and assigns, its retriers, its catchers and its next states. Variables, retriers and target states are links to their place in the file. Collapse and Expand hide and show the panel.
 - **Zoom and move:** Zoom Out, Zoom In and Fit to Window in the toolbar, or the mouse wheel with Cmd or Ctrl. The wheel and dragging the background move the view. A diagram opens at full size with the state at the caret in view, or the start state when the caret is in no state.
 
-The diagram is redrawn shortly after you stop typing. While a JSON file has a syntax error, the last diagram stays, marked "Out of date". YAML is read tolerantly, so a half-typed YAML line does not get that mark; the diagram shows what can be read. The diagram follows the IDE's theme. It is read-only and changes nothing in the file.
+The diagram is redrawn shortly after you stop typing. "Out of date" over the diagram means that the last diagram stays because the newest one cannot be drawn: a JSON file has a syntax error, or a layout was given up after ten seconds or failed. In the second case the mark stays until the next edit, layout switch or collapsed box. YAML is read tolerantly, so a half-typed YAML line does not get that mark; the diagram shows what can be read. The diagram follows the IDE's theme. It is read-only and changes nothing in the file.
 
 The catch setting and whether the details panel is collapsed are remembered for the whole IDE.
 
