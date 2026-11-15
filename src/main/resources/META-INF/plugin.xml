@@ -63,7 +63,7 @@
         <readWriteAccessDetector implementation="io.github.saigyo.aslan.refs.AslVariableReadWriteAccessDetector"/>
         <elementDescriptionProvider order="first" implementation="io.github.saigyo.aslan.refs.AslVariableDescriptionProvider"/>
         <usageTypeProvider order="first" implementation="io.github.saigyo.aslan.refs.AslVariableUsageTypeProvider"/>
-        <itemPresentationProvider forClass="org.jetbrains.yaml.psi.impl.YAMLKeyValueImpl" implementationClass="io.github.saigyo.aslan.refs.AslAssignmentPresentationProvider"/>
+        <itemPresentationProvider forClass="org.jetbrains.yaml.psi.YAMLKeyValue" implementationClass="io.github.saigyo.aslan.refs.AslAssignmentPresentationProvider"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslVariableRenameProcessor"/>
@@ -195,10 +195,10 @@
          shortcuts, are enabled only there and are promoted over the platform's actions there; in no menu. -->
     <actions>
         <action id="Aslan.GotoNextVariableUsage" class="io.github.saigyo.aslan.highlight.NextVariableUsageAction"
-                text="Next Highlighted Usage" description="Go to the next highlighted usage of the variable under the caret in the whole definition"
+                text="Next Highlighted Usage in State Machine" description="Go to the next highlighted usage of the variable under the caret in the whole definition"
                 use-shortcut-of="GotoNextElementUnderCaretUsage"/>
         <action id="Aslan.GotoPrevVariableUsage" class="io.github.saigyo.aslan.highlight.PrevVariableUsageAction"
-                text="Previous Highlighted Usage" description="Go to the previous highlighted usage of the variable under the caret in the whole definition"
+                text="Previous Highlighted Usage in State Machine" description="Go to the previous highlighted usage of the variable under the caret in the whole definition"
                 use-shortcut-of="GotoPrevElementUnderCaretUsage"/>
     </actions>
 </idea-plugin>

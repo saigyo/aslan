@@ -1,12 +1,14 @@
 package io.github.saigyo.aslan.refs
 
 import com.intellij.json.psi.JsonStringLiteral
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usages.PsiElementUsageTarget
 import com.intellij.usages.UsageTarget
 import com.intellij.usages.impl.rules.UsageType
 import com.intellij.usages.impl.rules.UsageTypeProviderEx
+import io.github.saigyo.aslan.files.AslFiles
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -19,6 +21,9 @@ class AslVariableUsageTypeProvider : UsageTypeProviderEx {
     override fun getUsageType(element: PsiElement): UsageType? = getUsageType(element, UsageTarget.EMPTY_ARRAY)
 
     override fun getUsageType(element: PsiElement, targets: Array<out UsageTarget>): UsageType? {
+        // it runs for every usage of every search; only a usage in an ASL file, or in an expression of one, is ours
+        val file = element.containingFile ?: return null
+        if (!AslFiles.isAslFile(InjectedLanguageManager.getInstance(element.project).getTopLevelFile(file))) return null
         if (targets.isNotEmpty() && targets.none { isVariable(it) }) return null
         return when {
             AslVariableTargets.assignmentEntryAt(element) != null -> ASSIGNMENT

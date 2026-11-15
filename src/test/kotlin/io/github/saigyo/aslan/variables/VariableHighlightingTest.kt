@@ -6,20 +6,27 @@ import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingComputer
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingResult
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
+import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.lang.injection.MultiHostInjector
+import com.intellij.lang.injection.MultiHostRegistrar
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
-import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.MarkupModelEx
+import com.intellij.openapi.fileTypes.PlainTextLanguage
+import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.util.ProperTextRange
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiLanguageInjectionHost
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import io.github.saigyo.aslan.highlight.VariableUsageNavigationPromoter
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
+import org.jetbrains.yaml.psi.YAMLQuotedText
 import java.io.File
 
 class VariableHighlightingTest : VariableTestCase() {
@@ -332,8 +339,21 @@ class VariableHighlightingTest : VariableTestCase() {
         // a field outside any expression
         intakeAt("Type: Task")
         assertFalse(enabled(next))
-        // a YAML file that is no ASL file has no expressions
+        // an injected fragment in a YAML file that is no ASL file, from an injector of this test
+        InjectedLanguageManager.getInstance(project).registerMultiHostInjector(
+            object : MultiHostInjector {
+                override fun getLanguagesToInject(registrar: MultiHostRegistrar, context: PsiElement) {
+                    if (context.containingFile.name != "plain.yaml" || context !is PsiLanguageInjectionHost) return
+                    registrar.startInjecting(PlainTextLanguage.INSTANCE).addPlace(null, null, context, TextRange(1, context.textLength - 1)).doneInjecting()
+                }
+
+                override fun elementsToInjectIn(): List<Class<out PsiElement>> = listOf(YAMLQuotedText::class.java)
+            },
+            testRootDisposable,
+        )
         yaml("Output: '{% \$re<caret>el %}'", "plain.yaml")
+        val host = InjectedLanguageManager.getInstance(project).getTopLevelFile(myFixture.file)
+        assertNotNull(InjectedLanguageManager.getInstance(project).findInjectedElementAt(host, InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).caretModel.offset))
         assertFalse(enabled(next))
     }
 
@@ -365,6 +385,9 @@ class VariableHighlightingTest : VariableTestCase() {
         for ((ours, platform) in listOf(next to "GotoNextElementUnderCaretUsage", previous to "GotoPrevElementUnderCaretUsage")) {
             assertTrue(mac.getShortcuts(platform).isNotEmpty())
             assertEquals(mac.getShortcuts(platform).toList(), mac.getShortcuts(ours).toList())
+            // Find Action and the keymap list both; their names tell them apart
+            val manager = ActionManager.getInstance()
+            assertFalse(manager.getAction(ours).templateText == manager.getAction(platform).templateText)
         }
     }
 

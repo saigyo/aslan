@@ -266,7 +266,7 @@ class VariableRenameTest : VariableTestCase() {
         val everyName = Regex("film").findAll(renamedArchive.replace("§", "$")).map { it.range.last + 1 }.toList()
         for (marker in listOf("    re|el: none", "{% §re|el %}", "InputPath: §re|el")) {
             configure(withCaret(archive, marker))
-            val element = RenamePsiElementProcessor.forElement(targetAtCaret()).substituteElementToRename(targetAtCaret(), myFixture.editor)!!
+            val element = targetAtCaret()
             changeAnotherFile()
             val usages = PreviewProcessor(element).usages()
             val entry = AslVariableTargets.assignmentEntryAt(element) as? YAMLKeyValue
@@ -296,7 +296,7 @@ class VariableRenameTest : VariableTestCase() {
         val keys = Regex("""(?m)^\s+rejection:""").findAll(intake).toList()
         val start = keys[18].range.last - 1
         configure(intake.substring(0, start) + "<caret>" + intake.substring(start), "film-archive-intake.asl.yaml")
-        val element = RenamePsiElementProcessor.forElement(targetAtCaret()).substituteElementToRename(targetAtCaret(), myFixture.editor)!!
+        val element = targetAtCaret()
         assertEquals("WeighVerdicts, first Choice rule", PsiElement2UsageTargetAdapter(element, true).presentation.locationString)
         changeAnotherFile()
         val processor = PreviewProcessor(element, "rejection2")
