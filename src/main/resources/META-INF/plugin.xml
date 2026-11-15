@@ -80,6 +80,7 @@
         <highlightUsagesHandlerFactory implementation="io.github.saigyo.aslan.highlight.VariableUsagesHandlerFactory"/>
         <highlightUsagesHandlerFactory implementation="io.github.saigyo.aslan.highlight.PlaceholderUsagesHandlerFactory"/>
         <actionPromoter implementation="io.github.saigyo.aslan.highlight.VariableUsageNavigationPromoter"/>
+        <fileEditorProvider id="aslan-split-editor" implementation="io.github.saigyo.aslan.diagram.AslSplitEditorProvider"/>
         <applicationConfigurable parentId="language" instance="io.github.saigyo.aslan.settings.AslConfigurable"
                                  id="io.github.saigyo.aslan.settings" displayName="Amazon States Language"/>
 
