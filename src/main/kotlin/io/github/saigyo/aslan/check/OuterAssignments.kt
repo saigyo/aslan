@@ -17,29 +17,38 @@ import io.github.saigyo.aslan.model.TransitionKind
  * An assignment in S itself (its own `Assign`, its Catchers) applies after S, and so before S only when the flow leads
  * from it back to S, by the same rule, S itself as a target included (round 14: `r14-o-owner-loop`,
  * `r14-o-owner-self-loop`, `r14-o-catcher-loop`, `r14-o-parallel-owner-loop`). A machine E whose flow is not known
- * ([hasUnknownFlow]) is skipped, since the order cannot be told. Used by the outer-assignment check, the check of
- * outer reads inside a Distributed Map, and the rename.
+ * ([hasUnknownFlow]) cannot tell the order: an assignment there that matches makes the answer [Order.UNKNOWN], which
+ * the checks treat as no assignment before and the rename as a possible one. Used by the outer-assignment check, the
+ * check of outer reads inside a Distributed Map, and the rename.
  */
 internal class OuterAssignments(assignments: List<AslAssignment>) {
     private val byMachine: Map<AslStateMachine, List<AslAssignment>> = assignments.groupBy { it.state.machine }
     private val flowUnknown = HashMap<AslStateMachine, Boolean>()
 
+    /** Whether an assignment applies before the flow enters a nested machine, as far as the file tells. */
+    enum class Order { BEFORE, NOT_BEFORE, UNKNOWN }
+
+    /** Whether the answer of [order] is [Order.BEFORE]: what the checks report. */
+    fun before(machine: AslStateMachine, holderCounts: Boolean = true, matches: (AslAssignment) -> Boolean): Boolean =
+        order(machine, holderCounts, matches) == Order.BEFORE
+
     /**
      * Whether a machine around [machine], at any level, has an assignment that [matches] and that applies before the
-     * flow enters the state of that machine that holds [machine]. Without [holderCounts], an assignment in that state
-     * itself never counts, loop or not: no probe asks whether a read inside a Distributed Map sees it, so the check of
-     * such reads keeps to what rounds 11 to 13 answered.
+     * flow enters the state of that machine that holds [machine]: [Order.BEFORE] at the first level where one does,
+     * else [Order.UNKNOWN] when a level whose flow is not known has a matching assignment, else [Order.NOT_BEFORE].
+     * Without [holderCounts], an assignment in that state itself never counts, loop or not: no probe asks whether a
+     * read inside a Distributed Map sees it, so the check of such reads keeps to what rounds 11 to 13 answered.
      */
-    fun before(machine: AslStateMachine, holderCounts: Boolean = true, matches: (AslAssignment) -> Boolean): Boolean {
+    fun order(machine: AslStateMachine, holderCounts: Boolean = true, matches: (AslAssignment) -> Boolean): Order {
+        var unknown = false
         var inner = machine
         while (true) {
-            val holder = inner.owner ?: return false
+            val holder = inner.owner ?: return if (unknown) Order.UNKNOWN else Order.NOT_BEFORE
             val outer = holder.machine
-            if (!flowUnknown.getOrPut(outer) { outer.hasUnknownFlow() }) {
-                val found = byMachine[outer].orEmpty().any {
-                    (holderCounts || it.state !== holder) && matches(it) && reaches(outer, entered(it), holder.name)
-                }
-                if (found) return true
+            val candidates = byMachine[outer].orEmpty().filter { (holderCounts || it.state !== holder) && matches(it) }
+            if (candidates.isNotEmpty()) {
+                if (flowUnknown.getOrPut(outer) { outer.hasUnknownFlow() }) unknown = true
+                else if (candidates.any { reaches(outer, entered(it), holder.name) }) return Order.BEFORE
             }
             inner = outer
         }
