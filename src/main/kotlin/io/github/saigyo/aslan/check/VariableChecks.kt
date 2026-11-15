@@ -6,18 +6,35 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.model.AslAssignment
 import io.github.saigyo.aslan.model.AslDocument
+import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.AslVariable
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
 import io.github.saigyo.aslan.refs.variableNameProblem
+import io.github.saigyo.aslan.spec.QueryLanguage
 
 /**
- * The checks of the state machine variables, on the model of [AslDocument.variables]. Where the file does not say
- * every name a read can reach or which way a chain goes (`isOpen`), nothing is concluded about the reads and
- * assignments there. A read is reported on its host with the range of `$name`, an assignment on its key.
+ * The checks of the state machine variables, on the model of [AslDocument.variables], held to the answers of AWS
+ * round 11. Where the file does not say every name a read can reach or which way a chain goes (`isOpen`), nothing is
+ * concluded about the reads there, nor about whether an assignment is read; a name and an assignment of an outer name
+ * are judged by what the file says. A read is reported on its host with the range of `$name`, an assignment on its key.
  */
 internal object VariableChecks {
     fun check(doc: AslDocument, out: MutableList<AslFinding>) = Checks(doc, out).run()
+
+    /** The longest name AWS accepts, in code points (`r11-a-len-80`, `r11-a-len-81`). */
+    private const val MAX_NAME_LENGTH = 80
+
+    /**
+     * Whether AWS rejects [name] in a JSONata state, for the classes probed in round 11 only: a first character that is
+     * an ASCII digit or `_`, a `.`, `-` or space, more than 80 code points (`INVALID_VARIABLE_NAME`), and `states`
+     * (`RESERVED_VARIABLE_NAME`).
+     */
+    private fun rejectedName(name: String): Boolean {
+        val first = name.firstOrNull() ?: return false
+        return first in '0'..'9' || first == '_' || name.any { it == '.' || it == '-' || it == ' ' } ||
+            name.codePointCount(0, name.length) > MAX_NAME_LENGTH || name == "states"
+    }
 
     private class Checks(doc: AslDocument, val out: MutableList<AslFinding>) {
         private val model = doc.variables
@@ -25,7 +42,8 @@ internal object VariableChecks {
         /** Whether a machine of the file does not say every name assigned in it or which way its chain goes. */
         private val fileOpen = doc.allMachines().any { model.isOpen(it) }
 
-        private val assignedNames = model.assignments.mapTo(HashSet()) { it.name }
+        private val assignedIn: Map<AslStateMachine, Set<String>> =
+            model.assignments.groupBy({ it.state.machine }, { it.name }).mapValues { it.value.toSet() }
         private val mentioned = HashMap<String, Boolean>()
 
         fun run() {
@@ -37,39 +55,55 @@ internal object VariableChecks {
                 }
             }
             for (assignment in model.assignments) {
-                if (model.isOpen(assignment.state)) continue
-                val nameProblem = variableNameProblem(assignment.name)
+                val name = assignment.name
+                val nameProblem = variableNameProblem(name)
                 if (nameProblem != null) {
-                    report(AslProblem.INVALID_VARIABLE_NAME, assignment, "'${assignment.name}' is no variable name: $nameProblem")
+                    if (assignment.state.queryLanguageKnown && assignment.state.queryLanguage == QueryLanguage.JSONATA && rejectedName(name)) {
+                        report(AslProblem.INVALID_VARIABLE_NAME, assignment, "'$name' is no valid variable name: $nameProblem")
+                    } else {
+                        report(AslProblem.UNUSUAL_VARIABLE_NAME, assignment, "'$name' is no plain variable name: $nameProblem")
+                    }
                     continue
                 }
-                val variable = model.variableOf(assignment)
-                if (variable.scope != assignment.state.machine) {
+                if (enclosing(assignment.state.machine).any { name in assignedIn[it].orEmpty() }) {
                     report(AslProblem.OUTER_VARIABLE_ASSIGNED, assignment,
-                        "\$${assignment.name} is a variable of an outer state machine, which a state of a nested one cannot assign")
+                        "\$$name is a variable of an outer state machine, which a state of a nested one cannot assign")
                 }
-                if (neverRead(variable)) report(AslProblem.VARIABLE_NEVER_READ, assignment, "\$${assignment.name} is assigned but never read")
+                val variable = model.variableOf(assignment)
+                if (neverRead(variable)) report(AslProblem.VARIABLE_NEVER_READ, assignment, "\$$name is assigned but never read")
             }
         }
 
+        /** The machines around [machine], innermost first, across every Map and Parallel state, whatever their `Mode`. */
+        private fun enclosing(machine: AslStateMachine): Sequence<AslStateMachine> =
+            generateSequence(machine.owner?.machine) { it.owner?.machine }
+
         /**
-         * A JSONPath read of a name that no machine assigns, in a file with no open machine, is an error: AWS rejects the
-         * definition (`UNDEFINED_VARIABLE`). A name assigned only where the read cannot reach is a warning.
+         * A JSONPath read without a variable is an error: AWS rejects the definition (`UNDEFINED_VARIABLE`) in every
+         * relation probed where the model finds no variable (assigned nowhere, only inside a Map or a Parallel branch,
+         * only in another branch, only outside a Distributed Map).
          */
         private fun unassignedPathRead(read: PathRead) {
-            when {
-                !fileOpen && read.name !in assignedNames ->
-                    out += AslFinding(AslProblem.PATH_VARIABLE_NOT_ASSIGNED, read.scalar.psi,
-                        "\$${read.name} is not defined: no Assign in the definition assigns it", read.range)
-                !model.isOpen(read.state) ->
-                    out += AslFinding(AslProblem.VARIABLE_NOT_ASSIGNED, read.scalar.psi, notAssigned(read.name), read.range)
-            }
+            if (model.isOpen(read.state)) return
+            out += AslFinding(AslProblem.PATH_VARIABLE_NOT_ASSIGNED, read.scalar.psi,
+                "\$${read.name} is not defined where this state can read it", read.range)
+        }
+
+        /**
+         * Whether [read] stands inside the processor of a certain Distributed Map and a machine around that Map assigns
+         * its name (`r11-j-distributed-outer`). The chain of a machine ends after such a processor and nowhere else
+         * but at the top level.
+         */
+        private fun outsideDistributedMap(read: JsonataRead): Boolean {
+            val processor = model.chain(read.state.machine).lastOrNull()?.takeIf { it.owner != null } ?: return false
+            return enclosing(processor).any { read.name in assignedIn[it].orEmpty() }
         }
 
         /**
          * A JSONata read without a variable, unless the expression is not judged or has a syntax error (what it reads once
          * complete is not known), or the read is the callee of a call: that stays a function call, which the check of
-         * unknown functions covers (decision 2).
+         * unknown functions covers (decision 2). AWS only warns about it (`POSSIBLY_UNDEFINED_VARIABLE`), apart from a
+         * read of an outer name inside a Distributed Map, which it rejects.
          */
         private fun unassignedJsonataRead(read: JsonataRead) {
             if (model.isOpen(read.state)) return
@@ -80,7 +114,12 @@ internal object VariableChecks {
             val host = read.site.scalar.psi
             val range = JsonataPsi.rangeInHost(file, read.variable.textRange)
                 ?.takeIf { it.first == host && !it.second.isEmpty && it.second.endOffset <= host.textLength }?.second
-            out += AslFinding(AslProblem.VARIABLE_NOT_ASSIGNED, host, notAssigned(read.name), range)
+            out += if (outsideDistributedMap(read)) {
+                AslFinding(AslProblem.DISTRIBUTED_MAP_OUTER_READ, host,
+                    "\$${read.name} is assigned only outside this Distributed Map, whose states can read only the variables assigned inside it", range)
+            } else {
+                AslFinding(AslProblem.VARIABLE_NOT_ASSIGNED, host, notAssigned(read.name), range)
+            }
         }
 
         /**

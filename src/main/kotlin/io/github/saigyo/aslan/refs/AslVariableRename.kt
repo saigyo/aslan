@@ -52,16 +52,16 @@ import javax.swing.JPanel
 private const val MAX_VARIABLE_NAME_LENGTH = 80
 
 /**
- * Why [name] cannot be the name of a state machine variable, or null when it can (decision 7): a letter or `_`,
- * followed by letters, digits and `_` (Unicode letters and digits count), at most 80 code points, not `states`, and
- * `$name` scans as one JSONata variable token.
+ * Why [name] cannot be the name of a state machine variable, or null when it can (decision 7): a letter, followed by
+ * letters, digits and `_` (Unicode letters and digits count), at most 80 code points, not `states`, and `$name` scans
+ * as one JSONata variable token. AWS rejects a leading `_` (`r11-a-underscore`).
  */
 internal fun variableNameProblem(name: String): String? {
     if (name.isEmpty()) return "A variable name cannot be empty"
     val codePoints = name.codePoints().toArray()
     return when {
         codePoints.size > MAX_VARIABLE_NAME_LENGTH -> "A variable name can have at most $MAX_VARIABLE_NAME_LENGTH characters"
-        !Character.isLetter(codePoints[0]) && codePoints[0] != '_'.code -> "A variable name must start with a letter or _"
+        !Character.isLetter(codePoints[0]) -> "A variable name must start with a letter"
         codePoints.any { !Character.isLetter(it) && !Character.isDigit(it) && it != '_'.code } ->
             "A variable name can hold only letters, digits and _"
         name == "states" -> "\$states is reserved by Step Functions"

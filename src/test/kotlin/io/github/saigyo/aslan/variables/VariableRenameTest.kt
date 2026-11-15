@@ -360,11 +360,11 @@ class VariableRenameTest : VariableTestCase() {
     fun `test rename rejects a name that breaks the rule`() {
         configure(archive)
         val entry = entry("reel:")
-        for (name in listOf("", "1a", "a-b", "a b", "states", "a".repeat(81))) {
+        for (name in listOf("", "1a", "_a", "a-b", "a b", "states", "a".repeat(81))) {
             assertNotNull(name, variableNameProblem(name))
             assertFalse(name, RenameUtil.isValidName(project, entry, name))
         }
-        for (name in listOf("_a", "bobine_nº", "a".repeat(80))) {
+        for (name in listOf("a_", "bobine_nº", "a".repeat(80))) {
             assertNull(name, variableNameProblem(name))
             assertTrue(name, RenameUtil.isValidName(project, entry, name))
         }

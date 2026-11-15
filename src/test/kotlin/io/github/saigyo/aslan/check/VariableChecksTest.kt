@@ -1,15 +1,18 @@
 package io.github.saigyo.aslan.check
 
+import io.github.saigyo.aslan.check.AslProblem.DISTRIBUTED_MAP_OUTER_READ
 import io.github.saigyo.aslan.check.AslProblem.INVALID_VARIABLE_NAME
 import io.github.saigyo.aslan.check.AslProblem.OUTER_VARIABLE_ASSIGNED
 import io.github.saigyo.aslan.check.AslProblem.PATH_VARIABLE_NOT_ASSIGNED
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_JSONATA_FUNCTION
+import io.github.saigyo.aslan.check.AslProblem.UNUSUAL_VARIABLE_NAME
 import io.github.saigyo.aslan.check.AslProblem.VARIABLE_NEVER_READ
 import io.github.saigyo.aslan.check.AslProblem.VARIABLE_NOT_ASSIGNED
 import io.github.saigyo.aslan.fixtures.CleanCoverageTest
 
 class VariableChecksTest : CheckTestCase() {
-    private val variableProblems = setOf(PATH_VARIABLE_NOT_ASSIGNED, VARIABLE_NOT_ASSIGNED, VARIABLE_NEVER_READ, INVALID_VARIABLE_NAME, OUTER_VARIABLE_ASSIGNED)
+    private val variableProblems = setOf(PATH_VARIABLE_NOT_ASSIGNED, DISTRIBUTED_MAP_OUTER_READ, VARIABLE_NOT_ASSIGNED,
+        VARIABLE_NEVER_READ, INVALID_VARIABLE_NAME, UNUSUAL_VARIABLE_NAME, OUTER_VARIABLE_ASSIGNED)
 
     /** `$` written as a JSON escape, built so that no tool decodes it on the way. */
     private val escapedDollar = "\\" + "u0024"
@@ -54,7 +57,7 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(listOf(PATH_VARIABLE_NOT_ASSIGNED to escapedDollar + "reel"), variables(json, "test.asl.json"))
     }
 
-    fun `test a JSONPath read of a name assigned only in another branch is a warning`() {
+    fun `test a JSONPath read of a name assigned only in another branch is an error`() {
         val text = machine(
             """
             Split:
@@ -77,7 +80,32 @@ class VariableChecksTest : CheckTestCase() {
             """,
             top = "",
         )
-        assertEquals(listOf(VARIABLE_NEVER_READ to "reel", VARIABLE_NOT_ASSIGNED to "\$reel"), variables(text))
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel", PATH_VARIABLE_NOT_ASSIGNED to "\$reel"), variables(text))
+    }
+
+    fun `test a branch that does not say every name it assigns cannot make a read in another branch open`() {
+        val text = machine(
+            """
+            Split:
+              Type: Parallel
+              Branches:
+                - StartAt: Extra
+                  States:
+                    Extra:
+                      Type: Pass
+                      Assign: §{Extra}
+                      End: true
+                - StartAt: Show
+                  States:
+                    Show:
+                      Type: Pass
+                      OutputPath: §reel
+                      End: true
+              End: true
+            """,
+            top = "",
+        )
+        assertEquals(listOf(PATH_VARIABLE_NOT_ASSIGNED to "\$reel"), variables(text))
     }
 
     fun `test a JSONPath read of a name assigned nowhere in a file with an open machine is no error`() {
@@ -150,7 +178,7 @@ class VariableChecksTest : CheckTestCase() {
 
     // the processor of a Map whose Mode is a placeholder (decision 4)
 
-    fun `test no variable finding in the processor of a Map whose Mode is a placeholder`() {
+    fun `test only an outer assignment is reported in the processor of a Map whose Mode is a placeholder`() {
         val text = machine(
             """
             Load:
@@ -181,13 +209,14 @@ class VariableChecksTest : CheckTestCase() {
               End: true
             """,
         )
-        assertEquals(emptyList<Any>(), variables(text))
+        // AWS rejects an inner assignment of an outer name in every kind of Map, so the unknown Mode does not matter there
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), variables(text))
         assertEquals(
             listOf(OUTER_VARIABLE_ASSIGNED to "reel", VARIABLE_NEVER_READ to "frame"),
             variables(text.replace("Mode: §{Mode}", "Mode: INLINE"), "inline.asl.yaml"),
         )
         assertEquals(
-            listOf(VARIABLE_NEVER_READ to "reel", VARIABLE_NEVER_READ to "frame", VARIABLE_NOT_ASSIGNED to "\$title"),
+            listOf(OUTER_VARIABLE_ASSIGNED to "reel", VARIABLE_NEVER_READ to "reel", VARIABLE_NEVER_READ to "frame", DISTRIBUTED_MAP_OUTER_READ to "\$title"),
             variables(text.replace("Mode: §{Mode}", "Mode: DISTRIBUTED"), "distributed.asl.yaml"),
         )
     }
@@ -264,9 +293,9 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(text))
     }
 
-    // INVALID_VARIABLE_NAME
+    // INVALID_VARIABLE_NAME and UNUSUAL_VARIABLE_NAME
 
-    fun `test an assignment of a name that is no variable name is a warning`() {
+    fun `test a name that AWS rejects in a JSONata state is an error`() {
         val text = machine(
             """
             Tag:
@@ -275,17 +304,42 @@ class VariableChecksTest : CheckTestCase() {
                 re-el: 1
                 1reel: 2
                 states: 3
-                reel: 4
-              Output: "{% §reel %}"
+                _reel: 4
+                re.el: 5
+                re el: 6
+                ${"r".repeat(81)}: 7
+                ${"r".repeat(80)}: 8
+                reel_nº: 9
+                reel: 10
+              Output: "{% §reel & §${"r".repeat(80)} & §reel_nº %}"
               End: true
             """,
         )
-        assertEquals(listOf(INVALID_VARIABLE_NAME to "re-el", INVALID_VARIABLE_NAME to "1reel", INVALID_VARIABLE_NAME to "states"), variables(text))
+        assertEquals(
+            listOf("re-el", "1reel", "states", "_reel", "re.el", "re el", "r".repeat(81)).map { INVALID_VARIABLE_NAME to it },
+            variables(text),
+        )
+    }
+
+    fun `test another name that is no plain variable name is a warning`() {
+        val combining = String(Character.toChars(0x301))
+        val jsonata = machine("Tag:\n  Type: Pass\n  Assign:\n    re${combining}el: 1\n  End: true")
+        assertEquals(listOf(UNUSUAL_VARIABLE_NAME to "re${combining}el"), variables(jsonata))
+        // in a JSONPath state AWS was not asked about names
+        val jsonPath = machine("Tag:\n  Type: Pass\n  Assign:\n    re-el: 1\n    _reel: 2\n  End: true", top = "")
+        assertEquals(listOf(UNUSUAL_VARIABLE_NAME to "re-el", UNUSUAL_VARIABLE_NAME to "_reel"), variables(jsonPath, "path.asl.yaml"))
+    }
+
+    fun `test a name is judged where the machine does not say every name`() {
+        // the unread `reel` shows that the machine is open
+        val text = machine("Tag:\n  Type: Pass\n  Assign:\n    re-el: 1\n    reel: 2\n    <<: §{Extra}\n  End: true")
+        assertEquals(listOf(INVALID_VARIABLE_NAME to "re-el"), variables(text))
+        assertEquals(listOf(INVALID_VARIABLE_NAME to "re-el", VARIABLE_NEVER_READ to "reel"), variables(text.replace(Regex(" *<<: §\\{Extra}\n"), ""), "closed.asl.yaml"))
     }
 
     // OUTER_VARIABLE_ASSIGNED
 
-    fun `test an inner machine that assigns an outer variable is a warning`() {
+    fun `test an inner machine that assigns an outer variable is an error`() {
         val text = machine(
             """
             Load:
@@ -311,9 +365,79 @@ class VariableChecksTest : CheckTestCase() {
             """,
         )
         assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), variables(text))
+        // a known outer assignment is enough, whatever the file leaves unsaid
+        val open = Regex("( *)reel: 2\n").replace(text) { it.value + it.groupValues[1] + "<<: §{Extra}\n" }
+        assertTrue(open, "<<: §{Extra}" in open)
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), variables(open, "open.asl.yaml"))
     }
 
-    fun `test a Distributed Map has its own variables`() {
+    fun `test two branches that assign the same name are no outer assignment`() {
+        val text = machine(
+            """
+            Split:
+              Type: Parallel
+              Branches:
+                - StartAt: Left
+                  States:
+                    Left:
+                      Type: Pass
+                      Assign:
+                        reel: 1
+                      Output: "{% §reel %}"
+                      End: true
+                - StartAt: Right
+                  States:
+                    Right:
+                      Type: Pass
+                      Assign:
+                        reel: 2
+                      Output: "{% §reel %}"
+                      End: true
+              End: true
+            """,
+        )
+        assertEquals(emptyList<Any>(), variables(text))
+    }
+
+    // DISTRIBUTED_MAP_OUTER_READ
+
+    fun `test a JSONata read of an outer name inside a Distributed Map is an error`() {
+        val text = machine(
+            """
+            Load:
+              Type: Pass
+              Assign:
+                reel: 1
+              Next: Each
+            Each:
+              Type: Map
+              Items: "{% [1, 2] %}"
+              ItemProcessor:
+                ProcessorConfig:
+                  Mode: DISTRIBUTED
+                  ExecutionType: STANDARD
+                StartAt: Show
+                States:
+                  Show:
+                    Type: Pass
+                    Output: "{% §reel & §frame %}"
+                    End: true
+              End: true
+            """,
+        )
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel", DISTRIBUTED_MAP_OUTER_READ to "\$reel", VARIABLE_NOT_ASSIGNED to "\$frame"), variables(text))
+        // inline, the processor reads the outer variable
+        assertEquals(listOf(VARIABLE_NOT_ASSIGNED to "\$frame"), variables(text.replace("Mode: DISTRIBUTED", "Mode: INLINE"), "inline.asl.yaml"))
+        // the exceptions of an unassigned read hold for it too; the outer variable stays unread
+        assertEquals(emptyList<Any>(), variables(text.replace("Mode: DISTRIBUTED", "Mode: §{Mode}"), "mode.asl.yaml"))
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(text.replace("§reel & §frame", "§reel & §frame + §{Offset}"), "unjudged.asl.yaml"))
+        assertEquals(
+            listOf(VARIABLE_NEVER_READ to "reel", VARIABLE_NOT_ASSIGNED to "\$frame"),
+            variables(text.replace("§reel & §frame", "§reel() & §frame"), "callee.asl.yaml"),
+        )
+    }
+
+    fun `test an assignment of an outer name inside a Distributed Map is an error too`() {
         val text = machine(
             """
             Load:
@@ -343,7 +467,8 @@ class VariableChecksTest : CheckTestCase() {
               End: true
             """,
         )
-        assertEquals(emptyList<Any>(), variables(text))
+        // each machine reads its own variable, but AWS rejects the inner assignment of an outer name
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), variables(text))
     }
 
     // clean definitions
