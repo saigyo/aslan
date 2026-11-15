@@ -207,10 +207,28 @@ class DiagramPaneTest : DiagramTestCase() {
         pane.onToggleBox = { toggles += it }
         pane.onSelect = { selects += it }
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
-        val toggle = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.stateName == "Each" }.bounds
+        val toggle = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.statePath == "Each" }.bounds
         click(pane, pane.at(toggle))
         assertEquals(listOf("Each"), toggles)
         assertEquals(emptyList<String?>(), selects)
+    }
+
+    fun `test toggling the second of two boxes of the same name reveals that box`() {
+        val model = build(twins).first
+        val pane = pane(380, 600)
+        val toggles = ArrayList<String>()
+        pane.onToggleBox = { toggles += it }
+        val open = lay(model, LayoutMode.LOOSE, pane)
+        val second = open.nodes.single { it.state?.path == secondEach }.id
+        pane.show(model, open, LayoutMode.LOOSE, null)
+        pane.diagram.viewport = Viewport.around(pane.box(second).bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
+        val toggle = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.statePath == secondEach }.bounds
+        click(pane, pane.at(toggle))
+        assertEquals(listOf(secondEach), toggles)
+        val shut = lay(model, LayoutMode.LOOSE, pane, setOf(secondEach))
+        pane.show(model, shut, LayoutMode.LOOSE, null)
+        assertEquals(listOf(false, true), pane.boxes().filter { it.type == "Map" }.map { it.collapsed })
+        assertTrue("${pane.onScreen(pane.box(second).bounds)} ${pane.diagram.width}x${pane.diagram.height}", pane.visible(pane.box(second).bounds))
     }
 
     fun `test the first diagram opens at full size around the selected state`() {
@@ -554,7 +572,7 @@ class DiagramPaneTest : DiagramTestCase() {
         pane.show(model, open, LayoutMode.LOOSE, edge)
         // the view moved to the box, which is far from the selected path
         pane.diagram.viewport = Viewport.around(pane.box(id).bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
-        fun toggle() = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.stateName == "PublishEvents" }.bounds
+        fun toggle() = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.statePath == "PublishEvents" }.bounds
         click(pane, pane.at(toggle()))
         assertEquals(listOf("PublishEvents"), toggles)
         val shut = lay(model, LayoutMode.LOOSE, pane, setOf("PublishEvents"))
