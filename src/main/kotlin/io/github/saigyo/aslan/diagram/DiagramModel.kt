@@ -115,7 +115,15 @@ object DiagramBuilder {
         val machineIds = IdentityHashMap<AslStateMachine, String>()
         doc.allMachines().forEachIndexed { i, m -> machineIds[m] = "m$i" }
         val builder = Builder(stateIds, machineIds)
-        return DiagramModel(builder.machine(root, null), emptyMap(), doc.allStates().size)
+        val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(doc, it) }
+        return DiagramModel(builder.machine(root, null), details, doc.allStates().size)
+    }
+
+    /** Whether the state ends the machine: a Succeed or Fail state, or `End: true` written as a certain boolean. */
+    internal fun isTerminal(state: AslState): Boolean {
+        if (state.typeName == "Succeed" || state.typeName == "Fail") return true
+        val end = state.obj?.get("End")?.value as? AslScalar ?: return false
+        return end.type == ScalarType.BOOLEAN && !end.ambiguous && !end.dynamic && end.text == "true"
     }
 
     private class Builder(val stateIds: IdentityHashMap<AslState, String>, val machineIds: IdentityHashMap<AslStateMachine, String>) {
@@ -132,7 +140,7 @@ object DiagramBuilder {
             val machines = state.children.mapIndexed { i, child -> machine(child, if (parallel) "$BRANCH${i + 1}" else null) }
             val range = state.entry.entryPsi.textRange
             return DiagramState(
-                stateIds.getValue(state), state.name, state.typeName, sub(state), terminal(state),
+                stateIds.getValue(state), state.name, state.typeName, sub(state), isTerminal(state),
                 state.entry.keyPsi.textRange.startOffset, range, machines,
             )
         }
@@ -143,12 +151,6 @@ object DiagramBuilder {
             val resource = (state.obj?.get("Resource")?.value as? AslScalar)
                 ?.takeIf { it.type == ScalarType.STRING && !it.ambiguous && !it.dynamic } ?: return type
             return type + SEPARATOR + DiagramLabels.resource(resource.text)
-        }
-
-        private fun terminal(state: AslState): Boolean {
-            if (state.typeName == "Succeed" || state.typeName == "Fail") return true
-            val end = state.obj?.get("End")?.value as? AslScalar ?: return false
-            return end.type == ScalarType.BOOLEAN && !end.ambiguous && !end.dynamic && end.text == "true"
         }
 
         private fun edges(state: AslState): List<DiagramEdge> {
