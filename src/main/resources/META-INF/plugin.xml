@@ -39,6 +39,7 @@
         <lang.braceMatcher language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.edit.JsonataBraceMatcher"/>
         <quoteHandler fileType="AslJsonata" className="io.github.saigyo.aslan.jsonata.edit.JsonataQuoteHandler"/>
         <typedHandler order="first" implementation="io.github.saigyo.aslan.jsonata.edit.JsonataTypedHandler"/>
+        <typedHandler implementation="io.github.saigyo.aslan.jsonata.completion.JsonataAutoPopupHandler"/>
         <enterHandlerDelegate implementation="io.github.saigyo.aslan.jsonata.edit.JsonataEnterHandler"/>
         <lang.commenter language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.edit.JsonataCommenter"/>
         <lang.refactoringSupport language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataRefactoringSupport"/>
