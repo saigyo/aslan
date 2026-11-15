@@ -215,7 +215,7 @@ class StateRenameTest : AslTestCase() {
         myFixture.configureByText("test.asl.yaml", "StartAt: A\nStates:\n  A: { Type: Pass, Next: 'B' }\n  B: { Type: Succeed }")
         val document = AslModel.of(myFixture.file)!!
         val scalar = document.root!!.state("A")!!.transitions.single().target!!.psi as YAMLScalar
-        val key = document.root!!.state("B")!!.entry.entryPsi
+        val key = document.root.state("B")!!.entry.entryPsi
         WriteCommandAction.runWriteCommandAction(project) {
             NameWriter.writeValue(scalar, "two\nlines")
             NameWriter.writeKey(key, "two\nlines")
