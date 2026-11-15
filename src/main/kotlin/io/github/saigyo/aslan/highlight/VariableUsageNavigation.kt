@@ -18,13 +18,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import io.github.saigyo.aslan.files.AslFiles
+import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 
 /**
  * Next and Previous Highlighted Usage from inside an expression of an ASL file. The platform's actions work on the
  * injected editor there and look for highlights only within the injected file's range, while the usages of a state
  * machine variable are highlighted in the host, all over the definition. These actions step through the highlights of
  * the host editor in the whole host file instead. They share the platform actions' shortcuts (`use-shortcut-of`), are
- * enabled only with the caret in an injected fragment of an ASL file, and [VariableUsageNavigationPromoter] puts them
+ * enabled only with the caret in a JSONata expression of an ASL file, and [VariableUsageNavigationPromoter] puts them
  * first there; everywhere else the shortcut runs the platform's actions.
  */
 abstract class VariableUsageNavigationAction(private val ordering: Comparator<Int>) : AnAction(), DumbAware {
@@ -41,14 +42,15 @@ abstract class VariableUsageNavigationAction(private val ordering: Comparator<In
     }
 
     companion object {
-        /** The host editor of [editor] when its caret stands in an injected fragment of an ASL file; else null. */
+        /** The host editor of [editor] when its caret stands in a JSONata expression of an ASL file; else null. */
         fun hostEditorInExpression(project: Project?, editor: Editor?): Editor? {
             if (project == null || editor == null) return null
             val host = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
             val file = PsiDocumentManager.getInstance(project).getCachedPsiFile(host.document) ?: return null
             if (!AslFiles.isAslFile(file)) return null
+            // a JSONata expression, not some other language a user or plugin injects into the definition
             val injected = InjectedLanguageManager.getInstance(project).findInjectedElementAt(file, host.caretModel.offset)
-            return host.takeIf { injected != null }
+            return host.takeIf { injected?.containingFile is JsonataFile }
         }
 
         /**
@@ -97,7 +99,7 @@ class PrevVariableUsageAction : VariableUsageNavigationAction(reverseOrder())
 
 /**
  * Puts the plugin's navigation actions before the platform's, which share their shortcut, when the caret stands in an
- * injected fragment of an ASL file, the one place they are enabled. Elsewhere it promotes nothing.
+ * JSONata expression of an ASL file, the one place they are enabled. Elsewhere it promotes nothing.
  */
 class VariableUsageNavigationPromoter : ActionPromoter {
     override fun promote(actions: List<AnAction>, context: DataContext): List<AnAction> {

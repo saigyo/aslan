@@ -340,10 +340,22 @@ class VariableHighlightingTest : VariableTestCase() {
         intakeAt("Type: Task")
         assertFalse(enabled(next))
         // an injected fragment in a YAML file that is no ASL file, from an injector of this test
+        injectPlainText("plain.yaml")
+        yaml("Output: '{% \$re<caret>el %}'", "plain.yaml")
+        assertInjectedAtCaret()
+        assertFalse(enabled(next))
+    }
+
+    /**
+     * Registers, for this test, an injector of plain text into the quoted scalars of the file [name] that hold no
+     * JSONata expression.
+     */
+    private fun injectPlainText(name: String) {
         InjectedLanguageManager.getInstance(project).registerMultiHostInjector(
             object : MultiHostInjector {
                 override fun getLanguagesToInject(registrar: MultiHostRegistrar, context: PsiElement) {
-                    if (context.containingFile.name != "plain.yaml" || context !is PsiLanguageInjectionHost) return
+                    if (context.containingFile.name != name || context !is PsiLanguageInjectionHost) return
+                    if (name.endsWith(".asl.yaml") && context.text.contains("{%")) return
                     registrar.startInjecting(PlainTextLanguage.INSTANCE).addPlace(null, null, context, TextRange(1, context.textLength - 1)).doneInjecting()
                 }
 
@@ -351,10 +363,23 @@ class VariableHighlightingTest : VariableTestCase() {
             },
             testRootDisposable,
         )
-        yaml("Output: '{% \$re<caret>el %}'", "plain.yaml")
+    }
+
+    private fun assertInjectedAtCaret() {
         val host = InjectedLanguageManager.getInstance(project).getTopLevelFile(myFixture.file)
-        assertNotNull(InjectedLanguageManager.getInstance(project).findInjectedElementAt(host, InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).caretModel.offset))
+        val caret = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor).caretModel.offset
+        assertNotNull(InjectedLanguageManager.getInstance(project).findInjectedElementAt(host, caret))
+    }
+
+    fun `test the actions are disabled in an injection of another language in an ASL file`() {
+        injectPlainText("other.asl.yaml")
+        yaml(machine("Show:\n  Type: Pass\n  Comment: 'shelved on §re<caret>el'\n  Output: '{% 1 %}'\n  End: true", "QueryLanguage: JSONata").replace("§", "$"), "other.asl.yaml")
+        assertInjectedAtCaret()
+        assertFalse(myFixture.file is JsonataFile)
         assertFalse(enabled(next))
+        assertFalse(enabled(previous))
+        val manager = ActionManager.getInstance()
+        assertEmpty(VariableUsageNavigationPromoter().promote(listOf(manager.getAction("GotoNextElementUnderCaretUsage"), manager.getAction(next)), hostContext()))
     }
 
     /** The data context of the host editor at the fixture's caret. */
