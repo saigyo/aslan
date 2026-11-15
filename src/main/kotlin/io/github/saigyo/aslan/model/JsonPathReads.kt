@@ -57,7 +57,11 @@ object JsonPathReads {
         return reads
     }
 
-    /** The name after the `$` at [dollar], scanned by code point so a supplementary letter belongs to it; UTF-16 offsets. */
+    /**
+     * The name after the `$` at [dollar], scanned by code point so a supplementary letter belongs to it; UTF-16 offsets.
+     * None when the name runs on in a character outside the name class that may still continue an identifier, such as
+     * a combining mark: what AWS reads there is not known, so the `$` stays an unknown mention of the scanned name.
+     */
     private fun readAt(text: String, dollar: Int): PathName? {
         var end = dollar + 1
         while (end < text.length) {
@@ -65,11 +69,20 @@ object JsonPathReads {
             if (!isNamePart(codePoint)) break
             end += Character.charCount(codePoint)
         }
-        return if (end == dollar + 1) null else PathName(text.substring(dollar + 1, end), dollar, end)
+        if (end == dollar + 1 || (end < text.length && continuesIdentifier(text.codePointAt(end)))) return null
+        return PathName(text.substring(dollar + 1, end), dollar, end)
     }
 
     /** A letter, a digit or `_`, the characters of a name after its first. */
     internal fun isNamePart(codePoint: Int): Boolean = Character.isLetterOrDigit(codePoint) || codePoint == '_'.code
+
+    /** A character outside [isNamePart] that may still continue an identifier: a combining mark, or another identifier part. */
+    internal fun continuesIdentifier(codePoint: Int): Boolean {
+        if (isNamePart(codePoint)) return false
+        val type = Character.getType(codePoint)
+        return type == Character.NON_SPACING_MARK.toInt() || type == Character.COMBINING_SPACING_MARK.toInt() ||
+            type == Character.ENCLOSING_MARK.toInt() || Character.isUnicodeIdentifierPart(codePoint)
+    }
 
     /** The strings of [doc] that JSONPath evaluates (see [Collector]), with the state each belongs to; one entry per use through an alias. */
     fun sites(doc: AslDocument): List<Pair<AslScalar, AslState>> = collect(doc).first

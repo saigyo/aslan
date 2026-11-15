@@ -1006,6 +1006,13 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(map.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(map, "re|el: 1"), "frame", "map.asl.yaml"))
     }
 
+    fun `test a rename refuses where a combining mark follows the name in a JSONPath read`() {
+        val acute = String(Character.toChars(0x0301))
+        val text = machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$acute: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$acute\n  End: true")
+        // the file stays as it is, the read with the mark included
+        assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(text, "    |a: 1"), "b"))
+    }
+
     /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
     private val deseret = String(Character.toChars(0x10400))
 

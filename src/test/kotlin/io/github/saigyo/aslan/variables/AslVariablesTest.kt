@@ -607,6 +607,19 @@ class AslVariablesTest : VariableTestCase() {
         assertEmpty(doc.variables.readsOf(AslVariable("a", doc.root)))
     }
 
+    /** U+0301, a combining acute accent: outside the name class, but it may continue an identifier. */
+    private val acute = String(Character.toChars(0x0301))
+
+    fun `test a combining mark after a JSONPath name makes it no read but an unknown mention`() {
+        val doc = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$acute: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$acute\n  End: true"))
+        assertEmpty(doc.variables.reads)
+        assertEquals(1, doc.variables.unknownMentions("a").size)
+        // a name followed by a space is still a read
+        val spaced = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n  Next: Show\nShow:\n  Type: Pass\n  Parameters:\n    v.$: States.Format('{}', §a )\n  End: true"))
+        assertEquals(listOf("a"), spaced.readNames())
+        assertEmpty(spaced.variables.unknownMentions("a"))
+    }
+
     fun `test a supplementary letter after a name makes it no mention of the name`() {
         val doc = yamlModel(machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Show\nShow:\n  Type: Pass\n  Output: '{% §reel$deseret %}'\n  End: true", "QueryLanguage: JSONata"))
         assertEquals(listOf("reel$deseret"), doc.readNames())

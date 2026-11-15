@@ -83,7 +83,11 @@ internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiEl
             else -> false
         }
 
-        /** How many times [text] holds `$name` followed by no letter, digit or `_`; the code point after it decides. */
+        /**
+         * How many times [text] holds `$name` followed by no letter, digit or `_`; the code point after it decides. A
+         * combining mark or another character that may continue an identifier ends the name here, so `$name` followed
+         * by one counts: a JSONPath read of it is not recorded ([JsonPathReads]), and it stays an unknown mention.
+         */
         fun mentions(text: String, name: String): Int {
             val needle = "$$name"
             var count = 0
