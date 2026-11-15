@@ -645,6 +645,9 @@ class DiagramPaneTest : DiagramTestCase() {
     fun `test literal escapes markup`() {
         assertEquals("<html>&lt;html&gt;&lt;b&gt;Scan<br>&amp; more</html>", DiagramText.literal("<html><b>Scan\n& more"))
         assertEquals("<html>Scan</html>", DiagramText.literal("Scan"))
+        // HTML would show a run of spaces as one and drop a leading one
+        assertEquals("<html>x = 'A &nbsp;&nbsp;B' and y</html>", DiagramText.literal("x = 'A   B' and y"))
+        assertEquals("<html>&nbsp;a<br>&nbsp;b</html>", DiagramText.literal(" a\n b"))
     }
 
     fun `test texts from the file are shown literally`() {

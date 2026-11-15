@@ -66,15 +66,24 @@ interface DiagramView {
 
 /** Text for Swing components that read HTML: a text that starts with `<html>` would be read as markup (decision 10). */
 object DiagramText {
-    /** [text] as HTML that shows it as it is: `&`, `<` and `>` escaped, a line break as `<br>`. */
+    /**
+     * [text] as HTML that shows it as it is: `&`, `<` and `>` escaped, a line break as `<br>`. HTML shows a run of spaces
+     * as one and drops a space at the start of a line, so such a space becomes a non-breaking one; a single space between
+     * words stays ordinary, and the line can still be wrapped there.
+     */
     fun literal(text: String): String {
         val out = StringBuilder(text.length + 16).append("<html>")
-        for (c in text) when (c) {
-            '&' -> out.append("&amp;")
-            '<' -> out.append("&lt;")
-            '>' -> out.append("&gt;")
-            '\n' -> out.append("<br>")
-            else -> out.append(c)
+        var previous = '\n'
+        for (c in text) {
+            when (c) {
+                '&' -> out.append("&amp;")
+                '<' -> out.append("&lt;")
+                '>' -> out.append("&gt;")
+                '\n' -> out.append("<br>")
+                ' ' -> out.append(if (previous == ' ' || previous == '\n') "&nbsp;" else " ")
+                else -> out.append(c)
+            }
+            previous = c
         }
         return out.append("</html>").toString()
     }
