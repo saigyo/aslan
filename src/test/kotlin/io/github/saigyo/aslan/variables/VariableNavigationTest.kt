@@ -17,6 +17,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewNodeTextLocation
 import com.intellij.usageView.UsageViewUtil
+import com.intellij.usages.UsageTarget
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.jsonata.refs.JsonataVariableReference
@@ -26,6 +27,7 @@ import io.github.saigyo.aslan.refs.AslVariableGotoDeclarationHandler
 import io.github.saigyo.aslan.refs.AslVariableReadReference
 import io.github.saigyo.aslan.refs.AslVariableTarget
 import io.github.saigyo.aslan.refs.AslVariableTargets
+import io.github.saigyo.aslan.refs.AslVariableUsageTypeProvider
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -195,6 +197,22 @@ class VariableNavigationTest : VariableTestCase() {
         // anything else keeps its own description
         val shelve = entryAt(offsetsOf("Shelve:").last())
         assertFalse(UsageViewUtil.getType(shelve) == AslVariableDescriptionProvider.TYPE)
+    }
+
+    fun `test find usages groups assignments and reads by usage type`() {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        val targets = arrayOf<UsageTarget>(PsiElement2UsageTargetAdapter(catcher, true))
+        val provider = AslVariableUsageTypeProvider()
+        val usages = myFixture.findUsages(catcher).sortedBy { inHost(it).second }
+        val expected = usages.map { if (inHost(it).first == "reel") AslVariableUsageTypeProvider.ASSIGNMENT else AslVariableUsageTypeProvider.READ }
+        assertEquals(expected, usages.map { provider.getUsageType(it.element!!, targets) })
+        // the JSONata reads, the JSONPath reads and the other keys are all there
+        assertEquals(2, expected.count { it == AslVariableUsageTypeProvider.ASSIGNMENT })
+        assertEquals(6, expected.count { it == AslVariableUsageTypeProvider.READ })
+        // a search for a state keeps the other providers' types
+        val stateTargets = arrayOf<UsageTarget>(PsiElement2UsageTargetAdapter(entryAt(offsetsOf("Shelve:").single()), true))
+        assertNull(provider.getUsageType(usages.first().element!!, stateTargets))
     }
 
     fun `test a go-to target from an older model stands for no variable`() {

@@ -530,6 +530,19 @@ class AslVariableRenameProcessor : RenamePsiElementProcessor() {
 
     override fun isInplaceRenameSupported(): Boolean = false
 
+    /**
+     * A rename of one variable goes through the [AslVariableTarget] of the assignment it starts on (of the first one
+     * for a start on a read), so the dialog and the preview show the variable's name and the place, not a key-value
+     * and its value. An entry that stands for several variables through a YAML alias stays as it is.
+     */
+    override fun substituteElementToRename(element: PsiElement, editor: Editor?): PsiElement {
+        if (element is AslVariableTarget) return element
+        val variable = renamedVariables(element).singleOrNull() ?: return element
+        val targets = AslVariableTargets.assignmentTargets(listOf(variable))
+        val entry = AslVariableTargets.assignmentEntryAt(element)
+        return targets.firstOrNull { it.entry == entry } ?: targets.firstOrNull() ?: element
+    }
+
     override fun createRenameDialog(project: Project, element: PsiElement, nameSuggestionContext: PsiElement?, editor: Editor?): RenameDialog =
         AslVariableRenameDialog(project, element, nameSuggestionContext, editor)
 

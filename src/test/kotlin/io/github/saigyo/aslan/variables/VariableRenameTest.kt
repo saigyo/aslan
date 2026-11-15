@@ -2,6 +2,7 @@ package io.github.saigyo.aslan.variables
 
 import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
+import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
@@ -13,14 +14,18 @@ import com.intellij.refactoring.rename.RenameProcessor
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import com.intellij.refactoring.rename.RenameUtil
 import com.intellij.usageView.UsageInfo
+import com.intellij.usageView.UsageViewUtil
+import com.intellij.usages.UsageTarget
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslModel
+import io.github.saigyo.aslan.refs.AslVariableDescriptionProvider
 import io.github.saigyo.aslan.refs.AslVariableRename
 import io.github.saigyo.aslan.refs.AslVariableRenameDialog
 import io.github.saigyo.aslan.refs.AslVariableRenameProcessor
 import io.github.saigyo.aslan.refs.AslVariableTarget
 import io.github.saigyo.aslan.refs.AslVariableTargets
+import io.github.saigyo.aslan.refs.AslVariableUsageTypeProvider
 import io.github.saigyo.aslan.refs.RenameConflictKind
 import io.github.saigyo.aslan.refs.RenameConflictKind.ESCAPED_OCCURRENCE
 import io.github.saigyo.aslan.refs.RenameConflictKind.LOCAL_OF_NEW_NAME
@@ -233,21 +238,42 @@ class VariableRenameTest : VariableTestCase() {
     }
 
     /**
-     * The preview of a rename lists every place it writes: the element it starts on, the keys of the other assignments
-     * as writes and every read, each once.
+     * The preview of a rename lists every place it writes: the assignment it renames through, the keys of the other
+     * assignments as writes and every read, each once and each with its usage type. The renamed element is the
+     * assignment's go-to target, presented by the variable's name and its place.
      */
     fun `test the rename preview lists every assignment and every read`() {
         val everyName = Regex("film").findAll(renamedArchive.replace("§", "$")).map { it.range.last + 1 }.toList()
-        for (marker in listOf("    re|el: none", "{% §re|el %}", "InputPath: §re|el")) {
+        val starts = listOf("    re|el: none" to "Load, first Catcher", "{% §re|el %}" to "Load", "InputPath: §re|el" to "Load")
+        for ((marker, place) in starts) {
             configure(withCaret(archive, marker))
-            val element = targetAtCaret()
+            val start = targetAtCaret()
+            val element = RenamePsiElementProcessor.forElement(start).substituteElementToRename(start, myFixture.editor)!!
+            assertInstanceOf(element, AslVariableTarget::class.java)
+            val presentation = (element as AslVariableTarget).presentation!!
+            assertEquals(marker, "reel", presentation.presentableText)
+            assertEquals(marker, place, presentation.locationString)
+            assertEquals(AslVariableDescriptionProvider.TYPE, UsageViewUtil.getType(element))
+
             val usages = PreviewProcessor(element).usages()
-            val own = listOfNotNull((AslVariableTargets.assignmentEntryAt(element) as? YAMLKeyValue)?.key?.textRange?.endOffset)
-            assertEquals(marker, everyName, (own + usages.map { nameEnd(it) }).sorted())
-            val detector = ReadWriteAccessDetector.findDetector(entry("reel:"))!!
-            val writes = usages.count { detector.getReferenceAccess(entry("reel:"), it.reference!!) == ReadWriteAccessDetector.Access.Write }
-            assertEquals(marker, 3 - own.size, writes)
+            val own = (element.entry as YAMLKeyValue).key!!.textRange.endOffset
+            assertEquals(marker, everyName, (usages.map { nameEnd(it) } + own).sorted())
+            val target = arrayOf<UsageTarget>(PsiElement2UsageTargetAdapter(element, true))
+            val types = usages.map { AslVariableUsageTypeProvider().getUsageType(it.element!!, target) }
+            assertEquals(marker, 2, types.count { it == AslVariableUsageTypeProvider.ASSIGNMENT })
+            assertEquals(marker, usages.size - 2, types.count { it == AslVariableUsageTypeProvider.READ })
+            val detector = ReadWriteAccessDetector.findDetector(element.entry)!!
+            val writes = usages.count { detector.getReferenceAccess(element.entry, it.reference!!) == ReadWriteAccessDetector.Access.Write }
+            assertEquals(marker, 2, writes)
         }
+    }
+
+    fun `test a rename through the target writes the same text`() {
+        configure(withCaret(archive, "{% §re|el %}"))
+        val start = targetAtCaret()
+        val element = RenamePsiElementProcessor.forElement(start).substituteElementToRename(start, myFixture.editor)!!
+        RenameProcessor(project, element, "film", false, false).run()
+        assertEquals(renamedArchive.replace("§", "$"), hostText())
     }
 
     /**

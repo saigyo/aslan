@@ -62,6 +62,7 @@
         <findUsagesHandlerFactory order="first" implementation="io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory"/>
         <readWriteAccessDetector implementation="io.github.saigyo.aslan.refs.AslVariableReadWriteAccessDetector"/>
         <elementDescriptionProvider order="first" implementation="io.github.saigyo.aslan.refs.AslVariableDescriptionProvider"/>
+        <usageTypeProvider order="first" implementation="io.github.saigyo.aslan.refs.AslVariableUsageTypeProvider"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslStateRenameProcessor"/>
         <renameInputValidator order="first" implementation="io.github.saigyo.aslan.refs.AslStateNameInputValidator"/>
         <renamePsiElementProcessor order="first" implementation="io.github.saigyo.aslan.refs.AslVariableRenameProcessor"/>
