@@ -330,4 +330,42 @@ class DiagramSceneTest : DiagramTestCase() {
         assertEquals(DiagramColors.typeColor("Pass", true), DiagramColors.typeColor("Nonsense", true))
         assertEquals(Color(0xDB5C5C).rgb, DiagramColors.light().catchColor.rgb)
     }
+
+    fun `test the result of bounds is a copy`() {
+        val scene = sceneOf(small())
+        val box = scene.bounds("s0")!!
+        val before = Rectangle2D.Double().also { it.setRect(box) }
+        (box as Rectangle2D.Double).add(5000.0, 5000.0)
+        assertEquals(before, scene.bounds("s0"))
+        assertEquals(before, scene.box("s0").bounds)
+        val path = scene.bounds("s0.c0")!!
+        val pathBefore = Rectangle2D.Double().also { it.setRect(path) }
+        (path as Rectangle2D.Double).add(5000.0, 5000.0)
+        assertEquals(pathBefore, scene.bounds("s0.c0"))
+    }
+
+    fun `test a branch title is cut by the size it is painted at`() {
+        val model = small()
+        val branchId = model.state("s5")!!.machines[0].id
+        val room = layout(model).nodes.single { it.id == branchId }.bounds.width - DiagramScene.PAD_LEFT - DiagramScene.PAD_RIGHT
+        val k = room / (8 * 11.0)   // "Branch 1" is wider than the room at 12 points, narrower at 10
+        val wide = TextMeasure { text, size, _ -> k * size * text.length }
+        val scene = DiagramScene.of(layout(model), null, CatchMode.NORMAL, wide)
+        assertEquals("Branch 1", scene.box(branchId).name)
+    }
+
+    fun `test a muted label hides the line behind it`() {
+        val path = SceneItem.Path("p", TransitionKind.NEXT, listOf(java.awt.geom.Point2D.Double(0.0, 50.0), java.awt.geom.Point2D.Double(100.0, 50.0)), false, true)
+        val label = SceneItem.Label("p", "", Rectangle2D.Double(40.0, 43.0, 20.0, 14.0), null, false, true)
+        val scene = DiagramScene(listOf(path, label), 100.0, 100.0)
+        val colors = DiagramColors.light()
+        val image = BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
+        val g = image.createGraphics()
+        g.color = colors.background
+        g.fillRect(0, 0, 100, 100)
+        DiagramPainter.paint(g, scene, colors)
+        g.dispose()
+        assertEquals(colors.background.rgb, image.getRGB(50, 50))
+        assertTrue(colors.background.rgb != image.getRGB(20, 50))   // the line itself is there, faint
+    }
 }

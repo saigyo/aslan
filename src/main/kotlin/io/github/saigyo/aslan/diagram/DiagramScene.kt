@@ -75,7 +75,7 @@ class DiagramScene(
 
     /** The place of a state or a path; for one a collapsed box holds, the box's; null for an ID the scene does not show. */
     fun bounds(id: String): Rectangle2D? {
-        boxes.firstOrNull { it.id == id }?.let { return it.bounds }
+        boxes.firstOrNull { it.id == id }?.let { return copy(it.bounds) }
         paths.firstOrNull { it.id == id }?.let { path ->
             val first = path.points.firstOrNull() ?: return null
             val rect = Rectangle2D.Double(first.x, first.y, 0.0, 0.0)
@@ -83,8 +83,10 @@ class DiagramScene(
             return rect
         }
         val container = containers[id] ?: return null
-        return boxes.firstOrNull { it.id == container }?.bounds
+        return boxes.firstOrNull { it.id == container }?.let { copy(it.bounds) }
     }
+
+    private fun copy(rect: Rectangle2D) = Rectangle2D.Double(rect.x, rect.y, rect.width, rect.height)
 
     companion object {
         const val NAME_SIZE = 12
@@ -147,7 +149,8 @@ class DiagramScene(
             val name = state?.name ?: node.title.orEmpty()
             val sub = state?.sub.orEmpty()
             val room = node.bounds.width - PAD_LEFT - PAD_RIGHT - if (node.collapsible) TOGGLE_ROOM else 0.0
-            val shownName = fit(name, NAME_SIZE, true, room, measure)
+            val branch = node.kind == LaidNode.Kind.BRANCH   // a branch title is painted smaller and plain
+            val shownName = fit(name, if (branch) SUB_SIZE else NAME_SIZE, !branch, room, measure)
             val shownSub = fit(sub, SUB_SIZE, false, room, measure)
             val tooltip = when {
                 shownSub != sub -> "$name\n$sub"

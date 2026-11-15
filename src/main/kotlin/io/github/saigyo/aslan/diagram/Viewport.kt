@@ -11,7 +11,8 @@ import java.awt.geom.Rectangle2D
 class Viewport(val scale: Double, val tx: Double, val ty: Double) {
     /** The viewport with [factor] applied to the scale, within [MIN_SCALE] and [MAX_SCALE], that keeps the diagram point under (x, y) of the pane in place. */
     fun zoomAt(factor: Double, x: Double, y: Double): Viewport {
-        val next = (scale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
+        // a scale outside the limits (a fitted, very large diagram) is never moved against the factor
+        val next = (scale * factor).coerceIn(minOf(MIN_SCALE, scale), maxOf(MAX_SCALE, scale))
         val k = next / scale
         return Viewport(next, x - (x - tx) * k, y - (y - ty) * k)
     }
@@ -46,7 +47,7 @@ class Viewport(val scale: Double, val tx: Double, val ty: Double) {
          * [MIN_SCALE] it still shows the whole diagram; only [zoomAt] holds to the limits.
          */
         fun fit(size: Dimension2D, pane: Dimension, padding: Int): Viewport {
-            if (size.width <= 0 || size.height <= 0) return Viewport(1.0, 0.0, 0.0)
+            if (size.width <= 0 || size.height <= 0 || pane.width <= 0 || pane.height <= 0) return Viewport(1.0, 0.0, 0.0)
             val room = 1.0
             val scale = minOf(1.0, maxOf(pane.width - 2.0 * padding, room) / size.width, maxOf(pane.height - 2.0 * padding, room) / size.height)
             return Viewport(scale, (pane.width - size.width * scale) / 2, (pane.height - size.height * scale) / 2)

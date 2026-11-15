@@ -84,7 +84,7 @@ object DiagramPainter {
             for (item in scene.items) when (item) {
                 is SceneItem.Box -> box(g2, item, colors)
                 is SceneItem.Path -> faint(g2, item.muted) { path(it, item, colors) }
-                is SceneItem.Label -> faint(g2, item.muted) { label(it, item, colors) }
+                is SceneItem.Label -> label(g2, item, colors)
                 is SceneItem.Toggle -> toggle(g2, item, colors)
             }
         } finally {
@@ -202,7 +202,7 @@ object DiagramPainter {
         val metrics = g.fontMetrics
         val x = b.centerX - metrics.stringWidth(label.text) / 2.0
         val y = b.centerY + (metrics.ascent - metrics.descent) / 2.0
-        g.drawString(label.text, x.toFloat(), y.toFloat())
+        faint(g, label.muted) { it.drawString(label.text, x.toFloat(), y.toFloat()) }
     }
 
     private fun toggle(g: Graphics2D, toggle: SceneItem.Toggle, colors: DiagramColors) {
