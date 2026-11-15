@@ -103,7 +103,7 @@ class DiagramController(
     /** The delayed refresh after the last change, if it has not run. UI thread. */
     private var pending: Future<*>? = null
 
-    /** Guards [layoutThread] and [abandoned], which the time limit changes from the scheduler's thread. */
+    /** Guards [layoutThread], [abandoned], [leftBehind] and [droppedUnderBound], which the time limit changes from the scheduler's thread. */
     private val lock = Any()
 
     /**
@@ -114,6 +114,12 @@ class DiagramController(
 
     /** The number of layouts left behind over the time limit that have not ended yet. */
     private var abandoned = 0
+
+    /** The executors of the layouts left behind, shut down again at disposal; one that has ended is removed. */
+    private val leftBehind = ArrayList<ExecutorService>()
+
+    /** Whether a layout was dropped because [abandoned] reached its bound; a refresh follows once it falls below. */
+    private var droppedUnderBound = false
 
     /** Schedules a task after the delay; tests replace it to run the delay themselves. */
     internal var delay: (Runnable) -> Future<*> = { task ->
@@ -153,9 +159,12 @@ class DiagramController(
             pending = null
             pendingCaret?.cancel(false)
             pendingCaret = null
-            // the layout that runs is interrupted, and the ones queued end at once; the thread ends after them
+            // the layout that runs is interrupted, and the ones queued end at once; the thread ends after them. The layouts
+            // left behind are interrupted again, in case one swallowed the first interrupt.
             synchronized(lock) {
                 layoutThread.shutdownNow().filterIsInstance<LayoutTask>().forEach { it.done.complete(false) }
+                leftBehind.forEach { it.shutdownNow() }
+                leftBehind.clear()
             }
         }
         document.addDocumentListener(object : DocumentListener {
@@ -284,14 +293,18 @@ class DiagramController(
     /**
      * One layout on a layout thread, watched by the time limit. When the limit passes first, the layout is interrupted
      * and left behind ([abandon]); its result is dropped if it ever ends. While [MAX_ABANDONED] layouts are left behind
-     * and still running, no layout starts.
+     * and still running, no layout starts; when one of them ends after a layout was dropped so, a refresh follows, which
+     * reads the file again and covers edits and changed choices alike.
      */
     private inner class LayoutTask(val done: CompletableFuture<Boolean>, private val work: () -> Result?) : Runnable {
         /** [RUNNING] until the layout ends ([ENDED]) or is left behind ([ABANDONED]), whichever comes first. Guarded by [lock]. */
         private var state = RUNNING
 
         override fun run() {
-            if (disposed || synchronized(lock) { abandoned >= MAX_ABANDONED }) {
+            val bounded = synchronized(lock) {
+                (abandoned >= MAX_ABANDONED).also { if (it) droppedUnderBound = true }
+            }
+            if (disposed || bounded) {
                 done.complete(false)
                 return
             }
@@ -315,10 +328,13 @@ class DiagramController(
                 if (!disposed && e !is CancellationException && end()) log.error("Cannot lay out the diagram of ${file.name}", e)
             } finally {
                 watchdog.cancel(false)
-                synchronized(lock) {
+                val lifted = synchronized(lock) {
                     if (state == RUNNING) state = ENDED else if (state == ABANDONED) abandoned--
+                    // a request dropped under the bound is made up for now: the file may have changed, or the choices
+                    (droppedUnderBound && abandoned < MAX_ABANDONED).also { if (it) droppedUnderBound = false }
                 }
                 if (!passed) done.complete(false)
+                if (lifted) refresh()
             }
         }
 
@@ -338,13 +354,16 @@ class DiagramController(
                 if (disposed || state != RUNNING) return
                 state = ABANDONED
                 abandoned++
+                // logged before the mark is posted, so whoever sees the mark finds the warning logged
+                log.warn("The layout of the diagram of ${file.name} took longer than $limit ms and was left behind")
                 ApplicationManager.getApplication().invokeLater({ if (!disposed) view.setStale() }, ModalityState.any())
                 val old = layoutThread
+                leftBehind.removeAll { it.isTerminated }
+                leftBehind += old
                 layoutThread = newLayoutThread()
                 old.shutdownNow().forEach(layoutThread::execute)
             }
             done.complete(false)
-            log.warn("The layout of the diagram of ${file.name} took longer than $limit ms and was left behind")
         }
     }
 
