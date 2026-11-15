@@ -33,6 +33,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <fileType name="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.JsonataFileType" fieldName="INSTANCE" language="AslJsonata"/>
         <lang.parserDefinition language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.parser.JsonataParserDefinition"/>
+        <fileIconProvider implementation="io.github.saigyo.aslan.files.AslFileIconProvider"/>
         <multiHostInjector implementation="io.github.saigyo.aslan.jsonata.inject.JsonataInjector"/>
         <lang.findUsagesProvider language="AslJsonata" implementationClass="io.github.saigyo.aslan.jsonata.refs.JsonataFindUsagesProvider"/>
         <readWriteAccessDetector implementation="io.github.saigyo.aslan.jsonata.refs.JsonataReadWriteAccessDetector"/>

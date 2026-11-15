@@ -18,4 +18,7 @@ object AslIcons {
     val Rule: Icon = load("rule")
     val Catch: Icon = load("catch")
     val Branch: Icon = load("branch")
+
+    /** The icon of an ASL file in editor tabs and the project view. */
+    val File: Icon = load("asl")
 }
