@@ -41,6 +41,11 @@ intellijPlatform {
     }
 }
 
+// The licence and the notice of the repository go into the plugin's jar, where the Apache License asks for them.
+tasks.processResources {
+    from(files("LICENSE", "NOTICE")) { into("META-INF") }
+}
+
 tasks.test {
     timeout.set(Duration.ofMinutes(30))
     systemProperty("aslan.privateFixtures", providers.gradleProperty("aslan.privateFixtures").getOrElse(""))

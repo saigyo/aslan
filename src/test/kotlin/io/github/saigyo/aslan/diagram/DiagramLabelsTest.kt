@@ -31,6 +31,9 @@ class DiagramLabelsTest : AslTestCase() {
             "arn:aws:states:eu-central-1:123456789012:activity:scan" to "Activity scan",
             "arn:aws:lambda:eu-central-1:123456789012:function:catalog-reader:live" to "Lambda catalog-reader",
             "arn:aws:lambda:§{Region}:§{Account}:function:scan" to "Lambda scan",
+            // placeholders that hold colons themselves, as CloudFormation's pseudo parameters do
+            "arn:aws:lambda:§{AWS::Region}:§{AWS::AccountId}:function:scan" to "Lambda scan",
+            "arn:§{AWS::Partition}:states:::lambda:invoke" to "Lambda invoke",
             "§{ScanFunctionArn}" to "§{ScanFunctionArn}",
         )
         for ((resource, label) in expected) assertEquals(resource, label.replace('§', '$'), DiagramLabels.resource(resource.replace('§', '$')))

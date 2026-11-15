@@ -15,6 +15,7 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
 import java.util.Collections
+import java.util.EnumSet
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
@@ -67,11 +68,16 @@ class DiagramControllerTest : DiagramTestCase() {
                 it.await(30, TimeUnit.SECONDS)
             }
             stall?.enter()
+            fault?.let { throw it() }
             6.0 * text.length
         }
 
         @Volatile
         var stall: Stall? = null
+
+        /** While set, every measurement throws what it makes, so a layout fails. */
+        @Volatile
+        var fault: (() -> Throwable)? = null
 
         override fun show(model: DiagramModel, layout: DiagramLayout, mode: LayoutMode, selected: String?) {
             calls += Shown(model, layout, mode, selected, ApplicationManager.getApplication().isDispatchThread)
@@ -88,18 +94,20 @@ class DiagramControllerTest : DiagramTestCase() {
     }
 
     /**
-     * Holds the first [count] layouts that measure, each on its own thread, in the first measurement on that thread: the
-     * n-th layout to arrive waits for the n-th release. With [ignoreInterrupts] an interrupt does not end the wait, as
-     * with a layout that never checks; without it the wait ends, the interrupt is kept, and the layout goes on. With
-     * [ignoredInterrupts] the wait swallows that many interrupts and ends at the next one.
+     * Holds the first layouts that measure, one for each value of [heeds], each on its own thread, in the first
+     * measurement on that thread: the n-th layout to arrive waits for the n-th release. Where its value of [heeds] is
+     * true, the wait also ends once [stopped] says that the layout on its thread has been told to stop, as a layout that
+     * asks its flag would; else only the release ends it. An interrupt does not end the wait; the thread is recorded in
+     * [interrupted].
      */
-    private class Stall(
-        count: Int,
-        ignoreInterrupts: Boolean,
-        private val ignoredInterrupts: Int = if (ignoreInterrupts) Int.MAX_VALUE else 0,
-    ) {
-        val releases = List(count) { CountDownLatch(1) }
+    private class Stall(private vararg val heeds: Boolean) {
+        val releases = List(heeds.size) { CountDownLatch(1) }
         val threads: MutableList<Thread> = Collections.synchronizedList(ArrayList())
+        val interrupted: MutableList<Thread> = Collections.synchronizedList(ArrayList())
+
+        /** Whether the controller has told the layout on a thread to stop; [limited] sets it. */
+        @Volatile
+        var stopped: (Thread) -> Boolean = { false }
 
         fun enter() {
             val current = Thread.currentThread()
@@ -108,17 +116,14 @@ class DiagramControllerTest : DiagramTestCase() {
                 threads += current
                 threads.size - 1
             }
-            var interrupts = 0
-            while (true) {
+            val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+            while (System.nanoTime() < end) {
                 try {
-                    releases[n].await(60, TimeUnit.SECONDS)
-                    return
+                    if (releases[n].await(POLL_MS, TimeUnit.MILLISECONDS)) return
                 } catch (_: InterruptedException) {
-                    if (++interrupts > ignoredInterrupts) {
-                        current.interrupt()
-                        return
-                    }
+                    interrupted += current
                 }
+                if (heeds[n] && stopped(current)) return
             }
         }
 
@@ -256,6 +261,62 @@ class DiagramControllerTest : DiagramTestCase() {
         assertFalse(Recorder.Stale in view.calls)
         refresh(controller)
         assertEquals(1, view.calls.size)
+    }
+
+    /**
+     * Lets every layout fail with what [fault] makes, twice, catching the errors and warnings logged for the failures:
+     * each failure marks the diagram out of date, the first is logged as an error and the second only as a warning, and
+     * neither message holds text of the file. Then the fault goes, and an edit is shown again.
+     */
+    private fun assertFailureMarked(fault: () -> Throwable) {
+        val (controller, view) = open(archive)
+        val errors: MutableList<String> = Collections.synchronizedList(ArrayList())
+        val warnings: MutableList<String> = Collections.synchronizedList(ArrayList())
+        val token = LoggedErrorProcessor.executeWith(object : LoggedErrorProcessor() {
+            override fun processError(category: String, message: String, details: Array<String>, t: Throwable?): Set<Action> {
+                if ("Cannot lay out" !in message) return super.processError(category, message, details, t)
+                errors += message
+                return EnumSet.noneOf(Action::class.java)
+            }
+
+            override fun processWarn(category: String, message: String, t: Throwable?): Boolean {
+                if ("Cannot lay out" !in message) return super.processWarn(category, message, t)
+                warnings += message
+                return false
+            }
+        })
+        try {
+            view.calls.clear()
+            view.fault = fault
+            refresh(controller)
+            waitFor("the first failure did not mark the diagram") { view.staleCount() == 1 }
+            assertEquals(1, errors.size)
+            assertEquals(0, warnings.size)
+            refresh(controller)
+            waitFor("the second failure did not mark the diagram") { view.staleCount() == 2 }
+            assertEquals("only the first failure is an error", 1, errors.size)
+            assertEquals(1, warnings.size)
+            for (m in errors + warnings) assertTrue(m, "test.asl.yaml" in m && "Sort" !in m && "Frame" !in m)
+            assertTrue(view.shows.isEmpty())
+
+            view.fault = null
+            replace("  Failed:", rewind + "  Failed:")
+            refresh(controller)
+            assertTrue(view.calls.last() is Recorder.Shown)
+            assertTrue(view.last.model.names().contains("Rewind"))
+        } finally {
+            view.fault = null
+            token.finish()
+        }
+    }
+
+    fun `test a layout that fails with an exception marks the diagram out of date`() {
+        assertFailureMarked { IllegalStateException("a fault of the test") }
+    }
+
+    fun `test a layout that fails with an error marks the diagram out of date`() {
+        // as when a later IDE no longer gives the layout library a class it needs
+        assertFailureMarked { NoClassDefFoundError("com/google/common/base/Preconditions") }
     }
 
     fun `test a small machine opens loose and a large one compact`() {
@@ -409,10 +470,11 @@ class DiagramControllerTest : DiagramTestCase() {
     /**
      * Runs [block] with the short time limit and [stall] in place, catching the warnings of abandoned layouts, and checks
      * that each abandoned layout, which marks the diagram out of date, logged one warning with the file's name and the
-     * limit. The stall is released at the end in any case.
+     * limit, and that no layout thread was interrupted. The stall is released at the end in any case.
      */
     private fun limited(controller: DiagramController, view: Recorder, stall: Stall, block: () -> Unit) {
         controller.timeLimitMs = LIMIT_MS
+        stall.stopped = controller::cancelledOn
         view.stall = stall
         val warnings: MutableList<String> = Collections.synchronizedList(ArrayList())
         val token = LoggedErrorProcessor.executeWith(object : LoggedErrorProcessor() {
@@ -428,6 +490,7 @@ class DiagramControllerTest : DiagramTestCase() {
             // the warning is logged before the mark is posted
             assertEquals("one warning per abandoned layout", view.staleCount(), warnings.size)
             for (w in warnings) assertTrue(w, "test.asl.yaml" in w && "$LIMIT_MS ms" in w)
+            assertEquals("a layout thread was interrupted", emptyList<Thread>(), stall.interrupted.toList())
         } finally {
             stall.releaseAll()
             token.finish()
@@ -436,7 +499,7 @@ class DiagramControllerTest : DiagramTestCase() {
 
     fun `test a layout over the time limit is abandoned, and the next one does not wait for it`() {
         val (controller, view) = open(archive)
-        val stall = Stall(1, ignoreInterrupts = true)
+        val stall = Stall(false)
         limited(controller, view, stall) {
             PlatformTestUtil.waitForFuture(controller.refresh())
             waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
@@ -456,14 +519,14 @@ class DiagramControllerTest : DiagramTestCase() {
         }
     }
 
-    fun `test a layout over the time limit that heeds the interrupt ends`() {
+    fun `test a layout over the time limit ends when its flag is set`() {
         val (controller, view) = open(archive)
-        val stall = Stall(1, ignoreInterrupts = false)
+        val stall = Stall(true)
         limited(controller, view, stall) {
             PlatformTestUtil.waitForFuture(controller.refresh())
             waitFor("the diagram is not marked out of date") { view.staleCount() == 1 }
             val stuck = stall.threads.single()
-            waitFor("the interrupted layout did not end") { !stuck.isAlive }
+            waitFor("the abandoned layout did not end") { !stuck.isAlive }
             assertEquals("it ended without a release", 1L, stall.releases.single().count)
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertTrue(view.shows.isEmpty())
@@ -472,7 +535,7 @@ class DiagramControllerTest : DiagramTestCase() {
 
     fun `test while two abandoned layouts run, no further layout starts`() {
         val (controller, view) = open(archive)
-        val stall = Stall(2, ignoreInterrupts = true)
+        val stall = Stall(false, false)
         limited(controller, view, stall) {
             controller.refresh()
             waitFor("the first layout was not abandoned") { view.staleCount() == 1 }
@@ -498,26 +561,38 @@ class DiagramControllerTest : DiagramTestCase() {
         }
     }
 
-    fun `test disposal interrupts an abandoned layout again`() {
+    fun `test disposal sets the flag of every running layout`() {
         val parent = Disposer.newDisposable(testRootDisposable, "controller")
         val (controller, view) = control(file(archive), parent)
-        // the layout swallows the interrupt of its abandonment and heeds the next one
-        val stall = Stall(1, ignoreInterrupts = false, ignoredInterrupts = 1)
+        // the first layout is abandoned and does not heed its flag; the second runs within the limit and heeds it
+        val stall = Stall(false, true)
         limited(controller, view, stall) {
             controller.refresh()
-            waitFor("the layout was not abandoned") { view.staleCount() == 1 }
-            val stuck = stall.threads.single()
-            assertTrue(stuck.isAlive)
+            waitFor("the first layout was not abandoned") { view.staleCount() == 1 }
+            val abandoned = stall.threads.single()
+            assertTrue(controller.cancelledOn(abandoned))
+            controller.timeLimitMs = 600_000
+            controller.refresh()
+            waitFor("the second layout did not start") { stall.threads.size == 2 }
+            val running = stall.threads[1]
+            assertFalse(controller.cancelledOn(running))
+
             Disposer.dispose(parent)
-            waitFor("the abandoned layout did not end at disposal") { !stuck.isAlive }
-            assertEquals("it ended without a release", 1L, stall.releases.single().count)
+            waitFor("the running layout did not end at disposal") { !running.isAlive }
+            assertEquals("it ended without a release", 1L, stall.releases[1].count)
+            assertTrue(abandoned.isAlive)
+            assertTrue(controller.cancelledOn(abandoned))
+            stall.releaseAll()
+            waitFor("the abandoned layout did not end") { !abandoned.isAlive }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertTrue(view.shows.isEmpty())
         }
     }
 
     fun `test disposal while a layout is held leaves no thread behind`() {
         val parent = Disposer.newDisposable(testRootDisposable, "controller")
         val (controller, view) = control(file(archive), parent)
-        val stall = Stall(1, ignoreInterrupts = true)
+        val stall = Stall(false)
         view.stall = stall
         try {
             view.calls.clear()
@@ -544,5 +619,8 @@ class DiagramControllerTest : DiagramTestCase() {
          * that must succeed stays well inside it even on a busy machine; each abandonment costs the test this long.
          */
         const val LIMIT_MS = 2_000L
+
+        /** How often a held layout looks at its flag. */
+        const val POLL_MS = 10L
     }
 }

@@ -200,6 +200,43 @@ class DiagramSelectionTest : DiagramTestCase() {
         assertEquals(before, caret)
     }
 
+    fun `test a link in an outdated diagram does not move the caret`() {
+        val (_, view) = open(at = "Resource")
+        val target = text.indexOf("Type: Succeed")
+        replace("Film archive intake", "Film archive intake, revised and longer")
+        val before = caret
+        view.onNavigate(target)
+        assertEquals(before, caret)
+    }
+
+    fun `test a click and a link leave one caret and no selection`() {
+        val (_, view) = open()
+        val model = last(view).model
+        fun spread() {
+            editor.caretModel.addCaret(editor.offsetToVisualPosition(text.indexOf("Failed:")))
+            editor.selectionModel.setSelection(text.indexOf("Failed:"), text.indexOf("Failed:") + 6)
+            editor.caretModel.allCarets.first().setSelection(0, 7)
+            assertEquals(2, editor.caretModel.caretCount)
+            assertTrue(editor.caretModel.allCarets.all { it.hasSelection() })
+        }
+
+        spread()
+        val id = model.id("Scan")
+        caretTasks.clear()
+        view.onSelect(id)
+        assertEquals(1, editor.caretModel.caretCount)
+        assertFalse(editor.selectionModel.hasSelection())
+        assertEquals(model.offsets.getValue(id), caret)
+        assertTrue("the click's own caret move schedules no selection", caretTasks.isEmpty())
+
+        spread()
+        val target = text.indexOf("Type: Succeed")
+        view.onNavigate(target)
+        assertEquals(1, editor.caretModel.caretCount)
+        assertFalse(editor.selectionModel.hasSelection())
+        assertEquals(target, caret)
+    }
+
     fun `test the first show of a new model after a toggle during its layout selects by the new model`() {
         val (controller, view) = open(at = "Resource")
         val old = last(view)

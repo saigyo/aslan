@@ -97,6 +97,17 @@ class ListingTest {
         assertTrue("the change notes are empty", !notes.isNullOrBlank() && text(notes).isNotEmpty())
     }
 
+    @Test
+    fun `test the licence and the notice are in the plugin's META-INF`() {
+        for (name in listOf("LICENSE", "NOTICE")) {
+            // other jars on the class path carry files of the same name; one of them is the repository's
+            val found = javaClass.classLoader.getResources("META-INF/$name").toList()
+            assertTrue("no /META-INF/$name on the class path", found.isNotEmpty())
+            val expected = File(name).readText()
+            assertTrue("no /META-INF/$name is the repository's, found: $found", found.any { it.readText() == expected })
+        }
+    }
+
     private fun pluginXml(): String = File("src/main/resources/META-INF/plugin.xml").readText()
 
     private fun description(): String =

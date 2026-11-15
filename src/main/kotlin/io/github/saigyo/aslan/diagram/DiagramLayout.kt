@@ -63,22 +63,22 @@ class LaidEdge(val edge: DiagramEdge, val points: List<Point2D.Double>, val labe
 class LaidLabel(val text: String, val bounds: Rectangle2D.Double)
 
 /**
- * A progress monitor that answers [isCanceled] with whether the thread that made it has been interrupted. ELK asks it
- * before each phase of the layered algorithm and before each graph of the recursion, and returns early when it is true.
- * Its sub-monitors are of the same kind: ELK hands them to the phases.
+ * A progress monitor that answers [isCanceled] with [cancelled]. ELK asks it before each phase of the layered algorithm
+ * and before each graph of the recursion, and returns early when it is true. Its sub-monitors are of the same kind: ELK
+ * hands them to the phases.
  */
-private class InterruptMonitor(private val thread: Thread = Thread.currentThread()) : BasicProgressMonitor() {
-    override fun isCanceled(): Boolean = thread.isInterrupted
+private class FlagMonitor(private val cancelled: () -> Boolean) : BasicProgressMonitor() {
+    override fun isCanceled(): Boolean = cancelled()
 
     override fun doSubTask(work: Float, maxHierarchyLevels: Int): BasicProgressMonitor =
-        InterruptMonitor(thread).withMaxHierarchyLevels(if (maxHierarchyLevels > 0) maxHierarchyLevels - 1 else maxHierarchyLevels)
+        FlagMonitor(cancelled).withMaxHierarchyLevels(if (maxHierarchyLevels > 0) maxHierarchyLevels - 1 else maxHierarchyLevels)
 }
 
 /**
  * Lays out a [DiagramModel] with ELK's layered algorithm, from top to bottom. Called from any thread; each call builds
  * its own graph, and a call left behind over the time limit may still run beside the next one. It holds no PSI and
- * takes no read action. An interrupt of the calling thread cancels it: ELK stops at its next
- * phase, and [layout] throws a [CancellationException] and leaves the thread interrupted.
+ * takes no read action. Once [cancelled] answers true, ELK stops at its next phase and [layout] throws a
+ * [CancellationException]; an interrupt of the calling thread is not looked at.
  */
 object DiagramLayouter {
     private const val STATE_WIDTH = 190.0
@@ -99,16 +99,16 @@ object DiagramLayouter {
     private const val GROUP_TOP = GROUP_TEXT + START_MARK
     private const val BRANCH_TOP = BRANCH_TEXT + START_MARK
 
-    fun layout(model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure): DiagramLayout {
+    fun layout(model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure, cancelled: () -> Boolean = { false }): DiagramLayout {
         val root = model.root ?: return DiagramLayout(0.0, 0.0, emptyList(), emptyList())
         registerLayeredAlgorithm()
         val graph = ElkGraphUtil.createGraph()
         val run = Run(mode, collapsed, measure)
         run.machine(root, graph, SIDE_PADDING)
-        val monitor = InterruptMonitor()
+        val monitor = FlagMonitor(cancelled)
         RecursiveGraphLayoutEngine().layout(graph, monitor)
         // a cancelled run leaves the graph partly laid out
-        if (monitor.isCanceled()) throw CancellationException("The layout was interrupted")
+        if (monitor.isCanceled()) throw CancellationException("The layout was cancelled")
         return DiagramLayout(graph.width, graph.height, run.nodes(), run.edges())
     }
 

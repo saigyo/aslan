@@ -19,12 +19,12 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import io.github.saigyo.aslan.model.AslModel
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 private val log = logger<DiagramController>()
@@ -34,8 +34,8 @@ private val log = logger<DiagramController>()
  * non-blocking read action, lays it out on a thread of its own, outside any read action, and hands both to the view on
  * the UI thread. A result is dropped when the document has changed since its model was built, when the layout's choices
  * have changed since it was made, when a newer result has been handed over, or once [parent] is disposed. A layout that
- * takes longer than [timeLimitMs] is interrupted and left behind, and the diagram is marked out of date; the layouts
- * after it run on a new thread.
+ * takes longer than [timeLimitMs] is told to stop and left behind, and the diagram is marked out of date; the layouts
+ * after it run on a new thread. A read or a layout that fails also marks the diagram out of date.
  *
  * [chosen] is the layout chosen for the file before, and [remember] keeps a choice made with the layout switch. Create
  * and use it on the UI thread; [refresh] may be called from any thread.
@@ -103,23 +103,26 @@ class DiagramController(
     /** The delayed refresh after the last change, if it has not run. UI thread. */
     private var pending: Future<*>? = null
 
-    /** Guards [layoutThread], [abandoned], [leftBehind] and [droppedUnderBound], which the time limit changes from the scheduler's thread. */
+    /** Guards [layoutThread], [abandoned], [running] and [droppedUnderBound], which the time limit changes from the scheduler's thread. */
     private val lock = Any()
 
     /**
      * The thread of the layouts, used for nothing else; it ends when idle and when [parent] is disposed. A layout over
      * the time limit is left behind on it, and a new one takes the layouts after it.
      */
-    private var layoutThread: ExecutorService = newLayoutThread()
+    private var layoutThread: ThreadPoolExecutor = newLayoutThread()
 
     /** The number of layouts left behind over the time limit that have not ended yet. */
     private var abandoned = 0
 
-    /** The executors of the layouts left behind, shut down again at disposal; one that has ended is removed. */
-    private val leftBehind = ArrayList<ExecutorService>()
+    /** The layouts that run now, left behind ones included; each is told to stop at disposal. */
+    private val running = HashSet<LayoutTask>()
 
     /** Whether a layout was dropped because [abandoned] reached its bound; a refresh follows once it falls below. */
     private var droppedUnderBound = false
+
+    /** Whether a read or a layout has failed before; only the first failure is logged as an error. */
+    private val failedBefore = AtomicBoolean()
 
     /** Schedules a task after the delay; tests replace it to run the delay themselves. */
     internal var delay: (Runnable) -> Future<*> = { task ->
@@ -134,7 +137,7 @@ class DiagramController(
         )
     }
 
-    /** How long one layout may take before it is interrupted and left behind; tests set a short one. */
+    /** How long one layout may take before it is told to stop and left behind; tests set a short one. */
     @Volatile
     internal var timeLimitMs = TIME_LIMIT_MS
 
@@ -159,12 +162,12 @@ class DiagramController(
             pending = null
             pendingCaret?.cancel(false)
             pendingCaret = null
-            // the layout that runs is interrupted, and the ones queued end at once; the thread ends after them. The layouts
-            // left behind are interrupted again, in case one swallowed the first interrupt.
+            // the layouts queued end at once, and the running ones, left behind ones included, are told to stop. No
+            // thread is interrupted, since an interrupted thread may fail to load a class; each ends when its layout returns.
             synchronized(lock) {
-                layoutThread.shutdownNow().filterIsInstance<LayoutTask>().forEach { it.done.complete(false) }
-                leftBehind.forEach { it.shutdownNow() }
-                leftBehind.clear()
+                drain(layoutThread).forEach { it.done.complete(false) }
+                layoutThread.shutdown()
+                running.forEach { it.cancelled = true }
             }
         }
         document.addDocumentListener(object : DocumentListener {
@@ -197,7 +200,8 @@ class DiagramController(
         }, parent)
         view.onSelect = { id -> if (!disposed) selectFromView(id) }
         view.onNavigate = { offset ->
-            if (!disposed) moveCaret(offset, selecting = true)
+            // the offsets are those of the model shown; the document may have changed since
+            if (!disposed && document.modificationStamp == shownStamp) moveCaret(offset, selecting = true)
         }
         refresh()
     }
@@ -225,16 +229,22 @@ class DiagramController(
         if (document.modificationStamp == shownStamp) moveCaret(offset, selecting = false)
     }
 
+    /** Leaves one caret at [offset] and no selection, as the platform's own navigation does. */
     private fun moveCaret(offset: Int, selecting: Boolean) {
         val target = offset.coerceIn(0, document.textLength)
         movingCaret = !selecting
         try {
+            editor.caretModel.removeSecondaryCarets()
+            editor.selectionModel.removeSelection()
             editor.caretModel.moveToOffset(target)
             editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
         } finally {
             movingCaret = false
         }
     }
+
+    /** Whether the layout that runs on [thread] has been told to stop; for tests. */
+    internal fun cancelledOn(thread: Thread): Boolean = synchronized(lock) { running.any { it.thread === thread && it.cancelled } }
 
     /** Reads the file and lays it out again; the future is done when the view has the result or it was dropped. */
     internal fun refresh(): CompletableFuture<*> {
@@ -247,9 +257,10 @@ class DiagramController(
             .coalesceBy(this)
             .expireWith(parent)
             .submit(AppExecutorUtil.getAppExecutorService())
-            .onSuccess { built -> onLayoutThread(done) { lay(request, built, refreshed = true) } }
+            .onSuccess { built -> onLayoutThread(done) { cancelled -> lay(request, built, refreshed = true, cancelled) } }
             .onError { e ->
-                if (e !is CancellationException) log.error("Cannot read the diagram of ${file.name}", e)
+                // a cancellation, a ProcessCanceledException among them, is no failure
+                if (e !is CancellationException) failed("Cannot read the diagram of ${file.name}", e)
                 done.complete(false)
             }
         return done
@@ -260,7 +271,17 @@ class DiagramController(
         val done = CompletableFuture<Boolean>()
         val request = requests.incrementAndGet()
         latest = done
-        onLayoutThread(done) { newest?.let { lay(request, it, refreshed = false) } }
+        onLayoutThread(done) { cancelled -> newest?.let { lay(request, it, refreshed = false, cancelled) } }
+    }
+
+    /**
+     * A read or a layout failed: the diagram is marked out of date. The first failure of this controller is logged as an
+     * error, later ones only as a warning, so the IDE does not report an error at every pause in typing. The messages
+     * name the file and hold none of its text.
+     */
+    private fun failed(message: String, e: Throwable) {
+        if (failedBefore.compareAndSet(false, true)) log.error(message, e) else log.warn("$message: ${e.javaClass.name}")
+        ApplicationManager.getApplication().invokeLater({ if (!disposed) view.setStale() }, ModalityState.any())
     }
 
     /** Called in the read action. */
@@ -271,8 +292,11 @@ class DiagramController(
         return Built(if (doc != null && DiagramBuilder.readable(doc)) DiagramBuilder.build(doc) else null, stamp)
     }
 
-    /** Runs [work] on the layout thread and hands its result over; a null result, or none at all, completes [done] as dropped. */
-    private fun onLayoutThread(done: CompletableFuture<Boolean>, work: () -> Result?) {
+    /**
+     * Runs [work] on the layout thread and hands its result over; a null result, or none at all, completes [done] as
+     * dropped. [work] is given the flag that tells it to stop.
+     */
+    private fun onLayoutThread(done: CompletableFuture<Boolean>, work: (cancelled: () -> Boolean) -> Result?) {
         synchronized(lock) {
             if (!disposed) {
                 try {
@@ -286,25 +310,44 @@ class DiagramController(
         done.complete(false)
     }
 
-    private fun newLayoutThread(): ExecutorService = ThreadPoolExecutor(0, 1, IDLE_SECONDS, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
+    private fun newLayoutThread() = ThreadPoolExecutor(0, 1, IDLE_SECONDS, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
         Thread(task, LAYOUT_THREAD).apply { isDaemon = true }
     }
 
+    /** Takes the layouts queued on [executor] off it, in order. Under [lock], which every queueing holds. */
+    private fun drain(executor: ThreadPoolExecutor): List<LayoutTask> =
+        ArrayList<Runnable>().also { executor.queue.drainTo(it) }.map { it as LayoutTask }
+
     /**
-     * One layout on a layout thread, watched by the time limit. When the limit passes first, the layout is interrupted
+     * One layout on a layout thread, watched by the time limit. When the limit passes first, the layout is told to stop
      * and left behind ([abandon]); its result is dropped if it ever ends. While [MAX_ABANDONED] layouts are left behind
      * and still running, no layout starts; when one of them ends after a layout was dropped so, a refresh follows, which
      * reads the file again and covers edits and changed choices alike.
      */
-    private inner class LayoutTask(val done: CompletableFuture<Boolean>, private val work: () -> Result?) : Runnable {
+    private inner class LayoutTask(val done: CompletableFuture<Boolean>, private val work: (cancelled: () -> Boolean) -> Result?) : Runnable {
         /** [RUNNING] until the layout ends ([ENDED]) or is left behind ([ABANDONED]), whichever comes first. Guarded by [lock]. */
         private var state = RUNNING
 
+        /** Set when the layout is left behind or the controller is disposed; ELK's progress monitor reads it between phases. */
+        @Volatile
+        var cancelled = false
+
+        /** The thread the layout runs on, once it has started. */
+        @Volatile
+        var thread: Thread? = null
+
         override fun run() {
-            val bounded = synchronized(lock) {
-                (abandoned >= MAX_ABANDONED).also { if (it) droppedUnderBound = true }
+            val started = synchronized(lock) {
+                when {
+                    disposed -> false
+                    abandoned >= MAX_ABANDONED -> false.also { droppedUnderBound = true }
+                    else -> true.also {
+                        thread = Thread.currentThread()
+                        running += this
+                    }
+                }
             }
-            if (disposed || bounded) {
+            if (!started) {
                 done.complete(false)
                 return
             }
@@ -312,7 +355,7 @@ class DiagramController(
             val watchdog = AppExecutorUtil.getAppScheduledExecutorService().schedule({ abandon(limit) }, limit, TimeUnit.MILLISECONDS)
             var passed = false
             try {
-                val result = work()
+                val result = work { cancelled }
                 if (result != null && end()) {
                     ApplicationManager.getApplication().invokeLater({
                         try {
@@ -323,12 +366,14 @@ class DiagramController(
                     }, ModalityState.any())
                     passed = true
                 }
-            } catch (e: Exception) {
-                // an interrupt ends the layout with a cancellation; a layout left behind may end with anything
-                if (!disposed && e !is CancellationException && end()) log.error("Cannot lay out the diagram of ${file.name}", e)
+            } catch (e: Throwable) {
+                // the flag ends the layout with a cancellation, and a layout left behind may end with anything. An Error is
+                // caught too: the thread is the plugin's own, and a later IDE without a class the layout needs throws one
+                if (!disposed && e !is CancellationException && end()) failed("Cannot lay out the diagram of ${file.name}", e)
             } finally {
                 watchdog.cancel(false)
                 val lifted = synchronized(lock) {
+                    running -= this
                     if (state == RUNNING) state = ENDED else if (state == ABANDONED) abandoned--
                     // a request dropped under the bound is made up for now: the file may have changed, or the choices
                     (droppedUnderBound && abandoned < MAX_ABANDONED).also { if (it) droppedUnderBound = false }
@@ -345,36 +390,37 @@ class DiagramController(
         }
 
         /**
-         * On the scheduler's thread, when [limit] has passed. The thread of the layout is shut down, which interrupts it;
-         * the layouts queued behind it move to a new thread, and the diagram is marked out of date before any of them
-         * can be shown.
+         * On the scheduler's thread, when [limit] has passed. The layout is told to stop, and its thread is shut down
+         * without an interrupt, so it ends when the layout returns; the layouts queued behind it move to a new thread,
+         * and the diagram is marked out of date before any of them can be shown.
          */
         private fun abandon(limit: Long) {
             synchronized(lock) {
                 if (disposed || state != RUNNING) return
                 state = ABANDONED
+                cancelled = true
                 abandoned++
                 // logged before the mark is posted, so whoever sees the mark finds the warning logged
                 log.warn("The layout of the diagram of ${file.name} took longer than $limit ms and was left behind")
                 ApplicationManager.getApplication().invokeLater({ if (!disposed) view.setStale() }, ModalityState.any())
                 val old = layoutThread
-                leftBehind.removeAll { it.isTerminated }
-                leftBehind += old
                 layoutThread = newLayoutThread()
-                old.shutdownNow().forEach(layoutThread::execute)
+                val queued = drain(old)
+                old.shutdown()
+                queued.forEach(layoutThread::execute)
             }
             done.complete(false)
         }
     }
 
     /** On the layout thread. A refresh makes its model the newest one before laying it out, so a later new layout takes it. */
-    private fun lay(request: Long, built: Built, refreshed: Boolean): Result {
+    private fun lay(request: Long, built: Built, refreshed: Boolean, cancelled: () -> Boolean): Result {
         val model = built.model
         val choices = choices
         if (model == null) return Result(request, built, choices, null, choices.mode ?: LayoutMode.defaultFor(0))
         if (refreshed) newest = built
         val mode = choices.mode ?: LayoutMode.defaultFor(model.stateCount)
-        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure), mode)
+        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure, cancelled), mode)
     }
 
     /** On the UI thread; whether the view was given the result. */
