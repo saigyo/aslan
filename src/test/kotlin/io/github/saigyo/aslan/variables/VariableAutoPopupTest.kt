@@ -1,7 +1,8 @@
 package io.github.saigyo.aslan.variables
 
-import com.intellij.testFramework.EdtTestUtil
 import com.intellij.testFramework.fixtures.CompletionAutoPopupTester
+import com.intellij.testFramework.runInEdtAndGet
+import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.ThrowableRunnable
 
 /** Typing `$` in an expression opens completion without Ctrl+Space; the test runs off the dispatch thread, as the popup needs. */
@@ -17,7 +18,7 @@ class VariableAutoPopupTest : VariableTestCase() {
 
     override fun runTestRunnable(testRunnable: ThrowableRunnable<Throwable>) = tester.runWithAutoPopupEnabled(testRunnable)
 
-    private fun configure(output: String) = EdtTestUtil.runInEdtAndWait<Throwable> {
+    private fun configure(output: String) = runInEdtAndWait {
         yaml(
             machine(
                 """
@@ -36,7 +37,7 @@ class VariableAutoPopupTest : VariableTestCase() {
         )
     }
 
-    private fun lookupStrings(): List<String>? = EdtTestUtil.runInEdtAndGet<List<String>?, Throwable> { tester.lookup?.items?.map { it.lookupString } }
+    private fun lookupStrings(): List<String>? = runInEdtAndGet { tester.lookup?.items?.map { it.lookupString } }
 
     fun `test typing a dollar sign in an expression opens completion with the variables`() {
         configure("\"{% <caret> %}\"")

@@ -188,7 +188,7 @@ class VariableNavigationTest : VariableTestCase() {
         val catcher = entryAt(offsetsOf("reel:")[1])
         val primary = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(catcher, false)!!.primaryElements.toList()
         assertEquals(offsetsOf("reel:").map { entryAt(it) }, primary.map { it.navigationElement })
-        val presentations = primary.map { PsiElement2UsageTargetAdapter(it, true).presentation!! }
+        val presentations = primary.map { PsiElement2UsageTargetAdapter(it, true).presentation }
         assertEquals(List(3) { "reel" }, presentations.map { it.presentableText })
         assertEquals(listOf("Load", "Load, first Catcher", "Check, second Choice rule"), presentations.map { it.locationString })
         // the assignment entries and the targets are described as the variable, not as a key-value and its value
