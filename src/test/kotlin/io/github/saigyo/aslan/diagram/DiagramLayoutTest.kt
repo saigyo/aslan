@@ -5,7 +5,6 @@ import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.TransitionKind
 import java.awt.geom.Line2D
 import java.awt.geom.Rectangle2D
-import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import kotlin.math.abs
@@ -15,14 +14,6 @@ class DiagramLayoutTest : DiagramTestCase() {
 
     private fun lay(model: DiagramModel, mode: LayoutMode, collapsed: Set<String> = emptySet()): DiagramLayout =
         DiagramLayouter.layout(model, mode, collapsed, measure)
-
-    /** The small definition and every committed definition, by name. */
-    private fun definitions(): List<Pair<String, DiagramModel>> {
-        val files = File("src/test/testData/clean").listFiles().orEmpty().filter { ".asl." in it.name }.sortedBy { it.name }
-        assertTrue(files.isNotEmpty())
-        val committed = files.map { f -> f.name to DiagramBuilder.build(AslModel.of(myFixture.configureByText(f.name, f.readText()))!!) }
-        return listOf("small" to build(archive).first) + committed
-    }
 
     private fun large(): DiagramModel =
         DiagramBuilder.build(AslModel.of(myFixture.configureByFile("clean/film-archive-intake.asl.yaml"))!!)

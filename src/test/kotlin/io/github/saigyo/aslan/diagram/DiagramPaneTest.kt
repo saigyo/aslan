@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.ui.ColorUtil
@@ -13,12 +14,12 @@ import io.github.saigyo.aslan.model.TransitionKind
 import java.awt.Component
 import java.awt.Container
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.awt.event.InputEvent
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
-import java.io.File
 import javax.swing.AbstractButton
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
@@ -69,13 +70,6 @@ class DiagramPaneTest : DiagramTestCase() {
 
     private fun large(): DiagramModel =
         DiagramBuilder.build(AslModel.of(myFixture.configureByFile("clean/film-archive-intake.asl.yaml"))!!)
-
-    private fun definitions(): List<Pair<String, DiagramModel>> {
-        val files = File("src/test/testData/clean").listFiles().orEmpty().filter { ".asl." in it.name }.sortedBy { it.name }
-        assertTrue(files.isNotEmpty())
-        val committed = files.map { f -> f.name to DiagramBuilder.build(AslModel.of(myFixture.configureByText(f.name, f.readText()))!!) }
-        return listOf("small" to small()) + committed
-    }
 
     private fun DiagramPane.scene() = diagram.scene!!
     private fun DiagramPane.box(id: String) = scene().items.filterIsInstance<SceneItem.Box>().single { it.id == id }
@@ -334,10 +328,20 @@ class DiagramPaneTest : DiagramTestCase() {
         val pane = pane()
         val width = lay(large(), LayoutMode.COMPACT, pane).width
         assertTrue("$width", width <= 2200)
-        // the pane measures with the painter's fonts
-        val font = DiagramPainter.font(DiagramScene.NAME_SIZE, true)
-        val metrics = pane.diagram.getFontMetrics(font)
-        assertEquals(metrics.stringWidth("ReelCheckpoint").toDouble(), pane.measure.width("ReelCheckpoint", DiagramScene.NAME_SIZE, true), 2.0)
+        // the pane measures with the painter's fonts, as the painter draws them: antialiased, without fractional metrics
+        val image = BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+        val g = image.createGraphics()
+        val painted = try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+            g.fontRenderContext
+        } finally {
+            g.dispose()
+        }
+        for ((size, bold) in listOf(DiagramScene.NAME_SIZE to true, DiagramScene.SUB_SIZE to false)) {
+            val expected = DiagramPainter.font(size, bold).getStringBounds("ReelCheckpoint", painted).width
+            assertEquals("$size $bold", expected, pane.measure.width("ReelCheckpoint", size, bold), 0.001)
+        }
         assertTrue(pane.measure.width("Wide", 12, true) > pane.measure.width("Wide", 10, false))
     }
 
@@ -462,10 +466,12 @@ class DiagramPaneTest : DiagramTestCase() {
     }
 
     fun `test every control of the toolbar is visible in a narrow pane`() {
+        // 380 pixels was fixed on macOS against the IDE's own right pane; elsewhere the label font may be wider
+        val width = if (SystemInfo.isMac) 380 else 460
         val model = large()
-        val pane = pane(380, 700)
+        val pane = pane(width, 700)
         pane.show(model, lay(model, LayoutMode.COMPACT, pane), LayoutMode.COMPACT, null)
-        resize(pane, 380, 700)
+        resize(pane, width, 700)
         val bar = pane.toolbar.component
         assertTrue("${bar.preferredSize.width} " + bar.components.map { "${it.javaClass.simpleName} ${it.width}" }, bar.preferredSize.width <= bar.width)
         // the two drop-downs and the three buttons, each whole inside the toolbar
