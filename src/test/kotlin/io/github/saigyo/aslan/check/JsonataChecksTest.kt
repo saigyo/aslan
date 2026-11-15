@@ -7,6 +7,7 @@ import io.github.saigyo.aslan.check.AslProblem.NEWER_JSONATA_OPERATOR
 import io.github.saigyo.aslan.check.AslProblem.STATES_FIELD_UNAVAILABLE
 import io.github.saigyo.aslan.check.AslProblem.UNKNOWN_JSONATA_FUNCTION
 import io.github.saigyo.aslan.check.AslProblem.UNSUPPORTED_JSONATA_FUNCTION
+import io.github.saigyo.aslan.model.AslModel
 import java.io.File
 
 class JsonataChecksTest : CheckTestCase() {
@@ -223,6 +224,36 @@ class JsonataChecksTest : CheckTestCase() {
     fun `test eval`() {
         assertEquals(listOf(UNSUPPORTED_JSONATA_FUNCTION to "\$eval"), expr("\$eval(\"1\")"))
         assertEquals(nothing, expr("(\$eval := function(\$s){\$s}; \$eval(\"1\"))"))
+    }
+
+    /** A machine whose Pass state Load assigns [assign] (YAML, `name: value`), then Show outputs [output]. */
+    private fun assigning(assign: String, output: String) =
+        "QueryLanguage: JSONata\nStartAt: Load\nStates:\n  Load:\n    Type: Pass\n    Assign:\n      $assign\n    Next: Show\n" +
+            "  Show:\n    Type: Pass\n    Output: $output\n    End: true\n"
+
+    fun `test a state machine variable named like a built-in function is no use of the function`() {
+        // AWS accepts a read of a variable named eval (r11-j-builtin-name)
+        val text = assigning("eval: 1", "'{% \$eval %}'")
+        val doc = AslModel.of(myFixture.configureByText("model.asl.yaml", text))!!
+        assertEquals(listOf("eval"), doc.variables.reads.map { it.name })
+        assertNotNull(doc.variables.variableOf(doc.variables.reads.single()))
+        assertEquals(nothing, inside(text))
+        // without an assignment that makes it visible, it is the function
+        assertEquals(listOf(UNSUPPORTED_JSONATA_FUNCTION to "\$eval"), inside(assigning("reel: 1", "'{% \$eval %}'")))
+        // a call of a known function under an assigned name gets no warning about functions either
+        val sum = assigning("sum: 2", "'{% \$sum([1]) %}'")
+        assertEquals(listOf("sum"), AslModel.of(myFixture.configureByText("sum.asl.yaml", sum))!!.variables.reads.map { it.name })
+        assertEquals(nothing, inside(sum))
+    }
+
+    fun `test a variable named like a built-in function shared with a state that does not assign it is still checked`() {
+        // the second state reads the expression too, but no assignment makes eval visible there: it is the function
+        val text = "QueryLanguage: JSONata\nStartAt: P\nStates:\n  P:\n    Type: Parallel\n    Branches:\n" +
+            "      - StartAt: L\n        States:\n          L:\n            Type: Pass\n            Assign:\n              eval: 1\n            Next: S\n" +
+            "          S:\n            Type: Pass\n            Output: &shared '{% \$eval %}'\n            End: true\n" +
+            "      - StartAt: T\n        States:\n          T:\n            Type: Pass\n            Output: *shared\n            End: true\n" +
+            "    End: true\n"
+        assertEquals(listOf(UNSUPPORTED_JSONATA_FUNCTION to "\$eval"), inside(text))
     }
 
     fun `test the operators of JSONata 2_1`() {

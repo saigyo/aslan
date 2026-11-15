@@ -17,6 +17,7 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataScopes
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.model.AslDocument
+import io.github.saigyo.aslan.model.AslVariables
 import io.github.saigyo.aslan.model.JsonataSite
 import io.github.saigyo.aslan.model.JsonataSites
 import io.github.saigyo.aslan.spec.AslSpec
@@ -47,7 +48,7 @@ internal object JsonataChecks {
                 out += finding(host, file, error)
                 continue
             }
-            if (complete(file)) Expression(host, file, doc.jsonataSites.at(host), out).check()
+            if (complete(file)) Expression(host, file, doc.jsonataSites.at(host), doc.variables, out).check()
         }
     }
 
@@ -74,7 +75,13 @@ internal object JsonataChecks {
      * `$states`, the functions called, the operators of JSONata 2.1, and the names evaluated against the input of the
      * expression itself.
      */
-    private class Expression(val host: PsiElement, val file: JsonataFile, val sites: List<JsonataSite>, val out: MutableList<AslFinding>) {
+    private class Expression(
+        val host: PsiElement,
+        val file: JsonataFile,
+        val sites: List<JsonataSite>,
+        val variables: AslVariables,
+        val out: MutableList<AslFinding>,
+    ) {
         private val manager = InjectedLanguageManager.getInstance(file.project)
 
         /**
@@ -131,10 +138,15 @@ internal object JsonataChecks {
             }
         }
 
-        /** The callee of a call that is neither a local variable nor a known function, and any use of a function Step Functions does not run. */
+        /**
+         * The callee of a call that is neither a local variable nor a known function, and any use of a function Step
+         * Functions does not run. Not a `$name` that every state using the expression reads as a state machine
+         * variable: an assignment there makes the name the variable's, and AWS accepts the read (`r11-j-builtin-name`).
+         */
         private fun function(variable: JsonataVariableRef) {
             val name = JsonataScopes.localName(variable) ?: return
             if (JsonataScopes.declarations(variable).isNotEmpty()) return
+            if (readAsStateVariable(variable)) return
             val known = AslSpec.jsonataFunction(name)
             val call = variable.parent as? JsonataCall
             when {
@@ -143,6 +155,12 @@ internal object JsonataChecks {
                 known == null && call != null && call.callee === variable ->
                     report(AslProblem.UNKNOWN_JSONATA_FUNCTION, variable, "Unknown function '\$$name'")
             }
+        }
+
+        /** Whether the model reads [variable] as a state machine variable at every site of the expression. */
+        private fun readAsStateVariable(variable: JsonataVariableRef): Boolean {
+            val reads = variables.readsAt(variable)
+            return sites.isNotEmpty() && sites.all { site -> reads.any { it.site === site && variables.variableOf(it) != null } }
         }
 
         /**
