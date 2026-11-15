@@ -1,6 +1,5 @@
 package io.github.saigyo.aslan.diagram
 
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
@@ -11,19 +10,10 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.saigyo.aslan.files.AslFiles
-import javax.swing.SwingUtilities
 
-private val log = logger<AslSplitEditorProvider>()
-
-// Says on which thread the platform creates the editors, for the smoke check in the sandbox IDE; removed after it.
-private fun logThread(method: String) {
-    log.info("$method on thread ${Thread.currentThread().name}, event dispatch thread: ${SwingUtilities.isEventDispatchThread()}")
-}
-
-/** Opens an ASL file in the text editor with the diagram beside it. */
+/** Opens an ASL file in the text editor with the diagram beside it. The platform calls both providers on the UI thread. */
 class AslSplitEditorProvider : TextEditorWithPreviewProvider(DiagramPreviewProvider()) {
     override fun createSplitEditor(firstEditor: TextEditor, secondEditor: FileEditor): FileEditor {
-        logThread("createSplitEditor")
         val preview = secondEditor as DiagramPreviewEditor
         preview.attach(firstEditor)
         return TextEditorWithPreview(firstEditor, preview, "Aslan Diagram", TextEditorWithPreview.Layout.SHOW_EDITOR_AND_PREVIEW, false)
@@ -40,10 +30,7 @@ class DiagramPreviewProvider : FileEditorProvider, DumbAware {
 
     override fun acceptRequiresReadAction(): Boolean = false
 
-    override fun createEditor(project: Project, file: VirtualFile): FileEditor {
-        logThread("DiagramPreviewProvider.createEditor")
-        return DiagramPreviewEditor(project, file)
-    }
+    override fun createEditor(project: Project, file: VirtualFile): FileEditor = DiagramPreviewEditor(project, file)
 
     override fun getEditorTypeId(): String = "aslan-diagram"
 

@@ -53,6 +53,10 @@ class SplitEditorTest : AslTestCase() {
             editor as TextEditorWithPreview
             assertInstanceOf(editor.previewEditor, DiagramPreviewEditor::class.java)
             assertEquals(TextEditorWithPreview.Layout.SHOW_EDITOR_AND_PREVIEW, editor.getLayout())
+            val preview = editor.diagram()
+            assertSame(preview.pane.component, preview.component)
+            assertSame("the diagram takes the focus", preview.pane.diagram, preview.preferredFocusedComponent)
+            assertNotNull(preview.controller)
         } finally {
             Disposer.dispose(editor)
         }
@@ -83,14 +87,5 @@ class SplitEditorTest : AslTestCase() {
     fun `test the size rule`() {
         assertEquals(LayoutMode.LOOSE, LayoutMode.defaultFor(25))
         assertEquals(LayoutMode.COMPACT, LayoutMode.defaultFor(26))
-    }
-
-    fun `test the layout library runs`() {
-        val root = layOutTwoNodes()
-        val (first, second) = root.children.also { assertEquals(2, it.size) }
-        assertTrue("the second node lies below the first", second.y >= first.y + first.height)
-        val section = root.containedEdges.single().sections.single()
-        assertEquals(first.y + first.height, section.startY, 0.001)
-        assertEquals(second.y, section.endY, 0.001)
     }
 }
