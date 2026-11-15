@@ -1,5 +1,7 @@
 package io.github.saigyo.aslan.diagram
 
+import io.github.saigyo.aslan.jsonata.parser.JsonataScanner
+import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.data.comparisonOperatorNames
 import io.github.saigyo.aslan.tree.AslArray
@@ -100,7 +102,7 @@ object DiagramLabels {
         val condition = (rule["Condition"]?.value as? AslScalar)?.takeIf { it.type == ScalarType.STRING } ?: return null
         val text = condition.text.trim()
         if (text.length < 4 || !text.startsWith("{%") || !text.endsWith("%}")) return null
-        return collapse(text.substring(2, text.length - 2)).takeIf { it.isNotEmpty() }?.let { Label(it, null) }
+        return spaced(text.substring(2, text.length - 2)).takeIf { it.isNotEmpty() }?.let { Label(it, null) }
     }
 
     private fun jsonPathRule(rule: AslObject): Label? {
@@ -136,6 +138,23 @@ object DiagramLabels {
         if (text.codePointCount(0, text.length) <= max) return text
         if (max <= 0) return ""
         return text.substring(0, text.offsetByCodePoints(0, max - 1)) + ELLIPSIS
+    }
+
+    /**
+     * The JSONata [expression] with each white space token as one space and every other token as written, so a regular
+     * expression or a string keeps its inner white space; trimmed. The scanner is the plugin's own and does not throw.
+     */
+    private fun spaced(expression: String): String {
+        val out = StringBuilder()
+        var at = 0
+        for (token in JsonataScanner.scan(expression).tokens) {
+            // text between tokens, if the scanner leaves any, is copied as written
+            if (token.start > at) out.append(expression, at, token.start)
+            if (token.type == JsonataTokens.WHITE_SPACE) out.append(' ') else out.append(expression, token.start, token.end)
+            at = token.end
+        }
+        if (at < expression.length) out.append(expression, at, expression.length)
+        return out.toString().trim(' ')
     }
 
     /**

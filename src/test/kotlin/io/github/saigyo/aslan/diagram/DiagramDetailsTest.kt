@@ -101,6 +101,69 @@ class DiagramDetailsTest : AslTestCase() {
         assertEquals("End", model.details.getValue("s1").row("Next").items.single().text)
     }
 
+    fun `test each state shows only its own reads and assigns`() {
+        val (doc, _) = doc(
+            """
+            QueryLanguage: JSONata
+            StartAt: A
+            States:
+              A:
+                Type: Pass
+                Assign:
+                  fromA: '{% §states.input.a %}'
+                Next: B
+              B:
+                Type: Pass
+                Assign:
+                  fromB: '{% §fromA & "b" %}'
+                Next: C
+              C:
+                Type: Pass
+                Output: '{% §fromB & §fromA %}'
+                End: true
+            """,
+        )
+        val model = DiagramBuilder.build(doc)
+        fun rows(name: String) = model.details.getValue(model.root!!.states.single { it.name == name }.id)
+        assertEquals(listOf("\$fromA"), rows("A").row("Assigns").texts())
+        assertNull(rows("A").firstOrNull { it.label == "Reads" })
+        assertEquals(listOf("\$fromB"), rows("B").row("Assigns").texts())
+        assertEquals(listOf("\$fromA"), rows("B").row("Reads").texts())
+        assertNull(rows("C").firstOrNull { it.label == "Assigns" })
+        assertEquals(listOf("\$fromB", "\$fromA"), rows("C").row("Reads").texts())
+    }
+
+    fun `test a dynamic target is no item of Next or Catch`() {
+        val (doc, _) = doc(
+            """
+            StartAt: A
+            States:
+              A:
+                Type: Task
+                Resource: arn:aws:states:::lambda:invoke
+                Catch:
+                  - ErrorEquals: [States.ALL]
+                    Next: !Ref Handler
+                Next: !Ref B
+              B:
+                Type: Pass
+                Next: §{Target}
+              C:
+                Type: Pass
+                Next: D
+              D:
+                Type: Succeed
+            """,
+        )
+        val model = DiagramBuilder.build(doc)
+        val details = model.root!!.states.associate { it.name to model.details.getValue(it.id) }
+        for (name in listOf("A", "B")) {
+            assertNull(name, details.getValue(name).firstOrNull { it.label == "Next" })
+            assertNull(name, details.getValue(name).firstOrNull { it.label == "Catch" })
+        }
+        assertEquals(listOf("D"), details.getValue("C").row("Next").texts())
+    }
+
     fun `test reads and assigns are linked to their first place`() {
         val (rows, file) = rows(
             """

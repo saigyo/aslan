@@ -11,6 +11,7 @@ import io.github.saigyo.aslan.model.TransitionKind
 import io.github.saigyo.aslan.spec.StructureId
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
+import io.github.saigyo.aslan.tree.Placeholders
 import io.github.saigyo.aslan.tree.ScalarType
 import java.util.IdentityHashMap
 
@@ -124,13 +125,22 @@ object DiagramBuilder {
         val machineIds = IdentityHashMap<AslStateMachine, String>()
         doc.allMachines().forEachIndexed { i, m -> machineIds[m] = "m$i" }
         val builder = Builder(stateIds, machineIds)
-        val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(doc, it) }
+        val variables = DiagramDetails.Variables.of(doc)
+        val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(variables, it) }
         return DiagramModel(builder.machine(root, null, null), details, doc.allStates().size)
     }
 
+    /**
+     * The state name a transition target or `StartAt` [scalar] stands for, or null: only a string that is not dynamic
+     * (`!Ref B`) and holds no placeholder (`${Target}`) names a state, as the rest is settled at deployment.
+     */
+    internal fun settledName(scalar: AslScalar?): String? =
+        scalar?.takeIf { it.type == ScalarType.STRING && !it.dynamic && !Placeholders.contains(it.text) }?.text
+
     /** Whether the state ends the machine: a Succeed or Fail state, or `End: true` written as a certain boolean. */
     internal fun isTerminal(state: AslState): Boolean {
-        if (state.typeName == "Succeed" || state.typeName == "Fail") return true
+        // a type with a deployment tag has no resolved type and decides nothing
+        if (state.type?.terminal == true) return true
         val end = state.obj?.get("End")?.value as? AslScalar ?: return false
         return end.type == ScalarType.BOOLEAN && !end.ambiguous && !end.dynamic && end.text.equals("true", ignoreCase = true)
     }
@@ -141,7 +151,7 @@ object DiagramBuilder {
             val prefix = owner?.let { it + PATH_SEPARATOR + index + PATH_SEPARATOR }.orEmpty()
             val states = machine.states.map { state(it, prefix) }
             val edges = machine.states.flatMap { edges(it) }
-            val startName = (machine.startAt?.value as? AslScalar)?.takeIf { it.type == ScalarType.STRING }?.text
+            val startName = settledName(machine.startAt?.value as? AslScalar)
             val start = startName?.let { machine.state(it) }?.let { stateIds[it] }
             return DiagramMachine(machineIds.getValue(machine), title, start, states, edges)
         }
@@ -152,7 +162,7 @@ object DiagramBuilder {
             val machines = state.children.mapIndexed { i, child -> machine(child, if (parallel) "$BRANCH${i + 1}" else null, path, i) }
             val range = state.entry.entryPsi.textRange
             return DiagramState(
-                stateIds.getValue(state), path, state.name, state.typeName, sub(state), isTerminal(state),
+                stateIds.getValue(state), path, state.name, state.type?.name, sub(state), isTerminal(state),
                 state.entry.keyPsi.textRange.startOffset, range, machines,
             )
         }
@@ -169,7 +179,7 @@ object DiagramBuilder {
             val from = stateIds.getValue(state)
             val range = state.entry.entryPsi.textRange
             return state.transitions.mapNotNull { t ->
-                val target = t.targetName?.let { state.machine.state(it) } ?: return@mapNotNull null
+                val target = settledName(t.target)?.let { state.machine.state(it) } ?: return@mapNotNull null
                 val label: DiagramLabels.Label? = when (t.kind) {
                     TransitionKind.NEXT -> null
                     TransitionKind.DEFAULT -> DiagramLabels.Label("Default", null)

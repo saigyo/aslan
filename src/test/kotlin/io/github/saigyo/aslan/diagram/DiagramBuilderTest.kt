@@ -38,6 +38,36 @@ class DiagramBuilderTest : DiagramTestCase() {
         assertEquals(secondEach, again.root!!.states.single().machines[1].states.single().path)
     }
 
+    fun `test a type with a deployment tag is no known type`() {
+        val (model, _) = build("StartAt: A\nStates:\n  A:\n    Type: !Ref Succeed\n  B:\n    Type: Succeed\n  C:\n    Type: Foo")
+        val (tagged, plain, unknown) = model.root!!.states
+        assertFalse(tagged.terminal)
+        assertNull(tagged.type)
+        assertEquals("Succeed", tagged.sub)
+        assertNull(model.details.getValue(tagged.id).firstOrNull { it.label == "Next" })
+        assertTrue(plain.terminal)
+        assertEquals("Succeed", plain.type)
+        assertEquals("Foo", unknown.sub)
+        assertNull(unknown.type)
+    }
+
+    fun `test a dynamic target is no edge and no start`() {
+        val (model, _) = build(
+            "StartAt: !Ref A\nStates:\n  A:\n    Type: Pass\n    Next: !Ref B\n  B:\n    Type: Pass\n    Next: §{Target}\n" +
+                "  C:\n    Type: Choice\n    Choices:\n      - Variable: §.x\n        StringEquals: y\n        Next: !Ref A\n    Default: !Ref B\n" +
+                "  D:\n    Type: Task\n    Resource: arn:aws:states:::lambda:invoke\n    Catch:\n      - ErrorEquals: [States.ALL]\n        Next: !Ref A\n    Next: A\n",
+        )
+        val root = model.root!!
+        assertNull(root.start)
+        assertEquals(listOf("s3.n"), root.edges.map { it.id })
+        // a state whose only Next is dynamic is not terminal and has no End row
+        assertFalse(root.states[0].terminal)
+        assertNull(model.details.getValue(root.states[0].id).firstOrNull { it.label == "Next" })
+        val (plain, _) = build("StartAt: A\nStates:\n  A:\n    Type: Pass\n    Next: B\n  B:\n    Type: Succeed")
+        assertEquals(plain.root!!.states[0].id, plain.root!!.start)
+        assertEquals(listOf("s0.n"), plain.root!!.edges.map { it.id })
+    }
+
     fun `test End true is terminal however it is capitalised`() {
         for (written in listOf("true", "True", "TRUE")) {
             val (model, _) = build("StartAt: A\nStates:\n  A:\n    Type: Pass\n    End: $written")
