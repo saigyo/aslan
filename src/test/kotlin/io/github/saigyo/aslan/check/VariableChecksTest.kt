@@ -613,6 +613,17 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(emptyList<Any>(), outer(split("Next: Set") + again.replace("Next: Split", "Next: Done"), "control.asl.yaml"))
     }
 
+    fun `test several names asked against the same nested machine get their own answers`() {
+        // one check run asks the flow to Films for both names: reel is assigned before it, frame only after it
+        val films = films("Next: Late").replace("reel: 2\n", "reel: 2\n          frame: 2\n")
+        val states = "Load:\n  Type: Pass\n" + reelOne + "  Next: Films\n" + films +
+            "Late:\n  Type: Pass\n  Assign:\n    frame: 1\n  End: true\n"
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(states))
+        // with a way back from Late to Films, both count
+        val back = states.replace("Late:\n  Type: Pass\n  Assign:\n    frame: 1\n  End: true\n", "Late:\n  Type: Pass\n  Assign:\n    frame: 1\n  Next: Again\n") + again + done
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel", OUTER_VARIABLE_ASSIGNED to "frame"), outer(back, "back.asl.yaml"))
+    }
+
     fun `test two levels of nesting report the innermost assignment`() {
         val states = "Load:\n  Type: Pass\n" + reelOne + "  Next: Outer\n" +
             "Outer:\n  Type: Parallel\n  Branches:\n    - StartAt: Mid\n      States:\n" + split("End: true").trimEnd('\n').replace("Split:", "Mid:").prependIndent("        ") + "\n  End: true\n"

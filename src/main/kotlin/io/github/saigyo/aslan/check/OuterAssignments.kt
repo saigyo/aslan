@@ -24,6 +24,7 @@ import io.github.saigyo.aslan.model.TransitionKind
 internal class OuterAssignments(assignments: List<AslAssignment>) {
     private val byMachine: Map<AslStateMachine, List<AslAssignment>> = assignments.groupBy { it.state.machine }
     private val flowUnknown = HashMap<AslStateMachine, Boolean>()
+    private val reachingByTarget = HashMap<Pair<AslStateMachine, String>, Set<String>>()
 
     /** Whether an assignment applies before the flow enters a nested machine, as far as the file tells. */
     enum class Order { BEFORE, NOT_BEFORE, UNKNOWN }
@@ -65,15 +66,27 @@ internal class OuterAssignments(assignments: List<AslAssignment>) {
 
     /** Whether the flow of [machine] reaches the state [target] from [from], along any transitions, `Catch` included. */
     private fun reaches(machine: AslStateMachine, from: List<String>, target: String): Boolean {
-        val reached = HashSet<String>()
-        val queue = ArrayDeque(from)
-        while (queue.isNotEmpty()) {
-            val name = queue.removeFirst()
-            if (name == target) return true
-            if (!reached.add(name)) continue
-            val state = machine.state(name) ?: continue
-            for (t in state.transitions) t.targetName?.let(queue::addLast)
+        val reaching = reachingByTarget.getOrPut(machine to target) { reaching(machine, target) }
+        return from.any { it in reaching }
+    }
+
+    /**
+     * The names from which the flow of [machine] reaches [target]: [target] itself and every state with a transition to
+     * one of them. A name that several states share stands for the first of them, as [AslStateMachine.state] reads it.
+     * Computed once per machine and target, since the checks ask it for every matching assignment.
+     */
+    private fun reaching(machine: AslStateMachine, target: String): Set<String> {
+        val predecessors = HashMap<String, MutableList<String>>()
+        val named = HashSet<String>()
+        for (state in machine.states) {
+            if (!named.add(state.name)) continue
+            for (t in state.transitions) t.targetName?.let { predecessors.getOrPut(it) { ArrayList() } += state.name }
         }
-        return false
+        val reached = hashSetOf(target)
+        val queue = ArrayDeque(listOf(target))
+        while (queue.isNotEmpty()) {
+            for (name in predecessors[queue.removeFirst()].orEmpty()) if (reached.add(name)) queue.addLast(name)
+        }
+        return reached
     }
 }
