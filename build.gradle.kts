@@ -13,6 +13,10 @@ kotlin {
 dependencies {
     testImplementation("junit:junit:4.13.2")
 
+    // The layered layout algorithm of Eclipse ELK, bundled unmodified with EMF; Guava comes from the IDE
+    // (module intellij.libraries.guava).
+    implementation("org.eclipse.elk:org.eclipse.elk.alg.layered:0.12.1") { exclude(group = "com.google.guava") }
+
     intellijPlatform {
         intellijIdea("2026.2.3")
         bundledPlugins("org.jetbrains.plugins.yaml", "com.intellij.modules.json", "intellij.structureView.plugin")

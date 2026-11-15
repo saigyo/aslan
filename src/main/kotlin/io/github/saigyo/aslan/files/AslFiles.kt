@@ -1,6 +1,8 @@
 package io.github.saigyo.aslan.files
 
 import com.intellij.json.JsonLanguage
+import com.intellij.openapi.fileTypes.LanguageFileType
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.saigyo.aslan.settings.AslSettings
 import org.jetbrains.yaml.YAMLLanguage
@@ -18,5 +20,11 @@ object AslFiles {
         val language = file.language
         if (!language.isKindOf(YAMLLanguage.INSTANCE) && !language.isKindOf(JsonLanguage.INSTANCE)) return false
         return isAslFileName(file.originalFile.name)
+    }
+
+    fun isAslFile(file: VirtualFile): Boolean {
+        if (!isAslFileName(file.name)) return false
+        val language = (file.fileType as? LanguageFileType)?.language ?: return false
+        return language.isKindOf(YAMLLanguage.INSTANCE) || language.isKindOf(JsonLanguage.INSTANCE)
     }
 }

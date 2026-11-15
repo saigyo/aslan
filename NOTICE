@@ -11,6 +11,11 @@ The JSONata scanner (src/main/kotlin/io/github/saigyo/aslan/jsonata/parser/Jsona
 
 The descriptions of the JSONata functions are adapted from the JSONata documentation, © Copyright IBM Corp. 2016, 2018, licensed under the MIT License (see META-INF/licenses/jsonata-LICENSE.txt).
 
+The plugin bundles the following libraries unmodified, as the jars published on Maven Central:
+- Eclipse Layout Kernel (ELK) 0.12.1: org.eclipse.elk.alg.layered, org.eclipse.elk.alg.common, org.eclipse.elk.core and org.eclipse.elk.graph. © Copyright Eclipse contributors and others 2008, 2019 (Kiel University and others). Licensed under the Eclipse Public License 2.0, which is bundled at META-INF/licenses/elk-LICENSE.txt. Source code: https://github.com/eclipse-elk/elk (named in the POM files) and https://www.eclipse.org/elk/.
+- Eclipse Modeling Framework (EMF) 2.12.0: org.eclipse.emf.ecore, org.eclipse.emf.common and org.eclipse.emf.ecore.xmi. © Copyright Eclipse contributors and others 2002, 2010 (IBM Corporation and others). Licensed under the Eclipse Public License 1.0, which is bundled at META-INF/licenses/emf-LICENSE.txt. Source code: http://git.eclipse.org/c/emf/org.eclipse.emf.git/ (named in the POM files) and http://www.eclipse.org (named in the about.html of each jar). The about.html in the org.eclipse.emf.ecore jar lists classes based on code of the Apache Software Foundation (XML4J and Xerces).
+- ELK needs Guava, which the plugin does not bundle; it uses the copy that the IDE ships.
+
 The repository also holds material that is not part of the plugin:
 - Test data in src/test/testData/jsonata: the official JSONata test suite distilled into suite.json, and the answers of the jsonata-js 2.0.6 parser recorded in reference.json, © Copyright IBM Corp. 2016, 2018, licensed under the MIT License (see src/test/testData/jsonata/LICENSE).
 - The Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper), © 2015 the original authors, licensed under the Apache License, Version 2.0.
