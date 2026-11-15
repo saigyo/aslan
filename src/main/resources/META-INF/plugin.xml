@@ -187,4 +187,11 @@
         <localInspection shortName="AslUnusualVariableName" implementationClass="io.github.saigyo.aslan.check.AslUnusualVariableNameInspection"
                          displayName="Unusual variable name" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
     </extensions>
+
+    <!-- Inside an expression of an ASL file they step through the host's highlights; elsewhere they are the platform's.
+         The text comes from the platform's bundle, under the action's id. -->
+    <actions resource-bundle="messages.ActionsBundle">
+        <action id="GotoNextElementUnderCaretUsage" class="io.github.saigyo.aslan.highlight.NextElementUnderCaretUsageAction" overrides="true"/>
+        <action id="GotoPrevElementUnderCaretUsage" class="io.github.saigyo.aslan.highlight.PrevElementUnderCaretUsageAction" overrides="true"/>
+    </actions>
 </idea-plugin>
