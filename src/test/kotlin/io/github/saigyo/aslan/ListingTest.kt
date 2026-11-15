@@ -1,6 +1,6 @@
 package io.github.saigyo.aslan
 
-import junit.framework.TestCase.assertEquals
+import junit.framework.TestCase.assertEquals import junit.framework.TestCase.assertNotNull
 import junit.framework.TestCase.assertTrue
 import org.junit.Test
 import java.io.File
@@ -90,10 +90,13 @@ class ListingTest {
     }
 
     @Test
-    fun `test the version is 1_0_0 and the change notes are not empty`() {
-        val version = File("gradle.properties").readLines().map { it.trim() }.firstOrNull { it.startsWith("version") }
-        assertEquals("version = 1.0.0", version)
+    fun `test the change notes describe the version of the build`() {
+        val line = File("gradle.properties").readLines().map { it.trim() }.firstOrNull { it.startsWith("version") }.orEmpty()
+        val version = Regex("""^version = (\d+\.\d+\.\d+)$""").find(line)?.groupValues?.get(1)
+        assertNotNull("the version has three numbers, was: $line", version)
         val notes = Regex("""<change-notes>(.*?)</change-notes>""", RegexOption.DOT_MATCHES_ALL).find(pluginXml())?.groupValues?.get(1)
+        // the release workflow publishes the change notes as the text of the release of this version
+        assertTrue("the change notes do not start with $version", text(notes.orEmpty()).startsWith("$version:"))
         assertTrue("the change notes are empty", !notes.isNullOrBlank() && text(notes).isNotEmpty())
     }
 

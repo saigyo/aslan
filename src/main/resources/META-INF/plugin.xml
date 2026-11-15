@@ -51,7 +51,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <p>1.0.0: First release.</p>
+        <p>0.9.0: Preview of the first release, for testing.</p>
         <ul>
             <li>Editing: completion, checks, quick documentation, navigation and rename for states, and a structure view</li>
             <li>JSONata: highlighting, syntax checks, inspections, completion, documentation and local variables</li>
