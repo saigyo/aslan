@@ -107,4 +107,106 @@ class JsonataCompletionTest : JsonataTestCase() {
     fun `test an expression with a placeholder still completes`() {
         assertTrue(inOutput("\${Bucket} & \$su$caret").contains("\$sum"))
     }
+
+    private fun lookupTypeText(name: String): String? {
+        val presentation = com.intellij.codeInsight.lookup.LookupElementPresentation()
+        myFixture.lookupElements!!.single { it.lookupString == name }.renderElement(presentation)
+        return presentation.typeText
+    }
+
+    /** A JSONata machine: Load assigns [assigned], then a Parallel state whose branch Left assigns `inner` and whose branch Right outputs [expression]. */
+    private fun forked(assigned: String, expression: String): String = """
+        QueryLanguage: JSONata
+        StartAt: Load
+        States:
+          Load:
+            Type: Pass
+            Assign:
+              $assigned
+            Next: Fork
+          Fork:
+            Type: Parallel
+            End: true
+            Branches:
+              - StartAt: Left
+                States:
+                  Left:
+                    Type: Pass
+                    Assign:
+                      inner: 1
+                    End: true
+              - StartAt: Right
+                States:
+                  Right:
+                    Type: Pass
+                    Output: '{% $expression %}'
+                    End: true
+    """.trimIndent() + "\n"
+
+    fun `test state variables after a dollar sign`() {
+        val items = complete(forked("reel: 1", "\$re$caret"))
+        assertEquals(items.toString(), 1, items.count { it == "\$reel" })
+        assertFalse(items.toString(), items.contains("\$inner"))
+        assertEquals("state variable", lookupTypeText("\$reel"))
+    }
+
+    fun `test a local variable hides a state variable`() {
+        val items = complete(forked("reel: 1", "(\$reel := 2; \$re$caret)"))
+        assertEquals(items.toString(), 1, items.count { it == "\$reel" })
+        assertEquals("variable", lookupTypeText("\$reel"))
+    }
+
+    fun `test a state variable hides a built-in function`() {
+        myFixture.configureByText("test.asl.yaml", forked("sum: 1", "\$su$caret"))
+        myFixture.completeBasic()
+        val items = myFixture.lookupElementStrings.orEmpty()
+        assertEquals(items.toString(), 1, items.count { it == "\$sum" })
+        assertEquals("state variable", lookupTypeText("\$sum"))
+        myFixture.lookup.currentItem = myFixture.lookupElements!!.first { it.lookupString == "\$sum" }
+        myFixture.finishLookup('\n')
+        // the editor holds the injected expression; no brackets are written after the variable
+        assertEquals(" \$sum ", myFixture.editor.document.text)
+    }
+
+    fun `test an expression used by two states offers what both see`() {
+        val text = """
+            QueryLanguage: JSONata
+            StartAt: Load
+            States:
+              Load:
+                Type: Pass
+                Assign:
+                  reel: 1
+                Next: Fork
+              Fork:
+                Type: Parallel
+                End: true
+                Branches:
+                  - StartAt: Left
+                    States:
+                      Left:
+                        Type: Pass
+                        Assign:
+                          onlyLeft: 1
+                          both: 1
+                        Output: &shared '{% ${'$'}$caret %}'
+                        End: true
+                  - StartAt: Right
+                    States:
+                      Right:
+                        Type: Pass
+                        Assign:
+                          both: 2
+                        Output: *shared
+                        End: true
+        """.trimIndent() + "\n"
+        val items = complete(text)
+        assertTrue(items.toString(), items.containsAll(listOf("\$reel", "\$both")))
+        assertFalse(items.toString(), items.contains("\$onlyLeft"))
+    }
+
+    fun `test no state variables for an expression in no state`() {
+        val items = complete(forked("reel: 1", "1").replace("QueryLanguage: JSONata\n", "QueryLanguage: JSONata\nComment: '{% \$re$caret %}'\n"))
+        assertFalse(items.toString(), items.contains("\$reel"))
+    }
 }
