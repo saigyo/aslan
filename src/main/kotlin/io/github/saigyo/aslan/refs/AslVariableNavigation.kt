@@ -111,9 +111,17 @@ private class AslVariableFindUsagesHandler(element: PsiElement, private val vari
     @Volatile
     private var primaries: List<SmartPsiElementPointer<PsiElement>> = emptyList()
 
+    /**
+     * When neither [start] nor a recorded primary element is still an assignment, the first element a search passes
+     * since the file last changed searches, with the file's modification stamp then.
+     */
+    @Volatile
+    private var fallback: Pair<Long, SmartPsiElementPointer<PsiElement>>? = null
+
     override fun getPrimaryElements(): Array<PsiElement> {
-        // the variables of the current model when the start is still an assignment; those of creation otherwise
-        val current = psiElement.takeIf { it.isValid }?.let { AslVariableTargets.variablesAssignedAt(it) }.orEmpty()
+        // the variables of the current model, read from the start entry (a go-to target would hold those of an older
+        // model) while it is still an assignment; those of creation otherwise
+        val current = start.element?.takeIf { it.isValid }?.let { AslVariableTargets.variablesAssignedAt(it) }.orEmpty()
         val entries = AslVariableTargets.assignmentEntries(current.ifEmpty { variables })
         val pointers = SmartPointerManager.getInstance(project)
         primaries = entries.map { pointers.createSmartPsiElementPointer(it) }
@@ -135,9 +143,20 @@ private class AslVariableFindUsagesHandler(element: PsiElement, private val vari
         val entries = AslVariableTargets.assignmentEntries(AslVariableTargets.variablesAssignedAt(element))
         if (element !in entries) return null
         // the entry the search started on, else the first primary element that still is one of the assignments
-        val searcher = (listOf(start) + primaries).firstNotNullOfOrNull { pointer -> pointer.element?.takeIf { it.isValid && it in entries } } ?: element
+        val searcher = (listOf(start) + primaries).firstNotNullOfOrNull { pointer -> pointer.element?.takeIf { it.isValid && it in entries } }
+            ?: fallbackSearcher(element, entries)
         if (searcher != element) return null
         return entries.filter { it != element && PsiSearchScopeUtil.isInScope(options.searchScope, it) }.map { UsageInfo(keyOf(it)) }
+    }
+
+    /** The one element that searches when no recorded one can: the first valid assignment passed since the last change. */
+    @Synchronized
+    private fun fallbackSearcher(element: PsiElement, entries: List<PsiElement>): PsiElement {
+        val stamp = element.containingFile.modificationStamp
+        val previous = fallback?.takeIf { it.first == stamp }?.second?.element?.takeIf { it.isValid && it in entries }
+        if (previous != null) return previous
+        fallback = stamp to SmartPointerManager.createPointer(element)
+        return element
     }
 
     private fun keyOf(entry: PsiElement): PsiElement = (entry as? YAMLKeyValue)?.key ?: (entry as? JsonProperty)?.nameElement ?: entry
