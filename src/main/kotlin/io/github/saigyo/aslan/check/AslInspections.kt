@@ -84,6 +84,8 @@ class AslVariableNotAssignedInspection : AslProblemInspection(AslProblem.VARIABL
 class AslInvalidVariableNameInspection : AslProblemInspection(AslProblem.INVALID_VARIABLE_NAME)
 class AslOuterVariableAssignedInspection : AslProblemInspection(AslProblem.OUTER_VARIABLE_ASSIGNED)
 class AslVariableNeverReadInspection : AslProblemInspection(AslProblem.VARIABLE_NEVER_READ)
+class AslDistributedMapOuterReadInspection : AslProblemInspection(AslProblem.DISTRIBUTED_MAP_OUTER_READ)
+class AslUnusualVariableNameInspection : AslProblemInspection(AslProblem.UNUSUAL_VARIABLE_NAME)
 
 object AslInspections {
     /** One inspection per [AslProblem], in the order of the enum. */
@@ -139,5 +141,7 @@ object AslInspections {
         AslInvalidVariableNameInspection(),
         AslOuterVariableAssignedInspection(),
         AslVariableNeverReadInspection(),
+        AslDistributedMapOuterReadInspection(),
+        AslUnusualVariableNameInspection(),
     )
 }

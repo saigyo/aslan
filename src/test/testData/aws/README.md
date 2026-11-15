@@ -9,6 +9,8 @@ These files hold small state machine definitions together with what AWS answered
 
 The definitions whose names start with `r9-` and `r10-` are about JSONata expressions: the 40 syntax errors of the official JSONata test suite, valid controls, the places where `$states.result` and `$states.errorOutput` exist, and expressions without an input; `r10-` adds further places of a name without an input, further shapes of `$states` fields, and text around the delimiters. `AwsVerdictsTest` also compares the JSONata checks with these answers one by one.
 
+The 45 definitions whose names start with `r11-`, recorded on 2026-11-14, are about state machine variables: `r11-p-` and `r11-j-` read `$reel` from JSONPath and JSONata in every relation between the read and the assignment (none, before, the same state, later, inside or outside an inline or Distributed Map, a Parallel branch, a Catcher, a Choice rule), `r11-a-` probe the names an `Assign` key may have and an inner machine assigning an outer name. `AwsVerdictsTest` compares the variable checks with them one by one.
+
 All names, account numbers and regions in the definitions are made up. To re-record, send each `definition` to the command above and replace the stored answer; the result does not depend on the account.
 
 Some definitions depend on how a number is spelled (`5.0`, `1E2`, `15e-1`), so `verdicts.json` must be edited as text. A tool that parses and rewrites it would change these numbers.

@@ -24,6 +24,13 @@ class AwsVerdictsTest : CheckTestCase() {
 
     private companion object {
         const val PARENT = "the parent operator % is not resolved"
+        const val ORDER = "the order of states is not modelled, so a read before the assignment in the flow is not found"
+
+        val VARIABLE_PROBLEMS = setOf(
+            AslProblem.PATH_VARIABLE_NOT_ASSIGNED, AslProblem.DISTRIBUTED_MAP_OUTER_READ, AslProblem.VARIABLE_NOT_ASSIGNED,
+            AslProblem.VARIABLE_NEVER_READ, AslProblem.INVALID_VARIABLE_NAME, AslProblem.UNUSUAL_VARIABLE_NAME,
+            AslProblem.OUTER_VARIABLE_ASSIGNED,
+        )
     }
 
     private fun errors(probe: Probe): List<AslProblem> =
@@ -46,7 +53,47 @@ class AwsVerdictsTest : CheckTestCase() {
         "r9-s-S0217-1" to PARENT, "r9-s-S0217-2" to PARENT, "r9-s-S0217-3" to PARENT, "r9-p-parent" to PARENT,
         "r9-s-S0401-1" to "function signatures are not parsed",
         "r9-p-context-unknown" to "the fields below \$states.context are not checked, since the plugin's list can be behind AWS",
+        "r11-p-same-state" to ORDER, "r11-p-later" to ORDER,
     )
+
+    /**
+     * Each variable check is reported exactly on the probes of round 11 that AWS answers for that reason: an error where
+     * AWS rejects the definition, a warning where it warns. A read that stands before its assignment in the flow is not
+     * found (decision 3): rejected for JSONPath (named gaps), only warned about for JSONata (missed warnings).
+     */
+    fun `test the variable checks agree with AWS probe by probe`() {
+        val round = probes.filter { it.name.startsWith("r11-") }
+        assertEquals(45, round.size)
+        fun answered(prefix: String, diagnostic: String) =
+            round.filter { p -> p.name.startsWith(prefix) && p.diagnostics.any { it.startsWith(diagnostic) } }.map { it.name }.toSet()
+        val missedWarnings = setOf("r11-j-same-state", "r11-j-later")
+        val expected = round.associate { it.name to HashSet<AslProblem>() }
+        fun expect(problem: AslProblem, names: Set<String>) = names.forEach { expected.getValue(it) += problem }
+
+        expect(AslProblem.PATH_VARIABLE_NOT_ASSIGNED, answered("r11-p-", "ERROR UNDEFINED_VARIABLE") - gaps.keys)
+        expect(AslProblem.DISTRIBUTED_MAP_OUTER_READ, answered("r11-j-", "ERROR UNDEFINED_VARIABLE"))
+        expect(AslProblem.VARIABLE_NOT_ASSIGNED, answered("r11-j-", "WARNING POSSIBLY_UNDEFINED_VARIABLE") - missedWarnings)
+        expect(AslProblem.INVALID_VARIABLE_NAME,
+            answered("r11-a-", "ERROR INVALID_VARIABLE_NAME") + answered("r11-a-", "ERROR RESERVED_VARIABLE_NAME"))
+        expect(AslProblem.OUTER_VARIABLE_ASSIGNED, answered("r11-a-", "ERROR DUPLICATE_VARIABLE_NAME"))
+        // A name assigned and read nowhere in the scope of the assignment: the inner assignment of the distributed
+        // shadow; both branch assignments of the siblings; the assignments whose read AWS rejects or warns about
+        // because it stands outside their reach (inner, after, sibling, outer of a Distributed Map). The invalid
+        // names get only the name finding, and a read before the assignment in the flow is still a read.
+        expect(AslProblem.VARIABLE_NEVER_READ, setOf("r11-a-distributed-shadow", "r11-a-siblings") +
+            listOf("p", "j").flatMap { q ->
+                listOf("inline-map-inner", "distributed-inner", "distributed-outer", "parallel-after", "parallel-sibling").map { "r11-$q-$it" }
+            })
+
+        assertEquals(setOf("r11-j-distributed-outer"), answered("r11-j-", "ERROR UNDEFINED_VARIABLE"))
+        assertEquals(7, round.count { AslProblem.INVALID_VARIABLE_NAME in expected.getValue(it.name) })
+        assertEquals(3, round.count { AslProblem.OUTER_VARIABLE_ASSIGNED in expected.getValue(it.name) })
+        val reported = round.associate { p -> p.name to problems(p.name).filterTo(HashSet()) { it in VARIABLE_PROBLEMS } }
+        assertEquals(expected.toSortedMap().toString().replace("], ", "]\n"), reported.toSortedMap().toString().replace("], ", "]\n"))
+
+        // stage 1's check of fields that only a top-level Choice rule takes covers an Assign in a nested rule
+        assertTrue(AslProblem.MISPLACED_FIELD in problems("r11-a-nested-choice"))
+    }
 
     /**
      * What AWS says about the JSONata expressions of round 9 beyond rejecting or accepting: it warns about `$eval`, an
