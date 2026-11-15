@@ -121,6 +121,20 @@ class DiagramLabelsTest : AslTestCase() {
         assertEquals("a b", condition("   a      b  "))
     }
 
+    fun `test a regular expression of a JSONata condition keeps its white space`() {
+        assertEquals("\$contains(\$x, /A  B/)", condition("§contains(§x,   /A  B/)"))
+        assertEquals("\$a / \$b and \$c", condition("§a   /  §b   and  §c"))
+        assertEquals("\$x = 'A  B' and \$y", condition("§x =   'A  B'   and   §y"))
+        val multiple = rule("Condition: |-\n  {% §contains(§x,\n       /A  B/)\n     and §y %}\nNext: A", language = QueryLanguage.JSONATA)
+        assertEquals("\$contains(\$x, /A  B/) and \$y", multiple.text)
+    }
+
+    fun `test a half-typed JSONata condition does not throw`() {
+        assertEquals("\$x = 'abc  d", condition("§x  =  'abc  d"))
+        assertTrue(condition("§contains(§x,   /ab  c").startsWith("\$contains("))
+        assertTrue(condition("§x  /* open  comment").startsWith("\$x"))
+    }
+
     fun `test an unclosed quote keeps the rest as written`() {
         assertEquals("\$x = 'A   B", condition("§x  =  'A   B"))
         assertEquals("\$x = 'A \\", condition("§x  =  'A \\"))

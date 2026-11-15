@@ -1,6 +1,7 @@
 package io.github.saigyo.aslan.diagram
 
 import com.intellij.lang.injection.InjectedLanguageManager
+import io.github.saigyo.aslan.model.AslAssignment
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslRead
 import io.github.saigyo.aslan.model.AslState
@@ -12,18 +13,41 @@ import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.ScalarType
+import java.util.IdentityHashMap
 
 /** The rows of the details panel for one state, as plain data. */
 object DiagramDetails {
     private const val ARROW = " → "
     private const val END = "End"
 
+    /** The reads and assignments of a document, grouped by their state in document order. */
+    class Variables private constructor(
+        private val reads: IdentityHashMap<AslState, MutableList<AslRead>>,
+        private val assignments: IdentityHashMap<AslState, MutableList<AslAssignment>>,
+    ) {
+        fun readsOf(state: AslState): List<AslRead> = reads[state].orEmpty()
+        fun assignmentsOf(state: AslState): List<AslAssignment> = assignments[state].orEmpty()
+
+        companion object {
+            fun of(doc: AslDocument): Variables {
+                val reads = IdentityHashMap<AslState, MutableList<AslRead>>()
+                val assignments = IdentityHashMap<AslState, MutableList<AslAssignment>>()
+                for (read in doc.variables.reads) reads.getOrPut(read.state) { ArrayList() } += read
+                for (assignment in doc.variables.assignments) assignments.getOrPut(assignment.state) { ArrayList() } += assignment
+                return Variables(reads, assignments)
+            }
+        }
+    }
+
+    /** One state's rows; groups the document's variables first, so a caller with many states uses [rows] with [Variables]. */
+    fun rows(doc: AslDocument, state: AslState): List<DetailRow> = rows(Variables.of(doc), state)
+
     /** Called in a read action. Never throws on a half-typed state; a row without items is left out. */
-    fun rows(doc: AslDocument, state: AslState): List<DetailRow> = listOf(
+    fun rows(variables: Variables, state: AslState): List<DetailRow> = listOf(
         row("Type", listOfNotNull(state.typeName?.let { DetailItem(it) })),
         row("Resource", listOfNotNull(resource(state))),
-        row("Reads", reads(doc, state)),
-        row("Assigns", assigns(doc, state)),
+        row("Reads", reads(variables, state)),
+        row("Assigns", assigns(variables, state)),
         row("Retry", retry(state)),
         row("Catch", catches(state)),
         row("Next", next(state)),
@@ -37,10 +61,9 @@ object DiagramDetails {
         return DetailItem(scalar.text)
     }
 
-    private fun reads(doc: AslDocument, state: AslState): List<DetailItem> {
+    private fun reads(variables: Variables, state: AslState): List<DetailItem> {
         val first = LinkedHashMap<String, Int>()
-        for (read in doc.variables.reads) {
-            if (read.state !== state) continue
+        for (read in variables.readsOf(state)) {
             first.putIfAbsent(read.name, offset(read))
         }
         return first.map { (name, offset) -> DetailItem("$" + name, kind = DetailItem.Kind.VARIABLE, offset = offset) }
@@ -52,10 +75,9 @@ object DiagramDetails {
         is PathRead -> read.scalar.psi.textRange.startOffset + read.range.startOffset
     }
 
-    private fun assigns(doc: AslDocument, state: AslState): List<DetailItem> {
+    private fun assigns(variables: Variables, state: AslState): List<DetailItem> {
         val first = LinkedHashMap<String, Int>()
-        for (assignment in doc.variables.assignments) {
-            if (assignment.state !== state) continue
+        for (assignment in variables.assignmentsOf(state)) {
             first.putIfAbsent(assignment.name, assignment.entry.keyPsi.textRange.startOffset)
         }
         return first.map { (name, offset) -> DetailItem("$" + name, kind = DetailItem.Kind.VARIABLE, offset = offset) }
@@ -82,14 +104,14 @@ object DiagramDetails {
 
     private fun catches(state: AslState): List<DetailItem> =
         state.transitions.filter { it.kind == TransitionKind.CATCH }.mapNotNull { t ->
-            val name = t.targetName ?: return@mapNotNull null
+            val name = DiagramBuilder.settledName(t.target) ?: return@mapNotNull null
             val names = errorNames(t.owner)
             target(state, name, if (names.isEmpty()) "" else names.joinToString(", ") + ARROW)
         }
 
     private fun next(state: AslState): List<DetailItem> {
-        val kinds = if (state.typeName == "Choice") setOf(TransitionKind.CHOICE, TransitionKind.DEFAULT) else setOf(TransitionKind.NEXT)
-        val names = state.transitions.filter { it.kind in kinds }.mapNotNull { it.targetName }.distinct()
+        val kinds = if (state.type?.name == "Choice") setOf(TransitionKind.CHOICE, TransitionKind.DEFAULT) else setOf(TransitionKind.NEXT)
+        val names = state.transitions.filter { it.kind in kinds }.mapNotNull { DiagramBuilder.settledName(it.target) }.distinct()
         if (names.isNotEmpty()) return names.map { target(state, it, "") }
         return if (DiagramBuilder.isTerminal(state)) listOf(DetailItem(END)) else emptyList()
     }
