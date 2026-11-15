@@ -1,0 +1,343 @@
+package io.github.saigyo.aslan.diagram
+
+import io.github.saigyo.aslan.model.AslModel
+import io.github.saigyo.aslan.model.TransitionKind
+import java.awt.geom.Line2D
+import java.awt.geom.Rectangle2D
+import java.io.File
+import kotlin.math.abs
+
+class DiagramLayoutTest : DiagramTestCase() {
+    private val measure = TextMeasure { text, _, _ -> 6.0 * text.length }
+
+    private fun lay(model: DiagramModel, mode: LayoutMode, collapsed: Set<String> = emptySet()): DiagramLayout =
+        DiagramLayouter.layout(model, mode, collapsed, measure)
+
+    /** The small definition and every committed definition, by name. */
+    private fun definitions(): List<Pair<String, DiagramModel>> {
+        val files = File("src/test/testData/clean").listFiles().orEmpty().filter { ".asl." in it.name }.sortedBy { it.name }
+        assertTrue(files.isNotEmpty())
+        val committed = files.map { f -> f.name to DiagramBuilder.build(AslModel.of(myFixture.configureByText(f.name, f.readText()))!!) }
+        return listOf("small" to build(archive).first) + committed
+    }
+
+    private fun large(): DiagramModel =
+        DiagramBuilder.build(AslModel.of(myFixture.configureByFile("clean/film-archive-intake.asl.yaml"))!!)
+
+    private fun DiagramModel.machines(): List<DiagramMachine> {
+        val all = ArrayList<DiagramMachine>()
+        fun visit(m: DiagramMachine) {
+            all += m
+            for (s in m.states) s.machines.forEach(::visit)
+        }
+        root?.let(::visit)
+        return all
+    }
+
+    private fun DiagramModel.allStates(): List<DiagramState> = machines().flatMap { it.states }
+
+    private fun DiagramModel.allEdges(): List<DiagramEdge> = machines().flatMap { it.edges }
+
+    private fun DiagramLayout.node(id: String): LaidNode = nodes.single { it.id == id }
+
+    private fun DiagramLayout.edge(id: String): LaidEdge = edges.single { it.edge.id == id }
+
+    private fun Rectangle2D.holds(other: Rectangle2D) =
+        other.minX >= minX - 0.01 && other.maxX <= maxX + 0.01 && other.minY >= minY - 0.01 && other.maxY <= maxY + 0.01
+
+    private fun DiagramLayout.below(target: String, source: String) = node(target).bounds.minY >= node(source).bounds.maxY
+
+    /** Whether [edge] lies on a cycle of its machine: its source is reachable from its target. */
+    private fun leadsBack(machine: DiagramMachine, edge: DiagramEdge): Boolean {
+        val seen = HashSet<String>()
+        val todo = ArrayDeque(listOf(edge.to))
+        while (todo.isNotEmpty()) {
+            val id = todo.removeFirst()
+            if (id == edge.from) return true
+            if (!seen.add(id)) continue
+            machine.edges.filter { it.from == id }.forEach { todo += it.to }
+        }
+        return false
+    }
+
+    private fun assertRightAngles(name: String, layout: DiagramLayout) {
+        for (e in layout.edges) for ((a, b) in e.points.zipWithNext()) {
+            assertTrue("$name ${e.edge.id} $a $b", abs(a.x - b.x) < 0.01 || abs(a.y - b.y) < 0.01)
+        }
+    }
+
+    private fun assertNoOverlap(name: String, model: DiagramModel, layout: DiagramLayout) {
+        val laid = layout.nodes.associateBy { it.id }
+        val groups = model.machines().map { m -> m.states.mapNotNull { laid[it.id] } } +
+            model.allStates().map { s -> s.machines.mapNotNull { laid[it.id] } }
+        for (group in groups) for (i in group.indices) for (j in i + 1 until group.size) {
+            assertFalse("$name ${group[i].id} ${group[j].id}", group[i].bounds.intersects(group[j].bounds))
+        }
+    }
+
+    fun `test every state and every path has a place`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            val states = layout.nodes.filter { it.kind != LaidNode.Kind.BRANCH }
+            assertEquals("$name $mode", model.allStates().map { it.id }.sorted(), states.map { it.id }.sorted())
+            for (node in states) assertSame(model.state(node.id), node.state)
+            assertEquals("$name $mode", model.allEdges().map { it.id }.sorted(), layout.edges.map { it.edge.id }.sorted())
+            for (e in layout.edges) {
+                assertSame(model.edge(e.edge.id), e.edge)
+                assertTrue("$name $mode ${e.edge.id}", e.points.size >= 2)
+            }
+            assertTrue("$name $mode", layout.width > 0 && layout.height > 0)
+            for (node in layout.nodes) {
+                assertTrue("$name $mode ${node.id}", Rectangle2D.Double(0.0, 0.0, layout.width, layout.height).holds(node.bounds))
+            }
+        }
+    }
+
+    fun `test a Map is a group and each Parallel branch a box inside its state`() {
+        val model = build(archive).first
+        for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            val map = layout.node("s2")
+            assertEquals(LaidNode.Kind.GROUP, map.kind)
+            assertTrue(map.collapsible)
+            assertFalse(map.collapsed)
+            assertNull(map.title)
+            for (inner in listOf("s3", "s4")) assertTrue("$mode $inner", map.bounds.holds(layout.node(inner).bounds))
+            val parallel = layout.node("s5")
+            assertEquals(LaidNode.Kind.GROUP, parallel.kind)
+            val branches = model.state("s5")!!.machines
+            assertEquals(listOf("Branch 1", "Branch 2"), branches.map { layout.node(it.id).title })
+            for ((branch, inner) in branches.map { it.id }.zip(listOf("s6", "s7"))) {
+                val box = layout.node(branch)
+                assertEquals(LaidNode.Kind.BRANCH, box.kind)
+                assertNull(box.state)
+                assertFalse(box.collapsible)
+                assertTrue("$mode $branch", parallel.bounds.holds(box.bounds))
+                assertTrue("$mode $inner", box.bounds.holds(layout.node(inner).bounds))
+            }
+            // the branches stand side by side in file order
+            val (first, second) = branches.map { layout.node(it.id).bounds }
+            assertTrue("$mode", first.maxX <= second.minX && first.y == second.y)
+            val plain = layout.node("s1")
+            assertEquals(LaidNode.Kind.STATE, plain.kind)
+            assertEquals(190.0, plain.bounds.width)
+            assertEquals(40.0, plain.bounds.height)
+            assertEquals(listOf(true, false), listOf("s0", "s1").map { layout.node(it).start })
+            assertEquals(listOf(true, false), listOf("s3", "s4").map { layout.node(it).start })
+        }
+        // in every definition each child lies inside its parent, and a parent comes before its children
+        for ((name, m) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(m, mode)
+            val index = layout.nodes.withIndex().associate { it.value.id to it.index }
+            for (state in m.allStates()) for (machine in state.machines) {
+                val children = if (machine.title != null) listOf(machine.id) else machine.states.map { it.id }
+                for (child in children) {
+                    assertTrue("$name $mode $child", layout.node(state.id).bounds.holds(layout.node(child).bounds))
+                    assertTrue("$name $mode $child", index.getValue(state.id) < index.getValue(child))
+                }
+                if (machine.title != null) for (inner in machine.states) {
+                    assertTrue("$name $mode ${inner.id}", layout.node(machine.id).bounds.holds(layout.node(inner.id).bounds))
+                    assertTrue("$name $mode ${inner.id}", index.getValue(machine.id) < index.getValue(inner.id))
+                }
+            }
+        }
+    }
+
+    fun `test a collapsed Map is a plain node and its inner states are not laid out`() {
+        val model = build(archive).first
+        for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode, setOf("Each", "Both"))
+            for (id in listOf("s2", "s5")) {
+                val node = layout.node(id)
+                assertEquals(LaidNode.Kind.STATE, node.kind)
+                assertTrue(node.collapsed)
+                assertTrue(node.collapsible)
+                assertEquals(190.0, node.bounds.width)
+                assertEquals(40.0, node.bounds.height)
+            }
+            val branches = model.state("s5")!!.machines.map { it.id }
+            assertEquals(listOf("s0", "s1", "s2", "s5", "s8", "s9"), layout.nodes.map { it.id })
+            assertTrue(layout.nodes.none { it.id in branches })
+            assertEquals(model.root!!.edges.map { it.id }.sorted(), layout.edges.map { it.edge.id }.sorted())
+            assertTrue(layout.below("s5", "s2"))
+        }
+    }
+
+    fun `test the layout flows downwards`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            var down = 0
+            for (machine in model.machines()) for (edge in machine.edges) {
+                val below = layout.below(edge.to, edge.from)
+                if (below) down++
+                if (edge.kind == TransitionKind.NEXT && !leadsBack(machine, edge)) assertTrue("$name $mode ${edge.id}", below)
+            }
+            val all = model.allEdges().size
+            assertTrue("$name $mode $down of $all", 3 * down >= 2 * all)
+        }
+    }
+
+    fun `test every path runs in right angles`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) assertRightAngles("$name $mode", lay(model, mode))
+    }
+
+    fun `test no two nodes of one machine overlap`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) assertNoOverlap("$name $mode", model, lay(model, mode))
+    }
+
+    fun `test a state that leads to itself and two edges between the same states lay out`() {
+        val loops = build(
+            """
+            StartAt: A
+            States:
+              A:
+                Type: Choice
+                Choices:
+                  - Variable: §.x
+                    NumericEquals: 1
+                    Next: A
+                  - Variable: §.x
+                    NumericEquals: 2
+                    Next: B
+                Default: B
+              B:
+                Type: Pass
+                Next: B
+            """,
+        ).first
+        val twins = build(
+            """
+            StartAt: A
+            States:
+              A:
+                Type: Pass
+                Next: A
+              A:
+                Type: Pass
+                End: true
+            """,
+        ).first
+        for (mode in LayoutMode.entries) {
+            val layout = lay(loops, mode)
+            assertEquals(listOf("s0", "s1"), layout.nodes.map { it.id })
+            assertEquals(listOf("s0.c0", "s0.c1", "s0.d", "s1.n"), layout.edges.map { it.edge.id }.sorted())
+            for (e in layout.edges) assertTrue("$mode ${e.edge.id}", e.points.size >= 2)
+            assertNotNull(layout.edge("s0.c0").label)
+            assertRightAngles("loops $mode", layout)
+            assertNoOverlap("loops $mode", loops, layout)
+            val same = lay(twins, mode, setOf("A"))
+            assertEquals(listOf("s0", "s1"), same.nodes.map { it.id })
+            assertEquals(listOf("s0.n"), same.edges.map { it.edge.id })
+            assertRightAngles("twins $mode", same)
+            assertNoOverlap("twins $mode", twins, same)
+        }
+    }
+
+    fun `test a label is cut to the layout's limit and lies on its path`() {
+        val model = build(
+            """
+            StartAt: Sort
+            States:
+              Sort:
+                Type: Choice
+                Choices:
+                  - Variable: §.reel.condition.assessment
+                    StringEquals: needs-careful-restoration
+                    Next: Restore
+                Default: Shelve
+              Restore:
+                Type: Pass
+                Next: Shelve
+              Shelve:
+                Type: Succeed
+            """,
+        ).first
+        val full = model.edge("s0.c0")!!.label!!
+        assertTrue(full.length > 30)
+        for ((mode, limit) in listOf(LayoutMode.LOOSE to 30, LayoutMode.COMPACT to 20)) {
+            val layout = lay(model, mode)
+            val label = layout.edge("s0.c0").label!!
+            assertEquals(full.take(limit - 1) + "…", label.text)
+            assertEquals(6.0 * limit + 8, label.bounds.width)
+            assertEquals(14.0, label.bounds.height)
+            assertEquals("Default", layout.edge("s0.d").label!!.text)
+            assertEquals(6.0 * 7 + 8, layout.edge("s0.d").label!!.bounds.width)
+            assertNull(layout.edge("s1.n").label)
+        }
+        for ((name, m) in definitions() + ("labels" to model)) for (mode in LayoutMode.entries) {
+            for (e in lay(m, mode).edges) {
+                val label = e.label
+                if (e.edge.label == null) {
+                    assertNull("$name $mode ${e.edge.id}", label)
+                    continue
+                }
+                assertNotNull("$name $mode ${e.edge.id}", label)
+                assertEquals(DiagramLabels.shorten(e.edge.label!!, mode.maxLabel), label!!.text)
+                val area = Rectangle2D.Double(label.bounds.x - 0.5, label.bounds.y - 0.5, label.bounds.width + 1, label.bounds.height + 1)
+                val crossed = e.points.zipWithNext().any { (a, b) -> Line2D.Double(a, b).intersects(area) }
+                assertTrue("$name $mode ${e.edge.id} ${label.bounds} ${e.points}", crossed)
+            }
+        }
+    }
+
+    fun `test the compact layout of the large definition is at most 2200 wide`() {
+        val model = large()
+        val compact = lay(model, LayoutMode.COMPACT)
+        val loose = lay(model, LayoutMode.LOOSE)
+        assertTrue("${compact.width}", compact.width <= 2200)
+        assertTrue("${loose.width} ${compact.width}", loose.width > compact.width)
+    }
+
+    fun `test a state reached only through a Catcher keeps its place in the flow`() {
+        val small = build(archive).first
+        for (mode in LayoutMode.entries) assertTrue("$mode", lay(small, mode).below("s9", "s1"))
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            for (machine in model.machines()) for (state in machine.states) {
+                val incoming = machine.edges.filter { it.to == state.id && it.from != state.id }
+                if (incoming.isEmpty() || incoming.any { it.kind != TransitionKind.CATCH }) continue
+                for (edge in incoming) assertTrue("$name $mode ${edge.id}", layout.below(state.id, edge.from))
+            }
+        }
+    }
+
+    fun `test the large definition lays out in under two seconds`() {
+        val model = large()
+        for (mode in LayoutMode.entries) {
+            val start = System.nanoTime()
+            lay(model, mode)
+            val millis = (System.nanoTime() - start) / 1_000_000
+            assertTrue("$mode $millis ms", millis < 2000)
+        }
+    }
+
+    fun `test an empty model and a Map without a machine lay out`() {
+        for (mode in LayoutMode.entries) {
+            val empty = lay(DiagramModel(null, emptyMap(), 0), mode)
+            assertEquals(0.0, empty.width)
+            assertEquals(0.0, empty.height)
+            assertEquals(emptyList<LaidNode>(), empty.nodes)
+            assertEquals(emptyList<LaidEdge>(), empty.edges)
+        }
+        val model = build("StartAt: A\nStates:\n  A:\n    Type: Map\n    Next: A\n  B:\n    Type: Parallel\n    Branches: x").first
+        for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode, setOf("A"))
+            for (id in listOf("s0", "s1")) {
+                val node = layout.node(id)
+                assertEquals(LaidNode.Kind.STATE, node.kind)
+                assertFalse(node.collapsible)
+                assertFalse(node.collapsed)
+            }
+            assertEquals(listOf("s0.n"), layout.edges.map { it.edge.id })
+            assertRightAngles("$mode", layout)
+        }
+        // the half-typed files of the builder test lay out without an exception
+        val texts = listOf(
+            "StartAt: A\nStates:\n  A:\n    Next: B\n  B:\n    Next: A",
+            "StartAt: A\nStates: {}",
+            "StartAt: A\nStates:\n  A:\n    Type: Map\n    ItemProcessor:\n      StartAt: X\n      States: {}\n    End: true",
+            "StartAt: A\nStates:\n  A:\n    Type: Parallel\n    Branches:\n      - StartAt: X\n        States: {}\n    End: true",
+        )
+        for (text in texts) for (mode in LayoutMode.entries) lay(build(text).first, mode)
+    }
+}
