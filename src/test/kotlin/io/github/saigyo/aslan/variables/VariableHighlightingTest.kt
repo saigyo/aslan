@@ -7,6 +7,10 @@ import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingComputer
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingResult
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.editor.Editor
@@ -14,7 +18,7 @@ import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.util.ProperTextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
-import io.github.saigyo.aslan.highlight.ElementUnderCaretUsageAction
+import io.github.saigyo.aslan.highlight.VariableUsageNavigationPromoter
 import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import java.io.File
 
@@ -300,30 +304,68 @@ class VariableHighlightingTest : VariableTestCase() {
         return intake.substring(0, at).count { it == '\n' } + 1
     }
 
+    private val next = "Aslan.GotoNextVariableUsage"
+    private val previous = "Aslan.GotoPrevVariableUsage"
+
     fun `test next and previous highlighted usage from inside an expression step through the whole definition`() {
         val reads = (0 until 5).map { lineOf("\$rejection", it) }
         // the first read of the Output of RejectBatch, then the next one in it
         intakeAt("\$rejection")
-        assertEquals(reads[1], lineAfter("GotoNextElementUnderCaretUsage"))
+        assertEquals(reads[1], lineAfter(next))
         // from the last read of that expression on to the next read outside it
         intakeAt("\$rejection", 2)
-        assertEquals(reads[3], lineAfter("GotoNextElementUnderCaretUsage"))
+        assertEquals(reads[3], lineAfter(next))
         // and back from the first read to the last assignment before it
         intakeAt("\$rejection")
-        assertEquals(lineOf("rejection:", 18), lineAfter("GotoPrevElementUnderCaretUsage"))
+        assertEquals(lineOf("rejection:", 18), lineAfter(previous))
     }
 
-    fun `test the two actions are ours and keep the platform's text`() {
-        for (id in listOf("GotoNextElementUnderCaretUsage", "GotoPrevElementUnderCaretUsage")) {
-            val action = ActionManager.getInstance().getAction(id)
-            assertInstanceOf(action, ElementUnderCaretUsageAction::class.java)
-            assertFalse(id, action.templatePresentation.text.isNullOrBlank())
+    /** Whether the action [id] is enabled and visible at the fixture's caret. */
+    private fun enabled(id: String): Boolean = myFixture.testAction(ActionManager.getInstance().getAction(id)).isEnabledAndVisible
+
+    fun `test the actions are enabled only inside an expression of an ASL file`() {
+        intakeAt("\$rejection")
+        assertTrue(enabled(next))
+        intakeAt("rejection:")
+        assertFalse(enabled(next))
+        assertFalse(enabled(previous))
+        // a field outside any expression
+        intakeAt("Type: Task")
+        assertFalse(enabled(next))
+        // a YAML file that is no ASL file has no expressions
+        yaml("Output: '{% \$re<caret>el %}'", "plain.yaml")
+        assertFalse(enabled(next))
+    }
+
+    /** The data context of the host editor at the fixture's caret. */
+    private fun hostContext(): DataContext {
+        val host = InjectedLanguageEditorUtil.getTopLevelEditor(myFixture.editor)
+        return SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.EDITOR, host)
+            .build()
+    }
+
+    fun `test the promoter puts the actions first only inside an expression`() {
+        val manager = ActionManager.getInstance()
+        val ours = manager.getAction(next)
+        val candidates = listOf(manager.getAction("GotoNextElementUnderCaretUsage"), ours)
+        intakeAt("\$rejection")
+        assertEquals(listOf(ours), VariableUsageNavigationPromoter().promote(candidates, hostContext()))
+        intakeAt("rejection:")
+        assertEmpty(VariableUsageNavigationPromoter().promote(candidates, hostContext()))
+        // without our actions among the candidates it promotes nothing
+        intakeAt("\$rejection")
+        assertEmpty(VariableUsageNavigationPromoter().promote(candidates.take(1), hostContext()))
+    }
+
+    fun `test the actions share the shortcuts of the platform's actions`() {
+        val keymaps = KeymapManagerEx.getInstanceEx()
+        val mac = keymaps.allKeymaps.single { it.name == "Mac OS X 10.5+" }
+        for ((ours, platform) in listOf(next to "GotoNextElementUnderCaretUsage", previous to "GotoPrevElementUnderCaretUsage")) {
+            assertTrue(mac.getShortcuts(platform).isNotEmpty())
+            assertEquals(mac.getShortcuts(platform).toList(), mac.getShortcuts(ours).toList())
         }
-    }
-
-    fun `test next highlighted usage on a key steps as the platform's action does`() {
-        intakeAt("rejection:", 1)
-        assertEquals(lineOf("rejection:", 2), lineAfter("GotoNextElementUnderCaretUsage"))
     }
 
     fun `test a local JSONata variable keeps stage 2's highlighting`() {
