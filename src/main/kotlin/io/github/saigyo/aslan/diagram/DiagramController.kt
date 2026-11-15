@@ -6,6 +6,9 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.editor.event.CaretEvent
+import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.project.Project
@@ -38,7 +41,7 @@ private val log = logger<DiagramController>()
 class DiagramController(
     private val project: Project,
     private val file: VirtualFile,
-    editor: Editor,
+    private val editor: Editor,
     private val view: DiagramView,
     private val parent: Disposable,
     chosen: LayoutMode? = null,
@@ -50,7 +53,14 @@ class DiagramController(
     /** A model and the modification stamp of the document it was built from; [model] is null for an unreadable file. */
     private class Built(val model: DiagramModel?, val stamp: Long)
 
-    private class Result(val request: Long, val built: Built, val choices: Choices, val layout: DiagramLayout?, val mode: LayoutMode)
+    private class Result(
+        val request: Long,
+        val built: Built,
+        val choices: Choices,
+        val layout: DiagramLayout?,
+        val mode: LayoutMode,
+        val refreshed: Boolean,
+    )
 
     private val document = editor.document
     private val measure = view.measure
@@ -76,6 +86,15 @@ class DiagramController(
     /** The newest model a refresh has laid out, which a new layout of the same model takes. Layout thread only. */
     private var newest: Built? = null
 
+    /** The modification stamp of the document that [shown] was built from. UI thread. */
+    private var shownStamp = 0L
+
+    /** The delayed selection after the last caret move, if it has not run. UI thread. */
+    private var pendingCaret: Future<*>? = null
+
+    /** Whether the controller itself is moving the caret, which changes no selection. UI thread. */
+    private var movingCaret = false
+
     /** The delayed refresh after the last change, if it has not run. UI thread. */
     private var pending: Future<*>? = null
 
@@ -87,6 +106,14 @@ class DiagramController(
     /** Schedules a task after the delay; tests replace it to run the delay themselves. */
     internal var delay: (Runnable) -> Future<*> = { task ->
         AppExecutorUtil.getAppScheduledExecutorService().schedule(task, DELAY_MS, TimeUnit.MILLISECONDS)
+    }
+
+    /** Schedules the selection after a caret move; tests replace it. */
+    internal var caretDelay: (Runnable) -> Future<*> = { task ->
+        AppExecutorUtil.getAppScheduledExecutorService().schedule(
+            { ApplicationManager.getApplication().invokeLater(task, ModalityState.any()) },
+            CARET_DELAY_MS, TimeUnit.MILLISECONDS,
+        )
     }
 
     /** The future of the last request, for tests. */
@@ -108,6 +135,8 @@ class DiagramController(
             disposed = true
             pending?.cancel(false)
             pending = null
+            pendingCaret?.cancel(false)
+            pendingCaret = null
             // a layout that runs finishes, and the ones queued end at once; the thread ends after them
             layoutThread.shutdown()
         }
@@ -131,7 +160,51 @@ class DiagramController(
                 relayout()
             }
         }
+        editor.caretModel.addCaretListener(object : CaretListener {
+            override fun caretPositionChanged(event: CaretEvent) {
+                if (disposed || movingCaret) return
+                pendingCaret?.cancel(false)
+                pendingCaret = caretDelay(Runnable { caretMovedNow() })
+            }
+        }, parent)
+        view.onSelect = { id -> if (!disposed) selectFromView(id) }
+        view.onNavigate = { offset ->
+            if (!disposed) moveCaret(offset, selecting = true)
+        }
         refresh()
+    }
+
+    /** Selects the state at the caret of the last model shown, unless the document has changed since. UI thread. */
+    internal fun caretMovedNow() {
+        pendingCaret = null
+        val model = shown
+        if (disposed || model == null || document.modificationStamp != shownStamp) return
+        selected = model.stateAt(editor.caretModel.offset)
+        view.select(selected)
+    }
+
+    /** A click in the diagram: the selection is [id], and the caret goes to its place without changing it. */
+    private fun selectFromView(id: String?) {
+        pendingCaret?.cancel(false)
+        pendingCaret = null
+        if (id == null) {
+            selected = null
+            return
+        }
+        val offset = shown?.offsets?.get(id) ?: return
+        selected = id
+        moveCaret(offset, selecting = false)
+    }
+
+    private fun moveCaret(offset: Int, selecting: Boolean) {
+        val target = offset.coerceIn(0, document.textLength)
+        movingCaret = !selecting
+        try {
+            editor.caretModel.moveToOffset(target)
+            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+        } finally {
+            movingCaret = false
+        }
     }
 
     /** Reads the file and lays it out again; the future is done when the view has the result or it was dropped. */
@@ -201,10 +274,10 @@ class DiagramController(
     private fun lay(request: Long, built: Built, refreshed: Boolean): Result {
         val model = built.model
         val choices = choices
-        if (model == null) return Result(request, built, choices, null, choices.mode ?: LayoutMode.defaultFor(0))
+        if (model == null) return Result(request, built, choices, null, choices.mode ?: LayoutMode.defaultFor(0), refreshed)
         if (refreshed) newest = built
         val mode = choices.mode ?: LayoutMode.defaultFor(model.stateCount)
-        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure), mode)
+        return Result(request, built, choices, DiagramLayouter.layout(model, mode, choices.collapsed, measure), mode, refreshed)
     }
 
     /** On the UI thread; whether the view was given the result. */
@@ -215,24 +288,28 @@ class DiagramController(
             handedOver = result.request
             when {
                 shown?.root != null -> view.setStale()
-                shown == null -> show(EMPTY, EMPTY_LAYOUT, result.mode)
+                shown == null -> show(EMPTY, EMPTY_LAYOUT, result.mode, result.built.stamp)
             }
             return true
         }
         // the choices changed after this layout was made: the new layout they asked for follows
         if (result.choices !== choices) return false
         handedOver = result.request
-        show(model, result.layout!!, result.mode)
+        // a new diagram after an edit selects the state at the caret; a new layout of the same model keeps the selection
+        if (result.refreshed) selected = model.stateAt(editor.caretModel.offset)
+        show(model, result.layout!!, result.mode, result.built.stamp)
         return true
     }
 
-    private fun show(model: DiagramModel, layout: DiagramLayout, mode: LayoutMode) {
+    private fun show(model: DiagramModel, layout: DiagramLayout, mode: LayoutMode, stamp: Long) {
         shown = model
+        shownStamp = stamp
         view.show(model, layout, mode, selected)
     }
 
     private companion object {
         const val DELAY_MS = 300L
+        const val CARET_DELAY_MS = 100L
         const val IDLE_SECONDS = 30L
         const val LAYOUT_THREAD = "Aslan diagram layout"
         val EMPTY = DiagramModel(null, emptyMap(), 0)
