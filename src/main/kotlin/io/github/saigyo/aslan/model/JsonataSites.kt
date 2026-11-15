@@ -27,22 +27,30 @@ class JsonataSites internal constructor(doc: AslDocument) {
     val all: List<JsonataSite>
     private val byHost: Map<PsiElement, List<JsonataSite>>
 
+    /**
+     * The whole values of fields that take JSONata, where the file does not settle them ([standsForAnyValue]): a
+     * placeholder, a tagged value or an unresolved one, which may stand for an expression that reads any variable.
+     */
+    internal val unsettled: List<PsiElement>
+
     init {
         val sites = ArrayList<JsonataSite>()
+        val unsettledValues = ArrayList<PsiElement>()
         for (state in doc.allStates()) {
             val type = state.type ?: continue
             val obj = state.obj ?: continue
             if (!evaluatedIn(state.queryLanguage, state.queryLanguageKnown)) continue
-            Collector(state, sites).walk(obj, AslSpec.structure(type.structure), stateLevel = true)
+            Collector(state, sites, unsettledValues).walk(obj, AslSpec.structure(type.structure), stateLevel = true)
         }
         all = sites
         byHost = sites.groupBy { it.scalar.psi }
+        unsettled = unsettledValues.distinct()
     }
 
     /** The sites whose scalar is [host], the element [AslScalar.psi] gives. */
     fun at(host: PsiElement): List<JsonataSite> = byHost[host].orEmpty()
 
-    private class Collector(val state: AslState, val out: MutableList<JsonataSite>) {
+    private class Collector(val state: AslState, val out: MutableList<JsonataSite>, val unsettled: MutableList<PsiElement>) {
         fun walk(o: AslObject, structure: StructureSpec, stateLevel: Boolean) {
             for (entry in o.entries) {
                 if (isUnappliedMerge(entry)) continue
@@ -52,6 +60,7 @@ class JsonataSites internal constructor(doc: AslDocument) {
                 val kind = field.kind
                 val value = entry.value
                 when {
+                    (kind == ValueKind.FreeForm || field.jsonata) && standsForAnyValue(value) -> unsettled += value.psi
                     kind == ValueKind.FreeForm -> freeForm(value, provides)
                     value is AslScalar -> if (field.jsonata) candidate(value, provides)
                     kind is ValueKind.Struct && value is AslObject -> walk(value, AslSpec.structure(kind.id), stateLevel = false)

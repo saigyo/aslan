@@ -5,15 +5,33 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.tree.AslNode
+import io.github.saigyo.aslan.tree.AslScalar
+import io.github.saigyo.aslan.tree.AslUnresolved
+import io.github.saigyo.aslan.tree.Placeholders
+import io.github.saigyo.aslan.tree.ScalarType
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
+ * Whether [node], as the whole value of a field, is something the file does not settle and a deployment tool may
+ * replace with any value: a string that is one placeholder `${...}` and nothing else, a tagged YAML scalar, or an
+ * unresolved value (a tagged mapping or list, a CloudFormation function in its long form, an alias that does not
+ * resolve).
+ */
+internal fun standsForAnyValue(node: AslNode): Boolean = when (node) {
+    is AslUnresolved -> true
+    is AslScalar -> node.dynamic || (node.type == ScalarType.STRING && Placeholders.ranges(node.text).singleOrNull() == node.text.indices)
+    else -> false
+}
+
+/**
  * The strings of a file that Step Functions may evaluate, decoded, for finding `$name`s the model does not know as
  * reads. Every string counts but the key of an entry and a `Comment` that is no JSONata expression, since Step
- * Functions evaluates neither.
+ * Functions evaluates neither. Each of [unsettled], the whole value of a field that takes an expression or a path
+ * where the file does not settle it ([standsForAnyValue]), counts as a mention of every name.
  */
-internal class VariableMentions(file: PsiFile) {
+internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiElement>) {
     private val strings: List<Pair<PsiElement, String>> =
         PsiTreeUtil.findChildrenOfAnyType(file, YAMLScalar::class.java, JsonStringLiteral::class.java).mapNotNull { string ->
             val text = decoded(string) ?: return@mapNotNull null
@@ -22,9 +40,9 @@ internal class VariableMentions(file: PsiFile) {
 
     /**
      * The strings that hold `$name` (followed by no letter, digit or `_`) more often than [reads] has known reads of
-     * [name] in them. Comparing counts suffices: each known read is such a `$name` in its string, at its own place. A
-     * read in an expression with a syntax error does not count as known, since what the expression reads once it is
-     * complete is not known (Review Focus 5).
+     * [name] in them, then the unsettled values. Comparing counts suffices: each known read is such a `$name` in its
+     * string, at its own place. A read in an expression with a syntax error does not count as known, since what the
+     * expression reads once it is complete is not known (Review Focus 5).
      */
     fun unknown(name: String, reads: List<AslRead>): List<PsiElement> {
         val known = HashMap<PsiElement, HashSet<Any>>()
@@ -37,7 +55,8 @@ internal class VariableMentions(file: PsiFile) {
                 is PathRead -> known.getOrPut(read.scalar.psi) { HashSet() } += read.range.startOffset
             }
         }
-        return strings.filter { (string, text) -> mentions(text, name) > known[string].orEmpty().size }.map { it.first }
+        val inStrings = strings.filter { (string, text) -> mentions(text, name) > known[string].orEmpty().size }.map { it.first }
+        return (inStrings + unsettled).distinct()
     }
 
     private companion object {
