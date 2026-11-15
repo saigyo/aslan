@@ -87,7 +87,7 @@ internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiEl
         }
         val inStrings = strings.filter { (string, text) ->
             val count = known[string].orEmpty().size
-            !(count == 0 && inStatic(string)) && mentions(text, name) > count
+            mentions(text, name) > count && !(count == 0 && inStatic(string))
         }.map { it.first }
         return (inStrings + unsettled).distinct()
     }
