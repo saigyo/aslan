@@ -8,7 +8,7 @@ Make the repository `saigyo/aslan` on GitHub public and merge the branch with th
 
 ## 2. Build, sign and upload
 
-Build the plugin with `./gradlew buildPlugin`. The zip is `build/distributions/aslan-1.0.0.zip`. Sign it and upload it as the JetBrains documentation describes ("Plugin Signing" and "Publishing a Plugin" in the IntelliJ Platform SDK documentation).
+Build the plugin with `./gradlew buildPlugin`. The zip is `build/distributions/aslan-<version>.zip`. Sign it and upload it as the JetBrains documentation describes ("Plugin Signing" and "Publishing a Plugin" in the IntelliJ Platform SDK documentation).
 
 Name, vendor, description, change notes, version and logo come from the zip. The vendor is `saigyo`, with the email `aslan@kaixo.de` and the website `https://github.com/saigyo/aslan`.
 
