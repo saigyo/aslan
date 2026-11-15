@@ -199,6 +199,23 @@ class VariableNavigationTest : VariableTestCase() {
         assertFalse(UsageViewUtil.getType(shelve) == AslVariableDescriptionProvider.TYPE)
     }
 
+    fun `test find usages still finds everything after a PSI change between the handler and the search`() {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(catcher, false)!!
+        // any PSI change drops every model, as typing elsewhere does while the search waits
+        val other = myFixture.addFileToProject("notes.txt", "notes")
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(other)!!
+            document.insertString(0, "more ")
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        val found = ArrayList<UsageInfo>()
+        val options = handler.getFindUsagesOptions(null)
+        for (element in handler.primaryElements) handler.processElementUsages(element, { found += it; true }, options)
+        assertEquals(2 + offsetsOf("\$reel").size, found.size)
+    }
+
     fun `test find usages groups assignments and reads by usage type`() {
         configure(archive)
         val catcher = entryAt(offsetsOf("reel:")[1])

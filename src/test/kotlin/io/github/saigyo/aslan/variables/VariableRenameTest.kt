@@ -4,10 +4,12 @@ import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.BaseRefactoringProcessor.ConflictsInTestsException
 import com.intellij.refactoring.rename.RenameProcessor
@@ -39,6 +41,7 @@ import io.github.saigyo.aslan.refs.RenameConflictKind.UNREAD_MENTION
 import io.github.saigyo.aslan.refs.variableNameProblem
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
+import java.io.File
 
 class VariableRenameTest : VariableTestCase() {
     /**
@@ -225,9 +228,26 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(renamedArchive.replace("§", "$"), renameAtCaret(withCaret(archive, "§re|el, §shelf)"), "film"))
     }
 
-    /** The rename to `film` of [element], with the usages the platform shows in the preview. */
-    private class PreviewProcessor(element: PsiElement) : RenameProcessor(element.project, element, "film", false, false) {
+    /**
+     * The rename of [element] to [newName] as the Rename dialog runs it: in its default scope Project Files, without
+     * comments and text occurrences; with the usages the platform shows in the preview.
+     */
+    private class PreviewProcessor(element: PsiElement, newName: String = "film") :
+        RenameProcessor(element.project, element, newName, GlobalSearchScope.projectScope(element.project), false, false) {
         fun usages(): List<UsageInfo> = findUsages().toList()
+    }
+
+    /**
+     * A PSI change in another file, as happens while the Rename dialog is open: it drops every model, whose variables
+     * and go-to targets then name scopes the new model no longer has.
+     */
+    private fun changeAnotherFile() {
+        val other = myFixture.addFileToProject("notes-${System.nanoTime()}.txt", "notes")
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(other)!!
+            document.insertString(0, "more ")
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
     }
 
     /** The host offset where the name ends in [usage]. */
@@ -238,42 +258,57 @@ class VariableRenameTest : VariableTestCase() {
     }
 
     /**
-     * The preview of a rename lists every place it writes: the assignment it renames through, the keys of the other
-     * assignments as writes and every read, each once and each with its usage type. The renamed element is the
-     * assignment's go-to target, presented by the variable's name and its place.
+     * The preview of a rename lists every place it writes: the element it starts on, the keys of the other assignments
+     * as writes and every read, each once and each with its usage type, also after a PSI change while the dialog is
+     * open. An assignment the rename starts on is presented by the variable's name and its place, not by its value.
      */
     fun `test the rename preview lists every assignment and every read`() {
         val everyName = Regex("film").findAll(renamedArchive.replace("§", "$")).map { it.range.last + 1 }.toList()
-        val starts = listOf("    re|el: none" to "Load, first Catcher", "{% §re|el %}" to "Load", "InputPath: §re|el" to "Load")
-        for ((marker, place) in starts) {
+        for (marker in listOf("    re|el: none", "{% §re|el %}", "InputPath: §re|el")) {
             configure(withCaret(archive, marker))
-            val start = targetAtCaret()
-            val element = RenamePsiElementProcessor.forElement(start).substituteElementToRename(start, myFixture.editor)!!
-            assertInstanceOf(element, AslVariableTarget::class.java)
-            val presentation = (element as AslVariableTarget).presentation!!
-            assertEquals(marker, "reel", presentation.presentableText)
-            assertEquals(marker, place, presentation.locationString)
-            assertEquals(AslVariableDescriptionProvider.TYPE, UsageViewUtil.getType(element))
-
+            val element = RenamePsiElementProcessor.forElement(targetAtCaret()).substituteElementToRename(targetAtCaret(), myFixture.editor)!!
+            changeAnotherFile()
             val usages = PreviewProcessor(element).usages()
-            val own = (element.entry as YAMLKeyValue).key!!.textRange.endOffset
+            val entry = AslVariableTargets.assignmentEntryAt(element) as? YAMLKeyValue
+            val own = listOfNotNull(entry?.key?.textRange?.endOffset)
             assertEquals(marker, everyName, (usages.map { nameEnd(it) } + own).sorted())
             val target = arrayOf<UsageTarget>(PsiElement2UsageTargetAdapter(element, true))
             val types = usages.map { AslVariableUsageTypeProvider().getUsageType(it.element!!, target) }
-            assertEquals(marker, 2, types.count { it == AslVariableUsageTypeProvider.ASSIGNMENT })
-            assertEquals(marker, usages.size - 2, types.count { it == AslVariableUsageTypeProvider.READ })
-            val detector = ReadWriteAccessDetector.findDetector(element.entry)!!
-            val writes = usages.count { detector.getReferenceAccess(element.entry, it.reference!!) == ReadWriteAccessDetector.Access.Write }
-            assertEquals(marker, 2, writes)
+            assertEquals(marker, 3 - own.size, types.count { it == AslVariableUsageTypeProvider.ASSIGNMENT })
+            assertEquals(marker, usages.size - 3 + own.size, types.count { it == AslVariableUsageTypeProvider.READ })
+            val detector = ReadWriteAccessDetector.findDetector(entry("reel:"))!!
+            val writes = usages.count { detector.getReferenceAccess(entry("reel:"), it.reference!!) == ReadWriteAccessDetector.Access.Write }
+            assertEquals(marker, 3 - own.size, writes)
         }
+        configure(withCaret(archive, "    re|el: none"))
+        val presentation = PsiElement2UsageTargetAdapter(targetAtCaret(), true).presentation
+        assertEquals("reel", presentation.presentableText)
+        assertEquals("Load, first Catcher", presentation.locationString)
+        assertEquals(AslVariableDescriptionProvider.TYPE, UsageViewUtil.getType(targetAtCaret()))
     }
 
-    fun `test a rename through the target writes the same text`() {
-        configure(withCaret(archive, "{% §re|el %}"))
-        val start = targetAtCaret()
-        val element = RenamePsiElementProcessor.forElement(start).substituteElementToRename(start, myFixture.editor)!!
-        RenameProcessor(project, element, "film", false, false).run()
-        assertEquals(renamedArchive.replace("§", "$"), hostText())
+    /**
+     * The commissioner's case: Rename from the key `rejection` of WeighVerdicts' first Choice rule in the film archive
+     * fixture, Preview, then Refactor. The preview lists the other 18 keys and the 5 reads; the rename writes all 24.
+     */
+    fun `test the rename of rejection from a key lists and writes every occurrence`() {
+        val intake = File("src/test/testData/clean/film-archive-intake.asl.yaml").readText()
+        val keys = Regex("""(?m)^\s+rejection:""").findAll(intake).toList()
+        val start = keys[18].range.last - 1
+        configure(intake.substring(0, start) + "<caret>" + intake.substring(start), "film-archive-intake.asl.yaml")
+        val element = RenamePsiElementProcessor.forElement(targetAtCaret()).substituteElementToRename(targetAtCaret(), myFixture.editor)!!
+        assertEquals("WeighVerdicts, first Choice rule", PsiElement2UsageTargetAdapter(element, true).presentation.locationString)
+        changeAnotherFile()
+        val processor = PreviewProcessor(element, "rejection2")
+        val usages = processor.usages()
+        assertEquals(23, usages.size)
+        changeAnotherFile()
+        processor.run()
+        val reads = Regex("""\${'$'}rejection\b""")
+        assertEquals(5, reads.findAll(intake).count())
+        val expected = intake.replace(Regex("""(?m)^([ \t]+)rejection:"""), "\$1rejection2:").replace(reads, "\\\$rejection2")
+        assertEquals(24, Regex("""rejection2\b""").findAll(expected).count())
+        assertEquals(expected, hostText())
     }
 
     /**
