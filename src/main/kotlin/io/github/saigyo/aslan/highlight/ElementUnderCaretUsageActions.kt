@@ -1,73 +1,64 @@
 package io.github.saigyo.aslan.highlight
 
+import com.intellij.codeInsight.CodeInsightActionHandler
+import com.intellij.codeInsight.actions.BaseCodeInsightAction
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType
-import com.intellij.codeInsight.daemon.impl.actions.GotoNextElementUnderCaretUsageAction
-import com.intellij.codeInsight.daemon.impl.actions.GotoPrevElementUnderCaretUsageAction
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import io.github.saigyo.aslan.files.AslFiles
 
 /**
- * Next and Previous Highlighted Usage, for a caret inside an expression of an ASL file. The platform's action works on
- * the injected editor there and looks for the highlighted usages only within the injected file's range, while the
- * usages of a state machine variable are highlighted in the host, all over the definition. With the caret in an
- * expression of an ASL file, the action therefore steps through the highlights of the host editor; everywhere else it
- * is the platform's action.
+ * Next and Previous Highlighted Usage. They replace the platform's actions of the same ids, whose classes are internal
+ * API, and do what those do (`GotoElementUnderCaretUsageBase`): step to the next highlight of the element under the
+ * caret in the editor and file the action is given, the injected ones with the caret in an injection.
+ *
+ * With the caret in an expression of an ASL file, the injected file's range is too small: the usages of a state
+ * machine variable are highlighted in the host, all over the definition. There the actions step through the highlights
+ * of the host editor in the whole host file.
  */
-abstract class ElementUnderCaretUsageAction(private val platform: AnAction, private val ordering: Comparator<Int>) : AnAction() {
-    override fun getActionUpdateThread(): ActionUpdateThread = platform.actionUpdateThread
+abstract class ElementUnderCaretUsageAction(private val ordering: Comparator<Int>) : BaseCodeInsightAction(), CodeInsightActionHandler {
+    override fun getHandler(): CodeInsightActionHandler = this
 
-    override fun isDumbAware(): Boolean = platform.isDumbAware
+    override fun startInWriteAction(): Boolean = false
 
-    override fun update(e: AnActionEvent) = platform.update(e)
-
-    override fun actionPerformed(e: AnActionEvent) {
-        val project = e.project
-        val editor = e.getData(CommonDataKeys.EDITOR)?.let { InjectedLanguageEditorUtil.getTopLevelEditor(it) }
-        if (project == null || editor == null || !inAslExpression(project, editor)) return platform.actionPerformed(e)
-        PsiDocumentManager.getInstance(project).commitAllDocuments()
-        navigate(project, editor, ordering)
-    }
-
-    private fun inAslExpression(project: Project, editor: Editor): Boolean {
-        val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return false
-        if (!AslFiles.isAslFile(file)) return false
-        return InjectedLanguageManager.getInstance(project).findInjectedElementAt(file, editor.caretModel.offset) != null
+    override fun invoke(project: Project, editor: Editor, psiFile: PsiFile) {
+        val host = InjectedLanguageManager.getInstance(project).getTopLevelFile(psiFile)
+        if (host !== psiFile && AslFiles.isAslFile(host)) {
+            val hostEditor = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
+            navigate(project, hostEditor, 0, hostEditor.document.textLength, ordering)
+        } else {
+            navigate(project, editor, psiFile.textRange.startOffset, psiFile.textRange.endOffset, ordering)
+        }
     }
 
     companion object {
         /**
-         * Moves the caret of the host [editor] to the next highlighted usage of the element under the caret in
-         * [ordering] (natural for Next, reversed for Previous), or round to the first one, unfolding and scrolling as
-         * the platform's action does.
+         * Moves the caret of [editor] to the next highlighted usage of the element under the caret between [start] and
+         * [end] in [ordering] (natural for Next, reversed for Previous), or round to the first one, unfolding and
+         * scrolling as the platform's action does.
          */
-        fun navigate(project: Project, editor: Editor, ordering: Comparator<Int>) {
+        fun navigate(project: Project, editor: Editor, start: Int, end: Int, ordering: Comparator<Int>) {
             val caret = editor.caretModel.offset
             var next: Int? = null
             var first: Int? = null
             val markup = editor.markupModel as? MarkupModelEx ?: return
-            DaemonCodeAnalyzerEx.processHighlights(markup, project, null, 0, editor.document.textLength) { info ->
+            DaemonCodeAnalyzerEx.processHighlights(markup, project, null, start, end) { info ->
                 if (info.type == HighlightInfoType.ELEMENT_UNDER_CARET_READ || info.type == HighlightInfoType.ELEMENT_UNDER_CARET_WRITE) {
-                    val start = info.startOffset
+                    val offset = info.startOffset
                     val nextSoFar = next
                     val firstSoFar = first
-                    if (ordering.compare(start, caret) > 0 && ordering.compare(info.endOffset, caret) > 0 &&
-                        (nextSoFar == null || ordering.compare(nextSoFar, start) > 0)
+                    if (ordering.compare(offset, caret) > 0 && ordering.compare(info.endOffset, caret) > 0 &&
+                        (nextSoFar == null || ordering.compare(nextSoFar, offset) > 0)
                     ) {
-                        next = start
+                        next = offset
                     }
-                    if (firstSoFar == null || ordering.compare(firstSoFar, start) > 0) first = start
+                    if (firstSoFar == null || ordering.compare(firstSoFar, offset) > 0) first = offset
                 }
                 true
             }
@@ -86,9 +77,7 @@ abstract class ElementUnderCaretUsageAction(private val platform: AnAction, priv
 }
 
 /** Next Highlighted Usage. */
-class NextElementUnderCaretUsageAction :
-    ElementUnderCaretUsageAction(GotoNextElementUnderCaretUsageAction(), naturalOrder())
+class NextElementUnderCaretUsageAction : ElementUnderCaretUsageAction(naturalOrder())
 
 /** Previous Highlighted Usage. */
-class PrevElementUnderCaretUsageAction :
-    ElementUnderCaretUsageAction(GotoPrevElementUnderCaretUsageAction(), reverseOrder())
+class PrevElementUnderCaretUsageAction : ElementUnderCaretUsageAction(reverseOrder())

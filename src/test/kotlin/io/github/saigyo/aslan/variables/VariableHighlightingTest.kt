@@ -321,7 +321,7 @@ class VariableHighlightingTest : VariableTestCase() {
         }
     }
 
-    fun `test next highlighted usage on a key is the platform's action`() {
+    fun `test next highlighted usage on a key steps as the platform's action does`() {
         intakeAt("rejection:", 1)
         assertEquals(lineOf("rejection:", 2), lineAfter("GotoNextElementUnderCaretUsage"))
     }

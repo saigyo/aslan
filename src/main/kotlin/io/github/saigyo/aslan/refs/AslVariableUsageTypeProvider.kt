@@ -37,7 +37,7 @@ class AslVariableUsageTypeProvider : UsageTypeProviderEx {
     }
 
     companion object {
-        val ASSIGNMENT = UsageType("Variable assignment")
-        val READ = UsageType("Variable read")
+        val ASSIGNMENT = UsageType { "Variable assignment" }
+        val READ = UsageType { "Variable read" }
     }
 }
