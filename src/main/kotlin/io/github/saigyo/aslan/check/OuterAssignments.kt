@@ -14,7 +14,9 @@ import io.github.saigyo.aslan.model.TransitionKind
  *   and AWS documents that a Choice state's own `Assign` applies only on the way to its `Default`;
  * - for the `Assign` of a Catcher or a Choice rule: its own `Next`.
  *
- * An assignment in S itself (its own `Assign`, its Catchers) applies after S. A machine E whose flow is not known
+ * An assignment in S itself (its own `Assign`, its Catchers) applies after S, and so before S only when the flow leads
+ * from it back to S, by the same rule, S itself as a target included (round 14: `r14-o-owner-loop`,
+ * `r14-o-owner-self-loop`, `r14-o-catcher-loop`, `r14-o-parallel-owner-loop`). A machine E whose flow is not known
  * ([hasUnknownFlow]) is skipped, since the order cannot be told. Used by the outer-assignment check, the check of
  * outer reads inside a Distributed Map, and the rename.
  */
@@ -32,7 +34,7 @@ internal class OuterAssignments(assignments: List<AslAssignment>) {
             val holder = inner.owner ?: return false
             val outer = holder.machine
             if (!flowUnknown.getOrPut(outer) { outer.hasUnknownFlow() }) {
-                val found = byMachine[outer].orEmpty().any { it.state !== holder && matches(it) && reaches(outer, entered(it), holder.name) }
+                val found = byMachine[outer].orEmpty().any { matches(it) && reaches(outer, entered(it), holder.name) }
                 if (found) return true
             }
             inner = outer
