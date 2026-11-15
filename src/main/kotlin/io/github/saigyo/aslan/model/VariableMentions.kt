@@ -28,10 +28,11 @@ internal fun standsForAnyValue(node: AslNode): Boolean = when (node) {
 /**
  * The strings of a file that Step Functions may evaluate, decoded, for finding `$name`s the model does not know as
  * reads. Every string counts but the key of an entry and a `Comment` that is no JSONata expression, since Step
- * Functions evaluates neither. Each of [unsettled], the whole value of a field that takes an expression or a path
- * where the file does not settle it ([standsForAnyValue]), counts as a mention of every name.
+ * Functions evaluates neither, nor a string inside one of [static] (a Pass state's `Result`, which AWS does not
+ * evaluate) in which the model knows no read. Each of [unsettled], the whole value of a field that takes an expression
+ * or a path where the file does not settle it ([standsForAnyValue]), counts as a mention of every name.
  */
-internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiElement>) {
+internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiElement>, private val static: List<PsiElement> = emptyList()) {
     private val strings: List<Pair<PsiElement, String>> =
         PsiTreeUtil.findChildrenOfAnyType(file, YAMLScalar::class.java, JsonStringLiteral::class.java).mapNotNull { string ->
             val text = decoded(string) ?: return@mapNotNull null
@@ -55,9 +56,14 @@ internal class VariableMentions(file: PsiFile, private val unsettled: List<PsiEl
                 is PathRead -> known.getOrPut(read.scalar.psi) { HashSet() } += read.range.startOffset
             }
         }
-        val inStrings = strings.filter { (string, text) -> mentions(text, name) > known[string].orEmpty().size }.map { it.first }
+        val inStrings = strings.filter { (string, text) ->
+            val count = known[string].orEmpty().size
+            !(count == 0 && inStatic(string)) && mentions(text, name) > count
+        }.map { it.first }
         return (inStrings + unsettled).distinct()
     }
+
+    private fun inStatic(string: PsiElement): Boolean = static.any { PsiTreeUtil.isAncestor(it, string, false) }
 
     private companion object {
         fun decoded(string: PsiElement): String? = when (string) {

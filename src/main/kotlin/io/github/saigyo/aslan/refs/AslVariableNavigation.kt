@@ -76,6 +76,8 @@ class AslVariableGotoDeclarationHandler : GotoDeclarationHandler {
             PsiTreeUtil.getNonStrictParentOfType(candidate, JsonataVariableRef::class.java)?.let { return AslVariableTargets.variablesAt(it) }
         }
         val host = PsiTreeUtil.getNonStrictParentOfType(element, YAMLScalar::class.java, JsonStringLiteral::class.java) ?: return emptyList()
+        // a JSON key is a string too; an assignment is no read, in JSON as in YAML
+        if (AslVariableTargets.assignmentEntryAt(host) != null) return emptyList()
         return AslVariableTargets.variablesAt(host, offset - host.textRange.startOffset)
     }
 }

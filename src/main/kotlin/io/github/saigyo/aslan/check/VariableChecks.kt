@@ -6,12 +6,9 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataFile
 import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.model.AslAssignment
 import io.github.saigyo.aslan.model.AslDocument
-import io.github.saigyo.aslan.model.AslStateMachine
 import io.github.saigyo.aslan.model.AslVariable
-import io.github.saigyo.aslan.model.AssignPlace
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
-import io.github.saigyo.aslan.model.TransitionKind
 import io.github.saigyo.aslan.refs.variableNameProblem
 
 /**
@@ -43,8 +40,7 @@ internal object VariableChecks {
         /** Whether a machine of the file does not say every name assigned in it or which way its chain goes. */
         private val fileOpen = doc.allMachines().any { model.isOpen(it) }
 
-        private val assignedIn: Map<AslStateMachine, Set<String>> =
-            model.assignments.groupBy({ it.state.machine }, { it.name }).mapValues { it.value.toSet() }
+        private val outerAssignments = OuterAssignments(model.assignments)
         private val mentioned = HashMap<String, Boolean>()
 
         fun run() {
@@ -66,67 +62,13 @@ internal object VariableChecks {
                     }
                     continue
                 }
-                if (assignedBefore(assignment)) {
+                if (outerAssignments.before(assignment.state.machine) { it.name == name }) {
                     report(AslProblem.OUTER_VARIABLE_ASSIGNED, assignment,
                         "\$$name is already assigned in an outer state machine before this one runs")
                 }
                 val variable = model.variableOf(assignment)
                 if (neverRead(variable)) report(AslProblem.VARIABLE_NEVER_READ, assignment, "\$$name is assigned but never read")
             }
-        }
-
-        /** The machines around [machine], innermost first, across every Map and Parallel state, whatever their `Mode`. */
-        private fun enclosing(machine: AslStateMachine): Sequence<AslStateMachine> =
-            generateSequence(machine.owner?.machine) { it.owner?.machine }
-
-        private val assignmentsIn: Map<AslStateMachine, List<AslAssignment>> = model.assignments.groupBy { it.state.machine }
-        private val flowUnknown = HashMap<AslStateMachine, Boolean>()
-
-        /**
-         * Whether a machine E around the machine of [assignment] assigns its name where that applies before the flow
-         * enters S, the state of E that holds the nested machine (rounds 12 and 13): AWS reports the name as already
-         * defined in a parent scope. An assignment in S itself (its own `Assign`, its Catchers) applies after S. A
-         * machine whose flow is not known is skipped, since the order cannot be told.
-         */
-        private fun assignedBefore(assignment: AslAssignment): Boolean {
-            var inner = assignment.state.machine
-            while (true) {
-                val holder = inner.owner ?: return false
-                val outerMachine = holder.machine
-                if (!flowUnknown.getOrPut(outerMachine) { outerMachine.hasUnknownFlow() }) {
-                    val before = assignmentsIn[outerMachine].orEmpty()
-                        .any { it.name == assignment.name && it.state !== holder && reaches(outerMachine, entered(it), holder.name) }
-                    if (before) return true
-                }
-                inner = outerMachine
-            }
-        }
-
-        /**
-         * The states the flow enters once [assignment] has applied: for the `Assign` of a state, its `Next`, its Choice
-         * rules' `Next` and its `Default`, not its Catchers (the state's `Assign` does not apply when it fails); for that
-         * of a Catcher or a Choice rule, its own `Next`.
-         */
-        private fun entered(assignment: AslAssignment): List<String> = assignment.state.transitions.filter { t ->
-            when (assignment.place) {
-                AssignPlace.STATE -> t.kind != TransitionKind.CATCH
-                AssignPlace.CATCHER -> t.kind == TransitionKind.CATCH && t.index == assignment.index
-                AssignPlace.CHOICE_RULE -> t.kind == TransitionKind.CHOICE && t.index == assignment.index
-            }
-        }.mapNotNull { it.targetName }
-
-        /** Whether the flow of [machine] reaches the state [target] from [from], along any transitions, `Catch` included. */
-        private fun reaches(machine: AslStateMachine, from: List<String>, target: String): Boolean {
-            val reached = HashSet<String>()
-            val queue = ArrayDeque(from)
-            while (queue.isNotEmpty()) {
-                val name = queue.removeFirst()
-                if (name == target) return true
-                if (!reached.add(name)) continue
-                val state = machine.state(name) ?: continue
-                for (t in state.transitions) t.targetName?.let(queue::addLast)
-            }
-            return false
         }
 
         /**
@@ -142,12 +84,12 @@ internal object VariableChecks {
 
         /**
          * Whether [read] stands inside the processor of a certain Distributed Map and a machine around that Map assigns
-         * its name (`r11-j-distributed-outer`). The chain of a machine ends after such a processor and nowhere else
-         * but at the top level.
+         * its name where that applies before the flow enters the Map ([OuterAssignments]; `r11-j-distributed-outer`).
+         * The chain of a machine ends after such a processor and nowhere else but at the top level.
          */
         private fun outsideDistributedMap(read: JsonataRead): Boolean {
             val processor = model.chain(read.state.machine).lastOrNull()?.takeIf { it.owner != null } ?: return false
-            return enclosing(processor).any { read.name in assignedIn[it].orEmpty() }
+            return outerAssignments.before(processor) { it.name == read.name }
         }
 
         /**

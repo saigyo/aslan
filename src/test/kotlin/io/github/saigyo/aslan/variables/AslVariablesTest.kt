@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.variables
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.FakePsiElement
@@ -527,6 +528,57 @@ class AslVariablesTest : VariableTestCase() {
         assertEquals(emptyList<String>(), doc.variables.assignments.map { it.name })
         assertEquals(emptyList<String>(), doc.readNames())
         assertTrue(doc.variables.isOpen(state))
+    }
+
+    fun `test a cancellation while building is passed on and nothing is kept`() {
+        val file = yaml("StartAt: Load\nStates: {}")
+        // as above, but ordering the assignments is cancelled
+        val cancelled = object : FakePsiElement() {
+            override fun getParent(): PsiElement = file
+            override fun getTextRange(): TextRange = throw ProcessCanceledException()
+        }
+        fun entry(key: String, value: AslNode) = AslEntry(key, cancelled, cancelled, value, viaMerge = false)
+        // two assignments, so that sorting them asks for the text range
+        fun number(text: String) = AslScalar(cancelled, cancelled, ScalarType.NUMBER, text)
+        val assign = AslObject(cancelled, cancelled, listOf(entry("reel", number("1")), entry("title", number("2"))))
+        val stateObj = AslObject(cancelled, cancelled, listOf(entry("Assign", assign)))
+        val states = ArrayList<AslState>()
+        val root = AslStateMachine(AslObject(cancelled, cancelled, emptyList()), null, null, null, states)
+        states += AslState(
+            "Load", entry("Load", stateObj), stateObj, root, "Pass", AslSpec.stateType("Pass"),
+            QueryLanguage.JSONPATH, true, emptyList(), emptyList(),
+        )
+        val doc = AslDocument(file, root.obj, root, SchemaIndex.EMPTY, QueryLanguage.JSONPATH, true)
+        // each access is cancelled again: no empty model is kept for the file
+        repeat(2) {
+            try {
+                doc.variables
+                fail("the cancellation was swallowed")
+            } catch (_: ProcessCanceledException) {
+            }
+        }
+    }
+
+    fun `test a JSONPath key in a state whose query language is not known leaves the machine open`() {
+        val doc = yamlModel(
+            machine(
+                """
+                Tag:
+                  Type: Pass
+                  QueryLanguage: §{Lang}
+                  Assign:
+                    reel.§: §.title
+                  Next: Show
+                Show:
+                  Type: Pass
+                  Output: "{% §reel %}"
+                  End: true
+                """,
+                "QueryLanguage: JSONata",
+            ),
+        )
+        assertEquals(emptyList<String>(), doc.variables.assignments.map { it.name })
+        assertEquals(listOf("Tag", "Show"), doc.openStates())
     }
 
     fun `test half-typed definitions do not throw`() {

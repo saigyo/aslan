@@ -1,6 +1,7 @@
 <html>
 <body>
-<p>Reports a read <code>$name</code> in a JSONata expression inside the item processor of a Distributed Map, of a variable that only a state machine around the Map assigns. Step Functions rejects the definition: the states of a Distributed Map's child workflow can only read the variables assigned in that child workflow.</p>
+<p>Reports a read <code>$name</code> in a JSONata expression inside the item processor of a Distributed Map, of a variable that only a state machine around the Map assigns, where that assignment comes before the flow enters the Map. Step Functions rejects the definition: the states of a Distributed Map's child workflow can only read the variables assigned in that child workflow.</p>
+<p>An outer assignment counts as for the inspection of outer assignments in nested state machines: from a state's own <code>Assign</code> along its <code>Next</code> and its <code>Default</code>, from a Catcher's or a Choice rule's <code>Assign</code> along its own <code>Next</code>, also through a loop. A read whose name is assigned only after the Map, in its own <code>Assign</code> or in its Catchers is reported as a warning by the inspection for variables not assigned where they are read. Where the flow of the outer state machine is not known, it is not reported as an error either.</p>
 <p>A call <code>$name(...)</code>, an expression that contains a deployment-time placeholder outside a string literal or has a syntax error, and a state machine that does not say every name assigned in it are not checked.</p>
 </body>
 </html>

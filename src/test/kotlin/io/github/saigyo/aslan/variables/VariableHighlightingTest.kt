@@ -175,6 +175,26 @@ class VariableHighlightingTest : VariableTestCase() {
         assertEquals(listOf("reel" to true, "\$reel" to false), highlightedAccesses())
     }
 
+    fun `test the Result of a Pass state is not highlighted`() {
+        val text = """
+            StartAt: Load
+            States:
+              Load:
+                Type: Pass
+                Assign:
+                  re<caret>el: 1
+                Next: Show
+              Show:
+                Type: Pass
+                Result:
+                  query.§: §reel
+                InputPath: §reel
+                End: true
+        """.trimIndent().replace("§", "$")
+        yaml(text)
+        assertEquals(listOf("reel" to true, "\$reel" to false), highlightedAccesses())
+    }
+
     fun `test a local JSONata variable keeps stage 2's highlighting`() {
         configure("§total := 1", "§to<caret>tal := 1")
         val handled = HighlightUsagesHandler.createCustomHandler<PsiElement>(myFixture.editor, myFixture.file)

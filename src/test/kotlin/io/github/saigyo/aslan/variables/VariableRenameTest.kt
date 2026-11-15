@@ -24,6 +24,7 @@ import io.github.saigyo.aslan.refs.RenameConflictKind.LOCAL_OF_NEW_NAME
 import io.github.saigyo.aslan.refs.RenameConflictKind.MERGE_KEY_CLASH
 import io.github.saigyo.aslan.refs.RenameConflictKind.NAME_IN_REGION
 import io.github.saigyo.aslan.refs.RenameConflictKind.NEW_NAME_MENTIONED
+import io.github.saigyo.aslan.refs.RenameConflictKind.OUTER_ASSIGNMENT
 import io.github.saigyo.aslan.refs.RenameConflictKind.REGION_OPEN
 import io.github.saigyo.aslan.refs.RenameConflictKind.SHARED_OCCURRENCE
 import io.github.saigyo.aslan.refs.RenameConflictKind.UNREAD_MENTION
@@ -401,7 +402,8 @@ class VariableRenameTest : VariableTestCase() {
             """.trimIndent(),
             top = "QueryLanguage: JSONata",
         )
-        assertEquals(setOf(NAME_IN_REGION), assertRenameConflict(nested, "film"))
+        // ... which AWS would also reject as an inner assignment of a name assigned before the Map
+        assertEquals(setOf(NAME_IN_REGION, OUTER_ASSIGNMENT), assertRenameConflict(nested, "film"))
         // a machine of the region whose names the file does not say
         val open = jsonataMachine("Show:\n  Type: Pass\n  Assign: '{% {\"box\": 1} %}'\n  Output: \"{% §reel %}\"\n  End: true")
         assertEquals(setOf(REGION_OPEN), assertRenameConflict(withCaret(open, "re|el: 1"), "film"))
@@ -722,6 +724,65 @@ class VariableRenameTest : VariableTestCase() {
             commented.replace("reel: 1", "film: 1").replace("{% §reel", "{% §film").replace("§", "$"),
             renameAtCaret(withCaret(commented, "re|el: 1"), "film"),
         )
+    }
+
+    fun `test a rename leaves the Result of a Pass state as it is`() {
+        // AWS does not evaluate Result (r3-AC-pass-result-key): a name there is data
+        val before = machine(
+            """
+            Load:
+              Type: Pass
+              Assign:
+                reel: 1
+              Next: Show
+            Show:
+              Type: Pass
+              Result:
+                query.§: §reel
+              InputPath: §reel
+              End: true
+            """.trimIndent(),
+        )
+        val after = before.replace("reel: 1", "film: 1").replace("InputPath: §reel", "InputPath: §film")
+        assertEquals(after.replace("§", "$"), renameAtCaret(withCaret(before, "re|el: 1"), "film"))
+    }
+
+    /** The top level assigns and reads `reel` before a Distributed Map whose processor assigns and reads `count`. */
+    private val acrossDistributedMap = machine(
+        """
+        Load:
+          Type: Pass
+          Assign:
+            reel: 1
+          Output: "{% §reel %}"
+          Next: Each
+        Each:
+          Type: Map
+          Items: "{% [1, 2] %}"
+          ItemProcessor:
+            ProcessorConfig:
+              Mode: DISTRIBUTED
+              ExecutionType: STANDARD
+            StartAt: Count
+            States:
+              Count:
+                Type: Pass
+                Assign:
+                  count: 2
+                Output: "{% §count %}"
+                End: true
+          End: true
+        """.trimIndent(),
+        top = "QueryLanguage: JSONata",
+    )
+
+    fun `test a rename refuses an outer assignment of the new name across a Distributed Map`() {
+        // the reads keep their variables, but AWS rejects the inner assignment of a name assigned before the Map
+        assertEquals(setOf(OUTER_ASSIGNMENT), assertRenameConflict(withCaret(acrossDistributedMap, "re|el: 1"), "count"))
+        assertEquals(setOf(OUTER_ASSIGNMENT), assertRenameConflict(withCaret(acrossDistributedMap, "co|unt: 2"), "reel"))
+        // control: a name used on neither side
+        val renamed = acrossDistributedMap.replace("reel: 1", "film: 1").replace("{% §reel", "{% §film")
+        assertEquals(renamed.replace("§", "$"), renameAtCaret(withCaret(acrossDistributedMap, "re|el: 1"), "film"))
     }
 
     fun `test conflict 6, a placeholder that may stand for an expression`() {

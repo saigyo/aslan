@@ -75,7 +75,8 @@ data class AslVariable(val name: String, val scope: AslStateMachine)
  * machine owned by a Distributed Map, which cannot read outer variables. The owning scope of an assignment or read of a
  * name in a state is the outermost machine in the chain of the state's machine that assigns the name. A machine is
  * *open* when the file does not say every name assigned in it or which way its chain goes: its `States` is open, an
- * `Assign` in it is not a mapping or has a placeholder or unapplied merge key, a state, a top-level Choice rule or a
+ * `Assign` in it is not a mapping or has a placeholder or unapplied merge key (or a key ending in `.$`
+ * in a state whose query language is not known), a state, a top-level Choice rule or a
  * Catcher in it is not a mapping or leaves its fields open, or it belongs to a Map whose `Mode` is not settled.
  *
  * Everything is computed once, when the instance is made: after the model is built, since the reads need the injected
@@ -168,7 +169,8 @@ class AslVariables private constructor(private val doc: AslDocument, private val
     fun chain(machine: AslStateMachine): List<AslStateMachine> = chains[machine].orEmpty()
 
     private val mentions: VariableMentions by lazy {
-        VariableMentions(doc.file, if (failed) emptyList() else doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc))
+        if (failed) VariableMentions(doc.file, emptyList())
+        else VariableMentions(doc.file, doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc), JsonPathReads.staticValues(doc))
     }
 
     /**
@@ -227,7 +229,8 @@ class AslVariables private constructor(private val doc: AslDocument, private val
         }
         val jsonPath = state.queryLanguage == QueryLanguage.JSONPATH
         for (entry in mapping.entries) {
-            if (isUnappliedMerge(entry) || Placeholders.contains(entry.key)) {
+            // a key ending in `.$` names `name` or `name.$` depending on a query language the file does not settle
+            if (isUnappliedMerge(entry) || Placeholders.contains(entry.key) || (!state.queryLanguageKnown && entry.key.endsWith(".$"))) {
                 openMachines += state.machine
                 continue
             }

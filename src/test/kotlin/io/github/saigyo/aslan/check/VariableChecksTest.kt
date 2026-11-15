@@ -36,6 +36,34 @@ class VariableChecksTest : CheckTestCase() {
 
     // PATH_VARIABLE_NOT_ASSIGNED
 
+    fun `test the Result of a Pass state is no read`() {
+        // AWS does not evaluate Result (r3-AC-pass-result-key, PASS_RESULT_IS_STATIC)
+        val text = machine("Seed:\n  Type: Pass\n  Result:\n    query.$: §reel\n  End: true", top = "")
+        assertEquals(emptyList<Any>(), variables(text))
+        // nor a mention: an assignment read only there is never read
+        val assigned = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\nSeed:\n  Type: Pass\n  Result:\n    query.$: §reel\n  End: true", top = "")
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(assigned, "assigned.asl.yaml"))
+    }
+
+    fun `test a JSONPath key in a state whose query language is not known is no finding`() {
+        val text = machine(
+            """
+            Tag:
+              Type: Pass
+              QueryLanguage: §{Lang}
+              Assign:
+                reel.$: §.title
+              Next: Show
+            Show:
+              Type: Pass
+              QueryLanguage: JSONPath
+              InputPath: §reel
+              End: true
+            """,
+        )
+        assertEquals(emptyList<Any>(), variables(text))
+    }
+
     fun `test a JSONPath read of a name assigned nowhere is an error`() {
         val text = machine(
             """
@@ -461,6 +489,16 @@ class VariableChecksTest : CheckTestCase() {
         assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(states.replace("§{After}", "Split"), "known.asl.yaml"))
     }
 
+    /** A Choice state whose own `Assign` assigns `reel`, whose rule leads to [rule] and whose `Default` to [default]. */
+    private fun choiceOwnAssign(rule: String, default: String) =
+        "Route:\n  Type: Choice\n  Choices:\n    - Condition: '{% true %}'\n      Next: $rule\n  Default: $default\n" + reelOne
+
+    fun `test the own Assign of a Choice state goes along its Default only`() {
+        // AWS documents that a Choice state's own Assign applies only when no rule matches
+        assertEquals(emptyList<Any>(), outer(choiceOwnAssign("Split", "Done") + split("End: true") + done))
+        assertEquals(listOf(OUTER_VARIABLE_ASSIGNED to "reel"), outer(choiceOwnAssign("Done", "Split") + split("End: true") + done, "default.asl.yaml"))
+    }
+
     fun `test two branches that assign the same name are no outer assignment`() {
         val text = machine(
             """
@@ -490,6 +528,30 @@ class VariableChecksTest : CheckTestCase() {
     }
 
     // DISTRIBUTED_MAP_OUTER_READ
+
+    /** A Distributed Map `Each` whose processor reads `$reel`, with [before] ahead of it and [tail] as its further lines. */
+    private fun distributed(before: String, tail: String, after: String = "") = machine(
+        before + "Each:\n  Type: Map\n  Items: \"{% [1, 2] %}\"\n  ItemProcessor:\n    ProcessorConfig:\n      Mode: DISTRIBUTED\n" +
+            "      ExecutionType: STANDARD\n    StartAt: Show\n    States:\n      Show:\n        Type: Pass\n" +
+            "        Output: \"{% §reel %}\"\n        End: true\n" + tail.trimIndent().prependIndent("  ") + "\n" + after,
+    )
+
+    fun `test an outer read inside a Distributed Map follows the flow`() {
+        // before the Map: the error
+        assertEquals(
+            listOf(VARIABLE_NEVER_READ to "reel", DISTRIBUTED_MAP_OUTER_READ to "\$reel"),
+            variables(distributed("Load:\n  Type: Pass\n" + reelOne + "  Next: Each\n", "End: true")),
+        )
+        // only after the Map, or only in its own Assign: the warning
+        assertEquals(
+            listOf(VARIABLE_NOT_ASSIGNED to "\$reel", VARIABLE_NEVER_READ to "reel"),
+            variables(distributed("", "Next: Load", "Load:\n  Type: Pass\n" + reelOne + "  End: true\n"), "after.asl.yaml"),
+        )
+        assertEquals(
+            listOf(VARIABLE_NOT_ASSIGNED to "\$reel", VARIABLE_NEVER_READ to "reel"),
+            variables(distributed("", "Assign:\n  reel: 1\nEnd: true"), "own.asl.yaml"),
+        )
+    }
 
     fun `test a JSONata read of an outer name inside a Distributed Map is an error`() {
         val text = machine(

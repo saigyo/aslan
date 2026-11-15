@@ -17,6 +17,7 @@ import io.github.saigyo.aslan.jsonata.psi.JsonataPsi
 import io.github.saigyo.aslan.jsonata.psi.JsonataVariableRef
 import io.github.saigyo.aslan.jsonata.refs.JsonataVariableReference
 import io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory
+import io.github.saigyo.aslan.refs.AslVariableGotoDeclarationHandler
 import io.github.saigyo.aslan.refs.AslVariableReadReference
 import io.github.saigyo.aslan.refs.AslVariableTarget
 import io.github.saigyo.aslan.refs.AslVariableTargets
@@ -133,6 +134,27 @@ class VariableNavigationTest : VariableTestCase() {
         val shelf = GotoDeclarationAction.findAllTargetElements(project, myFixture.editor, myFixture.caretOffset).toList()
         assertEquals(listOf(entryAt(offsetsOf("shelf:").single())), shelf.map { it.navigationElement })
         assertEquals(listOf("Load"), shelf.map { (it as NavigationItem).presentation!!.locationString })
+    }
+
+    fun `test go to declaration on an assignment key gives no targets, in JSON as in YAML`() {
+        val handler = AslVariableGotoDeclarationHandler()
+        configure(archive, "    shelf: 4", "    sh<caret>elf: 4")
+        assertNull(handler.getGotoDeclarationTargets(myFixture.file.findElementAt(myFixture.caretOffset), myFixture.caretOffset, myFixture.editor))
+        val json = """
+            {
+              "StartAt": "Load",
+              "States": {
+                "Load": {"Type": "Pass", "Assign": {"sh<caret>elf": 4}, "Next": "Shelve"},
+                "Shelve": {"Type": "Pass", "InputPath": "§shelf", "End": true}
+              }
+            }
+        """.trimIndent().replace("§", "$")
+        myFixture.configureByText("test.asl.json", json)
+        assertNull(handler.getGotoDeclarationTargets(myFixture.file.findElementAt(myFixture.caretOffset), myFixture.caretOffset, myFixture.editor))
+        // control: the read still goes to the assignment
+        myFixture.configureByText("read.asl.json", json.replace("sh<caret>elf", "shelf").replace("\$shelf", "\$sh<caret>elf"))
+        val targets = handler.getGotoDeclarationTargets(myFixture.file.findElementAt(myFixture.caretOffset), myFixture.caretOffset, myFixture.editor)
+        assertEquals(1, targets?.size)
     }
 
     fun `test find usages lists assignments and reads`() {

@@ -90,6 +90,23 @@ class JsonPathReadsTest : VariableTestCase() {
         assertEquals(work + pick + each + ("\$l" to "One"), sites(text))
     }
 
+    fun `test the Result of a Pass state is no JSONPath string`() {
+        // AWS does not evaluate Result (r3-AC-pass-result-key, PASS_RESULT_IS_STATIC)
+        val text = machine(
+            """
+            Seed:
+              Type: Pass
+              Result:
+                query.§: §reel
+                nested:
+                  - x.§: §a
+              OutputPath: §b
+              End: true
+            """.replace("§", "$"),
+        )
+        assertEquals(listOf("\$b" to "Seed"), sites(text))
+    }
+
     fun `test JSONata states have no JSONPath strings`() {
         val text = machine(
             """
