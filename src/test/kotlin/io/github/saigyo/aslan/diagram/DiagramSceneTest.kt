@@ -1,12 +1,10 @@
 package io.github.saigyo.aslan.diagram
 
-import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.TransitionKind
 import java.awt.Color
 import java.awt.RenderingHints
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
-import java.io.File
 
 class DiagramSceneTest : DiagramTestCase() {
     private val measure = TextMeasure { text, _, _ -> 6.0 * text.length }
@@ -35,13 +33,6 @@ class DiagramSceneTest : DiagramTestCase() {
     private fun named(name: String, extra: String = ""): DiagramModel = build(
         "StartAt: \"$name\"\nStates:\n  \"$name\":\n    Type: Pass\n    Next: Done\n$extra  Done:\n    Type: Succeed\n"
     ).first
-
-    private fun definitions(): List<Pair<String, DiagramModel>> {
-        val files = File("src/test/testData/clean").listFiles().orEmpty().filter { ".asl." in it.name }.sortedBy { it.name }
-        assertTrue(files.isNotEmpty())
-        val committed = files.map { f -> f.name to DiagramBuilder.build(AslModel.of(myFixture.configureByText(f.name, f.readText()))!!) }
-        return listOf("small" to small()) + committed
-    }
 
     fun `test each node and edge of the layout has its items`() {
         val model = small()

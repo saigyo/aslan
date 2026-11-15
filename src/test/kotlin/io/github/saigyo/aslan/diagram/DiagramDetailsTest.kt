@@ -189,6 +189,61 @@ class DiagramDetailsTest : AslTestCase() {
         assertTrue(file.text.substring(retry.items[1].offset!!).startsWith("{ErrorEquals: [States.Timeout"))
     }
 
+    fun `test a Retry list written as an alias gives its retriers in the file`() {
+        val (rows, file) = rows(
+            """
+            StartAt: A
+            Definitions:
+              Common: &common
+                - &noRetry
+                  ErrorEquals: [States.Timeout]
+                  MaxAttempts: 0
+                - ErrorEquals: [States.TaskFailed, States.Permissions]
+                  MaxAttempts: 2
+            States:
+              A:
+                Type: Task
+                Resource: arn:aws:lambda:eu-west-1:123456789012:function:scan
+                Retry: *common
+                End: true
+            """,
+            "A",
+        )
+        val retry = rows.row("Retry")
+        assertEquals(listOf("States.Timeout", "States.TaskFailed, States.Permissions"), retry.texts())
+        // each retrier leads to its place in the list the alias stands for
+        val offsets = retry.items.map { it.offset!! }
+        assertTrue(file.text.substring(offsets[0]).startsWith("&noRetry"))
+        assertTrue(file.text.substring(offsets[1]).startsWith("ErrorEquals: [States.TaskFailed"))
+        assertTrue(offsets.all { it < file.text.indexOf("States:\n") })
+    }
+
+    fun `test an assignment in a Choice rule is one of the state's assigns`() {
+        val (rows, file) = rows(
+            """
+            QueryLanguage: JSONata
+            StartAt: Sort
+            States:
+              Sort:
+                Type: Choice
+                Choices:
+                  - Condition: '{% §states.input.format = "nitrate" %}'
+                    Assign:
+                      hazard: '{% true %}'
+                    Next: Done
+                Default: Done
+              Done:
+                Type: Succeed
+            """,
+            "Sort",
+        )
+        assertEquals(listOf("Type", "Assigns", "Next"), rows.map { it.label })
+        val assigned = rows.row("Assigns").items.single()
+        assertEquals("\$hazard", assigned.text)
+        assertEquals(DetailItem.Kind.VARIABLE, assigned.kind)
+        assertEquals(file.text.indexOf("hazard:"), assigned.offset)
+    }
+
     fun `test an inline retrier is named by its error names`() {
         val (rows, _) = rows(
             """
