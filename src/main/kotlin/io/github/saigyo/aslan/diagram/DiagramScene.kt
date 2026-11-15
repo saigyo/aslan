@@ -97,6 +97,9 @@ class DiagramScene(
         const val TOGGLE_SIZE = 16.0
         const val TOGGLE_ROOM = 24.0
         private const val ELLIPSIS = "…"
+        /** The length of a hover text and of one of its lines, in characters. */
+        private const val HOVER_MAX = 600
+        private const val HOVER_LINE = 80
 
         fun of(layout: DiagramLayout, selected: String?, catchMode: CatchMode, measure: TextMeasure): DiagramScene {
             val inside = HashMap<String, String>()
@@ -112,7 +115,7 @@ class DiagramScene(
             )
             fun label(e: LaidEdge): SceneItem.Label? = e.label?.let { l ->
                 val whole = e.edge.label
-                val tooltip = e.edge.title ?: whole?.takeIf { it != l.text }
+                val tooltip = (e.edge.title ?: whole?.takeIf { it != l.text })?.let(::hover)
                 SceneItem.Label(
                     e.edge.id, l.text, l.bounds, tooltip, e.edge.id == selected,
                     catchMode == CatchMode.MUTED && e.edge.kind == TransitionKind.CATCH,
@@ -156,7 +159,7 @@ class DiagramScene(
                 shownSub != sub -> "$name\n$sub"
                 shownName != name -> name
                 else -> null
-            }
+            }?.let(::hover)
             val isSelected = selected != null && node.kind != LaidNode.Kind.BRANCH &&
                 (node.id == selected || (node.collapsed && inside[selected] == node.id))
             val linked = edge != null && node.kind != LaidNode.Kind.BRANCH && (node.id == edge.from || node.id == edge.to)
@@ -164,6 +167,34 @@ class DiagramScene(
                 node.id, node.kind, node.bounds, state?.type, shownName, shownSub, tooltip, isSelected, linked,
                 node.start, state?.terminal ?: false, node.collapsed,
             )
+        }
+
+        /**
+         * The hover text of [text], whose lines are separated by "\n": cut at [HOVER_MAX] characters with an ellipsis, and
+         * each line wrapped at [HOVER_LINE] characters, at a space where it can be and inside a longer word where not.
+         */
+        private fun hover(text: String): String =
+            DiagramLabels.shorten(text, HOVER_MAX).split('\n').flatMap(::wrap).joinToString("\n")
+
+        private fun wrap(line: String): List<String> {
+            val lines = ArrayList<String>()
+            var current: String? = null
+            for (word in line.split(' ')) {
+                current = if (current != null && current.length + 1 + word.length <= HOVER_LINE) {
+                    "$current $word"
+                } else {
+                    current?.let(lines::add)
+                    word
+                }
+                while (current!!.length > HOVER_LINE) {
+                    // a pair of surrogates stays together
+                    val cut = if (Character.isHighSurrogate(current[HOVER_LINE - 1])) HOVER_LINE - 1 else HOVER_LINE
+                    lines += current.substring(0, cut)
+                    current = current.substring(cut)
+                }
+            }
+            current?.let(lines::add)
+            return lines
         }
 
         /** [text] if it is at most [room] wide, else its longest start that with an ellipsis still is. */

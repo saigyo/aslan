@@ -387,23 +387,40 @@ class DiagramLayoutTest : DiagramTestCase() {
         for (text in texts) for (mode in LayoutMode.entries) lay(build(text).first, mode)
     }
 
-    fun `test a layout on an interrupted thread ends with a cancellation and keeps the interrupt`() {
+    fun `test a layout whose flag is set ends with a cancellation`() {
+        val model = build(archive).first
+        // the flag is set after ELK has asked it once: so ELK asks it, and the layouter does not read the unfinished graph
+        var asked = 0
+        val thrown = try {
+            DiagramLayouter.layout(model, LayoutMode.LOOSE, emptySet(), measure) { ++asked > 1 }
+            null
+        } catch (e: CancellationException) {
+            e
+        }
+        assertNotNull("the layout was not cancelled after $asked questions", thrown)
+        assertTrue("$asked", asked >= 2)
+        // a flag that is never set lets the layout end
+        val whole = DiagramLayouter.layout(model, LayoutMode.LOOSE, emptySet(), measure) { false }
+        assertEquals(lay(model, LayoutMode.LOOSE).nodes.map { it.id }, whole.nodes.map { it.id })
+    }
+
+    fun `test an interrupt does not cancel a layout and is kept`() {
         val model = build(archive).first
         // the outcome of the layout, and whether its thread was still interrupted after it
-        val outcome = CompletableFuture<Pair<Throwable?, Boolean>>()
+        val outcome = CompletableFuture<Pair<Any, Boolean>>()
         val thread = Thread({
             Thread.currentThread().interrupt()
-            val thrown = try {
+            val result: Any = try {
                 lay(model, LayoutMode.LOOSE)
-                null
             } catch (e: Throwable) {
                 e
             }
-            outcome.complete(thrown to Thread.interrupted())
+            outcome.complete(result to Thread.interrupted())
         }, "interrupted layout")
         thread.start()
-        val (thrown, interrupted) = PlatformTestUtil.waitForFuture(outcome)
-        assertInstanceOf(thrown, CancellationException::class.java)
+        val (result, interrupted) = PlatformTestUtil.waitForFuture(outcome)
+        assertInstanceOf(result, DiagramLayout::class.java)
+        assertEquals(model.state("s0")!!.id, (result as DiagramLayout).nodes.first().id)
         assertTrue("the thread is still interrupted", interrupted)
     }
 }

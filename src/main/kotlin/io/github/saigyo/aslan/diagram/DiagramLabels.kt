@@ -47,21 +47,40 @@ object DiagramLabels {
 
     /** The label of a Task's `Resource`: the service and action of an integration, an activity or a function, else the text as written. */
     fun resource(text: String): String {
-        val parts = text.split(':', limit = ARN_PARTS)
+        val parts = split(text, ARN_PARTS)
         if (parts.size != ARN_PARTS || parts[0] != "arn") return text
         val rest = parts[5]
         return when (parts[2]) {
             "states" -> if (rest.startsWith(ACTIVITY)) named("Activity", rest.removePrefix(ACTIVITY)) else integration(rest)
-            "lambda" -> if (rest.startsWith(FUNCTION)) named("Lambda", rest.removePrefix(FUNCTION).substringBefore(':')) else null
+            "lambda" -> if (rest.startsWith(FUNCTION)) named("Lambda", split(rest.removePrefix(FUNCTION), 2)[0]) else null
             else -> null
         } ?: text
+    }
+
+    /**
+     * [text] split at its colons into at most [limit] parts, the last holding the rest. A colon inside a `${…}`
+     * placeholder, as in `${AWS::Region}`, does not split.
+     */
+    private fun split(text: String, limit: Int = Int.MAX_VALUE): List<String> {
+        val placeholders = Placeholders.ranges(text)
+        val parts = ArrayList<String>()
+        var start = 0
+        for ((i, c) in text.withIndex()) {
+            if (parts.size == limit - 1) break
+            if (c == ':' && placeholders.none { i in it }) {
+                parts += text.substring(start, i)
+                start = i + 1
+            }
+        }
+        parts += text.substring(start)
+        return parts
     }
 
     private fun named(kind: String, name: String): String? = if (name.isEmpty()) null else "$kind $name"
 
     /** `service:action` with an optional pattern suffix, or `aws-sdk:service:action`; null when it is neither or not settled. */
     private fun integration(rest: String): String? {
-        val segments = rest.split(':')
+        val segments = split(rest)
         val offset = if (segments[0] == SDK) 1 else 0
         val service = segments.getOrNull(offset)?.takeIf { it.isNotEmpty() } ?: return null
         val action = segments.getOrNull(offset + 1)?.substringBefore('.')?.takeIf { it.isNotEmpty() } ?: return null

@@ -159,7 +159,30 @@ class DiagramSceneTest : DiagramTestCase() {
         val model = build("StartAt: A\nStates:\n  A:\n    Type: Task\n    Resource: $resource\n    End: true\n").first
         val box = sceneOf(model).boxes().single { it.type == "Task" }
         assertTrue(box.sub, box.sub.endsWith("…"))
-        assertEquals("A\n" + "Task · " + resource, box.tooltip)
+        // the resource is one word longer than a line of the hover text, so it is broken
+        assertEquals("A\n" + "Task ·\n" + resource.take(80) + "\n" + resource.drop(80), box.tooltip)
+    }
+
+    fun `test a long hover text is wrapped at white space and cut`() {
+        val condition = (1..60).joinToString(" and ") { "§reel$it = 'nitrate'" }.replace('§', '$')
+        assertTrue(condition.length > 1000)
+        val model = build(
+            "QueryLanguage: JSONata\nStartAt: S\nStates:\n  S:\n    Type: Choice\n    Choices:\n" +
+                "      - Condition: \"{% $condition %}\"\n        Next: Done\n    Default: Done\n  Done:\n    Type: Succeed\n"
+        ).first
+        val tooltip = sceneOf(model).label("s0.c0").tooltip!!
+        val lines = tooltip.split('\n')
+        assertTrue(tooltip, lines.size > 1)
+        for (line in lines) assertTrue(line, line.length <= 80)
+        // a line ends at the last white space that lets it fit: the next word would not have fitted
+        for ((line, next) in lines.zipWithNext()) assertTrue("$line|$next", line.length + 1 + next.substringBefore(' ').length > 80)
+        // the breaks take the place of spaces, and the whole is cut at 600 characters
+        assertEquals(DiagramLabels.shorten(condition, 600), tooltip.replace('\n', ' '))
+        assertTrue(tooltip.endsWith("…"))
+
+        // a word longer than a line is broken
+        val name = "N" + "a".repeat(199)
+        assertEquals(listOf(name.take(80), name.substring(80, 160), name.drop(160)), sceneOf(named(name)).boxes().single { it.type == "Pass" }.tooltip!!.split('\n'))
     }
 
     fun `test texts that look like markup are kept as they are`() {
