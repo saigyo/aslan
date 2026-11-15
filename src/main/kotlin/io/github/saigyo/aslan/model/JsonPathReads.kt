@@ -68,13 +68,26 @@ object JsonPathReads {
      */
     internal fun unsettled(doc: AslDocument): List<PsiElement> = collect(doc).second.distinct()
 
+    /**
+     * The `Result` values of the JSONPath Pass states, where they are written: AWS does not evaluate them
+     * (`r3-AC-pass-result-key`, `PASS_RESULT_IS_STATIC`), so a `$name` there is plain data.
+     */
+    internal fun staticValues(doc: AslDocument): List<PsiElement> = doc.allStates().mapNotNull { state ->
+        if (!isJsonPath(state) || state.type?.structure != StructureId.PASS) return@mapNotNull null
+        state.obj?.get(STATIC_RESULT)?.takeIf { !it.viaMerge }?.value?.takeIf { it.psi === it.usePsi }?.psi
+    }.distinct()
+
+    private const val STATIC_RESULT = "Result"
+
+    private fun isJsonPath(state: AslState) = state.queryLanguageKnown && state.queryLanguage == QueryLanguage.JSONPATH
+
     private fun collect(doc: AslDocument): Pair<List<Pair<AslScalar, AslState>>, List<PsiElement>> {
         val out = ArrayList<Pair<AslScalar, AslState>>()
         val unsettled = ArrayList<PsiElement>()
         for (state in doc.allStates()) {
             val type = state.type ?: continue
             val obj = state.obj ?: continue
-            if (!state.queryLanguageKnown || state.queryLanguage != QueryLanguage.JSONPATH) continue
+            if (!isJsonPath(state)) continue
             Collector(state, out, unsettled).walk(obj, AslSpec.structure(type.structure))
         }
         return out to unsettled
@@ -82,12 +95,14 @@ object JsonPathReads {
 
     /**
      * Collects the certain string values of the entries whose key ends in `.$` inside free-form fields, of the fields
-     * whose name ends in `Path` (not `ResultPath`) and of `Variable` in a Choice rule.
+     * whose name ends in `Path` (not `ResultPath`) and of `Variable` in a Choice rule; not those of a Pass state's
+     * `Result`, which AWS does not evaluate ([staticValues]).
      */
     private class Collector(val state: AslState, val out: MutableList<Pair<AslScalar, AslState>>, val unsettled: MutableList<PsiElement>) {
         fun walk(o: AslObject, structure: StructureSpec) {
             for (entry in o.entries) {
                 if (isUnappliedMerge(entry)) continue
+                if (structure.id == StructureId.PASS && entry.key == STATIC_RESULT) continue
                 val field = structure.field(entry.key) ?: continue
                 if (!field.mode.allows(QueryLanguage.JSONPATH)) continue
                 val kind = field.kind

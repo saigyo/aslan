@@ -23,6 +23,7 @@ import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.ProcessingContext
+import io.github.saigyo.aslan.check.OuterAssignments
 import io.github.saigyo.aslan.jsonata.parser.JsonataScanner
 import io.github.saigyo.aslan.jsonata.parser.JsonataTokens
 import io.github.saigyo.aslan.jsonata.psi.JsonataElementFactory
@@ -84,6 +85,13 @@ internal enum class RenameConflictKind {
 
     /** Rule 1 cannot be checked: a machine of the region does not say every name assigned in it. */
     REGION_OPEN,
+
+    /**
+     * An assignment of the new name in a nested state machine after an assignment of it in a machine around it, as
+     * the outer-assignment check sees it ([io.github.saigyo.aslan.check.OuterAssignments]): AWS rejects that, also
+     * across a Distributed Map, which the region stops at.
+     */
+    OUTER_ASSIGNMENT,
 
     /** Rule 2: a local JSONata variable of the new name declared in an expression that reads the variable. */
     LOCAL_OF_NEW_NAME,
@@ -187,6 +195,23 @@ internal class AslVariableRename private constructor(
                 out += RenameConflict(RenameConflictKind.NAME_IN_REGION, assignment.entry.entryPsi, "\$$newName is already assigned in ${assignment.placeText}")
             }
         }
+        // ... or, in any machine around or inside, an assignment of the new name the rename would put before or after
+        // a renamed one in the flow, which AWS rejects across every Map and Parallel state, Distributed Map included
+        val renamedAssignments = variables.flatMapTo(HashSet()) { model.assignmentsOf(it) }
+        val order = OuterAssignments(model.assignments)
+        for (assignment in model.assignments) {
+            val renamed = assignment in renamedAssignments
+            if (!renamed && assignment.name != newName) continue
+            val clash = order.before(assignment.state.machine) { outer ->
+                if (renamed) outer.name == newName && outer !in renamedAssignments else outer in renamedAssignments
+            }
+            if (clash) {
+                out += RenameConflict(
+                    RenameConflictKind.OUTER_ASSIGNMENT, assignment.entry.entryPsi,
+                    "After the rename, \$$newName would be assigned here after an outer state machine assigns it, which Step Functions rejects",
+                )
+            }
+        }
         for (read in model.reads) {
             if (read.name == newName && read.state.machine in region) {
                 out += RenameConflict(RenameConflictKind.NAME_IN_REGION, elementOf(read), "\$$newName is already read in ${read.state.name}")
@@ -227,7 +252,7 @@ internal class AslVariableRename private constructor(
         // ... or that YAML also uses, through an alias or merge key, in a place that is no occurrence of a variable
         for (key in keys) {
             if (treeUses.of(key.entry.entryPsi) != model.assignmentsAt(key.entry.entryPsi).size.toLong()) {
-                out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, key.entry.entryPsi, "This assignment is also used through an alias where it assigns no variable")
+                out += RenameConflict(RenameConflictKind.SHARED_OCCURRENCE, key.entry.entryPsi, "This assignment is also used through an alias or merge key in a place the rename cannot follow")
             }
         }
         for (read in reads.distinctBy { it.element }) {
