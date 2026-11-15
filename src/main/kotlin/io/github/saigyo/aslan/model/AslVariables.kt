@@ -148,6 +148,13 @@ class AslVariables private constructor(private val doc: AslDocument, private val
     fun unresolvedNested(machine: AslStateMachine): List<AslNode> =
         if (failed) emptyList() else machine.states.flatMap { unresolvedNested(it) }
 
+    /**
+     * The nested machines that are a placeholder, a tag or an unresolved value as a whole (`ItemProcessor: ${P}`, a
+     * `Branches` item): they may read any variable around them once replaced, so they count as a mention of every name.
+     */
+    private fun unsettledNested(): List<PsiElement> =
+        doc.allMachines().flatMap { unresolvedNested(it) }.filter { standsForAnyValue(it) }.map { it.psi }
+
     private fun unresolvedNested(state: AslState): List<AslNode> {
         val obj = state.obj ?: return emptyList()
         val out = ArrayList<AslNode>()
@@ -201,7 +208,7 @@ class AslVariables private constructor(private val doc: AslDocument, private val
 
     private val mentions: VariableMentions by lazy {
         if (failed) VariableMentions(doc.file, emptyList())
-        else VariableMentions(doc.file, doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc), JsonPathReads.staticValues(doc))
+        else VariableMentions(doc.file, doc.jsonataSites.unsettled + JsonPathReads.unsettled(doc) + unsettledNested(), JsonPathReads.staticValues(doc))
     }
 
     /**

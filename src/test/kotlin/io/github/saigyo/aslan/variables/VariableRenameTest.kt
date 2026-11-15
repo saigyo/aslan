@@ -998,6 +998,33 @@ class VariableRenameTest : VariableTestCase() {
         assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(placeholderProcessor, "re|el: 1"), "frame", "processor.asl.yaml"))
     }
 
+    fun `test a rename refuses where a nested machine the model cannot follow merges in the new name`() {
+        // Later's processor merges in the processor of Other, which assigns film: its raw text names neither name
+        val text = machine(
+            "Other:\n  Type: Map\n  Items: '{% [1] %}'\n  ItemProcessor: &proc\n    ProcessorConfig:\n      Mode: DISTRIBUTED\n" +
+                "      ExecutionType: STANDARD\n    StartAt: Inner\n    States:\n      Inner:\n        Type: Pass\n        Assign:\n" +
+                "          film: 1\n        End: true\n  Next: Load\n" +
+                "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Later\n" +
+                "Later:\n  Type: §{StateType}\n  ItemProcessor:\n    <<: *proc\n  End: true",
+            top = "QueryLanguage: JSONata",
+        )
+        assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(text, "re|el: 1"), "film"))
+    }
+
+    fun `test a rename refuses where a Branches item or an Iterator is a placeholder`() {
+        val branch = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Both\n" +
+                "Both:\n  Type: Parallel\n  Branches:\n    - §{Branch}\n  End: true",
+            top = "QueryLanguage: JSONata",
+        )
+        assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(branch, "re|el: 1"), "frame"))
+        val iterator = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +
+                "Each:\n  Type: Map\n  Iterator: §{Iterator}\n  End: true",
+        )
+        assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(iterator, "re|el: 1"), "frame", "iterator.asl.yaml"))
+    }
+
     fun `test a nested machine the model cannot follow that holds neither name does not refuse a rename`() {
         val placeholderType = laterProcessor("§{StateType}", filmProcessor)
         assertEquals(placeholderType.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(placeholderType, "re|el: 1"), "frame"))
