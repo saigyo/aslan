@@ -87,4 +87,20 @@ class ViewportTest : TestCase() {
         val edge = Rectangle2D.Double(5.0, 100.0, 190.0, 40.0)
         assertEquals(20.0, v.reveal(edge, pane, 20).screen(edge).minX, 1e-9)
     }
+
+    fun `test zooming never moves the scale against the factor`() {
+        val small = Viewport(0.1, 0.0, 0.0)
+        assertTrue(small.zoomAt(0.5, 10.0, 10.0).scale <= 0.1)
+        assertTrue(small.zoomAt(1.1, 10.0, 10.0).scale > 0.1)
+        val big = Viewport(4.0, 0.0, 0.0)
+        assertTrue(big.zoomAt(2.0, 10.0, 10.0).scale >= 4.0)
+        assertTrue(big.zoomAt(0.5, 10.0, 10.0).scale < 4.0)
+    }
+
+    fun `test fit leaves the viewport alone for a pane that is not laid out`() {
+        val v = Viewport.fit(size(3000.0, 1000.0), Dimension(0, 0), 20)
+        assertEquals(1.0, v.scale, 0.0)
+        assertEquals(0.0, v.tx, 0.0)
+        assertEquals(0.0, v.ty, 0.0)
+    }
 }
