@@ -1014,7 +1014,8 @@ class VariableRenameTest : VariableTestCase() {
                 "    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
             top = "QueryLanguage: JSONata",
         )
-        assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(readerMap("ReaderConfig: §{ReaderConfig}"), "re|el: 1"), "film"))
+        // the placeholder may mention either name
+        assertEquals(setOf(UNREAD_MENTION, NEW_NAME_MENTIONED), assertRenameConflict(withCaret(readerMap("ReaderConfig: §{ReaderConfig}"), "re|el: 1"), "film"))
         // a placeholder inside payload data does not refuse
         val payload = readerMap("Arguments:\n  a: §{A}")
         assertEquals(payload.replace("reel: 1", "film: 1").replace("§", "$"), renameAtCaret(withCaret(payload, "re|el: 1"), "film", "payload.asl.yaml"))
