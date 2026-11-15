@@ -36,6 +36,8 @@ private val comparisons: List<Comparison> = buildList {
     }
 }
 
+internal val comparisonOperatorNames: List<String> = comparisons.map { it.name }
+
 internal val choiceRuleStructures = listOf(
     StructureSpec(StructureId.CHOICE_RULE, buildList {
         add(FieldSpec("Next", ValueKind.StateName,
