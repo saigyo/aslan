@@ -45,6 +45,23 @@ class VariableChecksTest : CheckTestCase() {
             "Call:\n  Type: §{CallType}\n  Parameters:\n    <<: *shared\n    extra: 1\n  End: true",
     )
 
+    /** `reel` assigned in Load and read nowhere; Each is a Map whose `ItemReader` has [reader] as its further lines. */
+    private fun readerMap(reader: String, top: String = "QueryLanguage: JSONata") = machine(
+        "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +
+            "Each:\n  Type: Map\n  ItemReader:\n    Resource: arn:aws:states:::s3:getObject\n" + reader.prependIndent("    ") + "\n" +
+            "  ItemProcessor:\n    ProcessorConfig:\n      Mode: DISTRIBUTED\n      ExecutionType: STANDARD\n    StartAt: Show\n" +
+            "    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
+        top = top,
+    )
+
+    fun `test a whole structure the file does not settle may read every variable`() {
+        // once replaced, ReaderConfig may supply MaxItems: "{% §reel %}" or MaxItemsPath: §reel
+        assertEquals(emptyList<Any>(), variables(readerMap("ReaderConfig: §{ReaderConfig}"), "jsonata.asl.yaml"))
+        assertEquals(emptyList<Any>(), variables(readerMap("ReaderConfig: §{ReaderConfig}", top = ""), "jsonpath.asl.yaml"))
+        // a placeholder inside payload data does not count, as before
+        assertEquals(listOf(VARIABLE_NEVER_READ to "reel"), variables(readerMap("Arguments:\n  a: §{A}"), "payload.asl.yaml"))
+    }
+
     fun `test a Result reused inside, through an ancestor or a merge key is no static data`() {
         for ((case, states) in reusedResults) {
             val text = machine("Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Seed\n$states", top = "")

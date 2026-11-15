@@ -5,6 +5,12 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
+import io.github.saigyo.aslan.spec.AslSpec
+import io.github.saigyo.aslan.spec.FieldSpec
+import io.github.saigyo.aslan.spec.QueryLanguage
+import io.github.saigyo.aslan.spec.StructureId
+import io.github.saigyo.aslan.spec.StructureSpec
+import io.github.saigyo.aslan.spec.ValueKind
 import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.AslUnresolved
@@ -23,6 +29,29 @@ internal fun standsForAnyValue(node: AslNode): Boolean = when (node) {
     is AslUnresolved -> true
     is AslScalar -> node.dynamic || (node.type == ScalarType.STRING && Placeholders.ranges(node.text).singleOrNull() == node.text.indices)
     else -> false
+}
+
+/**
+ * Whether a structure [id] has, at any depth below it in [language], a field that [evaluated] says is evaluated: what
+ * a whole placeholder in a structural position (`ReaderConfig: ${ReaderConfig}`) may supply once it is replaced. The
+ * states of a nested machine (`States`) are not descended into; payload data (free-form fields) counts as evaluated
+ * where [evaluated] says so, but is not descended into either.
+ */
+internal fun holdsEvaluated(
+    id: StructureId,
+    language: QueryLanguage,
+    evaluated: (FieldSpec, StructureSpec) -> Boolean,
+    seen: MutableSet<StructureId> = HashSet(),
+): Boolean {
+    if (!seen.add(id)) return false
+    val structure = AslSpec.structure(id)
+    return structure.fieldsFor(language).any { field ->
+        evaluated(field, structure) || when (val kind = field.kind) {
+            is ValueKind.Struct -> holdsEvaluated(kind.id, language, evaluated, seen)
+            is ValueKind.ListOf -> (kind.element as? ValueKind.Struct)?.let { holdsEvaluated(it.id, language, evaluated, seen) } == true
+            else -> false
+        }
+    }
 }
 
 /**

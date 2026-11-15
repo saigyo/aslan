@@ -1,7 +1,7 @@
 <html>
 <body>
 <p>Reports a key in <code>Assign</code> whose variable is read nowhere in the definition.</p>
-<p>It is only a weak warning: the definition deploys. It is not reported when a string of the file mentions <code>$name</code> in a way the plugin cannot follow, such as an expression with a syntax error, when a field that takes an expression or a path has a deployment-time placeholder as its whole value, or when the definition does not say every name it assigns.</p>
+<p>It is only a weak warning: the definition deploys. It is not reported when a string of the file mentions <code>$name</code> in a way the plugin cannot follow, such as an expression with a syntax error, when a field that takes an expression or a path has a deployment-time placeholder as its whole value, when a structure that may hold such a field has one as its whole value (<code>ReaderConfig: ${ReaderConfig}</code>), or when the definition does not say every name it assigns.</p>
 <p>A placeholder as the whole value of a string nested in free-form data, such as <code>Arguments: {a: ${A}}</code>, does not count as a mention of every name, since such a placeholder is almost always an ARN, a name or a literal. A variable that is read nowhere else can therefore still be reported there, and a rename does not refuse because of it. The same holds for a placeholder outside a string literal inside an expression, such as <code>{% ${Expr} %}</code>: the other checks leave such an expression alone, but the placeholder does not count as a mention of every name.</p>
 </body>
 </html>
