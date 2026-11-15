@@ -38,7 +38,9 @@ import io.github.saigyo.aslan.model.AslVariable
 import io.github.saigyo.aslan.model.AslVariables
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
+import io.github.saigyo.aslan.tree.AslArray
 import io.github.saigyo.aslan.tree.AslEntry
+import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.QuotedScalars
 import org.jetbrains.yaml.psi.YAMLAlias
 import org.jetbrains.yaml.psi.YAMLFile
@@ -229,6 +231,19 @@ internal class AslVariableRename private constructor(
                 "The definition does not say every variable that is assigned where \$$oldName is visible, so \$$newName may already exist",
             )
         }
+        // ... or a nested machine the model cannot follow (of a state whose type is a placeholder, or a placeholder
+        // processor) in a machine that holds, encloses or lies inside a renamed variable's scope: one that is no
+        // mapping or list may hold anything, one that is may assign or read the old or the new name
+        for (machine in document.allMachines().filter { m -> variables.any { inLine(m, it.scope) } }) {
+            for (node in model.unresolvedNested(machine)) {
+                val settled = node is AslObject || node is AslArray
+                if (settled && node.psi.text.let { oldName !in it && newName !in it }) continue
+                out += RenameConflict(
+                    RenameConflictKind.REGION_OPEN, node.psi,
+                    "A nested state machine here is not settled by the definition and may assign or read \$$oldName or \$$newName",
+                )
+            }
+        }
 
         // 2: a local variable of the new name declared in an expression that reads the variable
         for (file in variables.flatMap { model.readsOf(it) }.filterIsInstance<JsonataRead>().mapNotNull { it.variable.containingFile as? JsonataFile }.distinct()) {
@@ -391,6 +406,12 @@ internal class AslVariableRename private constructor(
         }
 
         private fun isQuoted(text: String): Boolean = text.length >= 2 && (text[0] == '"' || text[0] == '\'') && text.last() == text[0]
+
+        /** Whether [machine] is [scope], encloses it or lies inside it, at any depth. */
+        private fun inLine(machine: AslStateMachine, scope: AslStateMachine): Boolean {
+            fun outward(m: AslStateMachine) = generateSequence(m) { it.owner?.machine }
+            return scope in outward(machine) || machine in outward(scope)
+        }
 
         /** The text of a key without its quotes. */
         private fun namePart(text: String): String = if (isQuoted(text)) text.substring(1, text.length - 1) else text

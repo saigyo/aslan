@@ -15,6 +15,7 @@ import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
 import io.github.saigyo.aslan.tree.AslArray
 import io.github.saigyo.aslan.tree.AslEntry
+import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.Placeholders
@@ -135,6 +136,36 @@ class AslVariables private constructor(private val doc: AslDocument, private val
             assignmentsByIdentity = assignments.groupBy { variableOf(it) }
             readsByIdentity = reads.mapNotNull { read -> variableOf(read)?.let { it to read } }.groupBy({ it.first }, { it.second })
         }
+    }
+
+    /**
+     * The nested machines of the states of [machine] that the file does not let the model follow: the `ItemProcessor`,
+     * `Iterator` or `Branches` of a state whose type is not known, as a placeholder `Type` leaves it, and such a field of a
+     * Map or Parallel state whose value is no mapping or list (a placeholder, a tag, an unresolved alias). The model
+     * builds no machine from them and does not open [machine] for them, so the checks are not affected; the rename
+     * refuses where one may assign or read a name it changes.
+     */
+    fun unresolvedNested(machine: AslStateMachine): List<AslNode> =
+        if (failed) emptyList() else machine.states.flatMap { unresolvedNested(it) }
+
+    private fun unresolvedNested(state: AslState): List<AslNode> {
+        val obj = state.obj ?: return emptyList()
+        val out = ArrayList<AslNode>()
+        for (entry in obj.entries) {
+            if (entry.key != "ItemProcessor" && entry.key != "Iterator" && entry.key != "Branches") continue
+            val value = entry.value
+            when (state.type?.structure) {
+                StructureId.MAP -> if (entry.key != "Branches" && value !is AslObject) out += value
+                StructureId.PARALLEL -> when {
+                    entry.key != "Branches" -> {}
+                    value !is AslArray -> out += value
+                    else -> value.items.filterTo(out) { it !is AslObject }
+                }
+                null -> out += value
+                else -> {}
+            }
+        }
+        return out
     }
 
     fun variableOf(assignment: AslAssignment): AslVariable =

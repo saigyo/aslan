@@ -980,6 +980,32 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(unknown.replace("reel: 1", "film: 1").replace("§", "$"), renameAtCaret(withCaret(unknown, "re|el: 1"), "film", "film.asl.yaml"))
     }
 
+    /** `reel` assigned in Load, then Later of type [type], whose item processor is [processor] (YAML lines below it). */
+    private fun laterProcessor(type: String, processor: String) = machine(
+        "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Later\n" +
+            "Later:\n  Type: $type\n  Items: '{% [1] %}'\n  ItemProcessor:" + processor + "\n  End: true",
+        top = "QueryLanguage: JSONata",
+    )
+
+    private val filmProcessor = "\n    StartAt: Inner\n    States:\n      Inner:\n        Type: Pass\n        Assign:\n          film: 1\n        End: true"
+
+    fun `test a rename refuses where a nested machine the model cannot follow may hold the new name`() {
+        // a state whose type is a placeholder: if it becomes a Map, AWS rejects film assigned inside after Load
+        val placeholderType = laterProcessor("§{StateType}", filmProcessor)
+        assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(placeholderType, "re|el: 1"), "film"))
+        // a placeholder processor may hold anything
+        val placeholderProcessor = laterProcessor("Map", " §{Processor}")
+        assertTrue(RenameConflictKind.REGION_OPEN in assertRenameConflict(withCaret(placeholderProcessor, "re|el: 1"), "frame", "processor.asl.yaml"))
+    }
+
+    fun `test a nested machine the model cannot follow that holds neither name does not refuse a rename`() {
+        val placeholderType = laterProcessor("§{StateType}", filmProcessor)
+        assertEquals(placeholderType.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(placeholderType, "re|el: 1"), "frame"))
+        // and without the placeholder type the file renames as usual
+        val map = laterProcessor("Map", filmProcessor)
+        assertEquals(map.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(map, "re|el: 1"), "frame", "map.asl.yaml"))
+    }
+
     /** U+10400, a letter outside the Basic Multilingual Plane: two UTF-16 units. */
     private val deseret = String(Character.toChars(0x10400))
 
