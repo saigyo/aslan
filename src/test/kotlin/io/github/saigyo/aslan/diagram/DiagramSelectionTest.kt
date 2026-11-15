@@ -6,8 +6,10 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import javax.swing.JComponent
 import javax.swing.JPanel
 
@@ -25,7 +27,18 @@ class DiagramSelectionTest : DiagramTestCase() {
         override var onNavigate: (offset: Int) -> Unit = {}
         override var onToggleBox: (stateName: String) -> Unit = {}
         override var onLayoutMode: (LayoutMode) -> Unit = {}
-        override val measure = TextMeasure { text, _, _ -> 6.0 * text.length }
+        /** While set, the first measurement waits for it, so a layout can be held on its thread. */
+        @Volatile
+        var hold: CountDownLatch? = null
+        val held = CountDownLatch(1)
+
+        override val measure = TextMeasure { text, _, _ ->
+            hold?.let {
+                held.countDown()
+                it.await(30, TimeUnit.SECONDS)
+            }
+            6.0 * text.length
+        }
 
         override fun show(model: DiagramModel, layout: DiagramLayout, mode: LayoutMode, selected: String?) {
             calls += Shown(model, selected)
@@ -46,6 +59,15 @@ class DiagramSelectionTest : DiagramTestCase() {
 
     private fun noDelay(task: Runnable): Future<*> = FutureTask(task, null)
 
+    /** The delays the controller asked for after a caret move, in order; none runs until a test runs it. */
+    private val caretTasks = ArrayList<Runnable>()
+
+    /** Records the task itself, so running it later also stands for a task that was posted before a cancel. */
+    private fun caretDelay(task: Runnable): Future<*> {
+        caretTasks += task
+        return FutureTask(task, null)
+    }
+
     /** Opens [text] with the caret at the first occurrence of [at], when given; the first diagram has arrived. */
     private fun open(source: String = archive, at: String? = null): Pair<DiagramController, Recorder> {
         val psi: PsiFile = file(source)
@@ -53,7 +75,7 @@ class DiagramSelectionTest : DiagramTestCase() {
         val view = Recorder()
         val controller = DiagramController(project, psi.virtualFile, editor, view, testRootDisposable)
         controller.delay = ::noDelay
-        controller.caretDelay = ::noDelay
+        controller.caretDelay = ::caretDelay
         PlatformTestUtil.waitForFuture(controller.latest)
         return controller to view
     }
@@ -89,7 +111,7 @@ class DiagramSelectionTest : DiagramTestCase() {
     fun `test the caret in a state selects it`() {
         val (controller, view) = open()
         val model = last(view).model
-        moveCaret(controller, text.indexOf("StringEquals"))
+        moveCaret(controller, text.indexOf(".format") + 2)   // inside the JSONPath string of the state
         assertEquals("select ${model.id("Sort")}", view.selects.last())
         moveCaret(controller, text.indexOf("Frame:"))
         assertEquals("select ${model.inner("Frame")}", view.selects.last())
@@ -111,9 +133,11 @@ class DiagramSelectionTest : DiagramTestCase() {
         val (_, view) = open()
         val model = last(view).model
         val id = model.id("Scan")
+        caretTasks.clear()
         view.onSelect(id)
         assertEquals(model.offsets.getValue(id), caret)
         assertTrue(text.startsWith("Scan", caret))
+        assertTrue("the click's own caret move schedules no selection", caretTasks.isEmpty())
         assertEquals(emptyList<String>(), view.selects)
     }
 
@@ -121,8 +145,10 @@ class DiagramSelectionTest : DiagramTestCase() {
         val (controller, view) = open()
         val model = last(view).model
         val edge = model.edgeFrom("Sort")
+        caretTasks.clear()
         view.onSelect(edge.id)
         assertEquals(model.offsets.getValue(edge.id), caret)
+        assertTrue("the click's own caret move schedules no selection", caretTasks.isEmpty())
         assertEquals(emptyList<String>(), view.selects)
         controller.chosenMode = LayoutMode.COMPACT
         relayout(controller)
@@ -134,9 +160,10 @@ class DiagramSelectionTest : DiagramTestCase() {
         val (controller, view) = open()
         val model = last(view).model
         val target = text.indexOf("Type: Succeed")
+        caretTasks.clear()
         view.onNavigate(target)
         assertEquals(target, caret)
-        controller.caretMovedNow()
+        caretTasks.single().run()
         assertEquals("select ${model.id("Done")}", view.selects.single())
     }
 
@@ -148,6 +175,50 @@ class DiagramSelectionTest : DiagramTestCase() {
         PlatformTestUtil.waitForFuture(controller.refresh())
         assertEquals(2, view.shows.size)
         assertEquals(last(view).model.id("Done"), last(view).selected)
+    }
+
+    fun `test a delayed caret selection that was posted before a click does not override it`() {
+        val (controller, view) = open()
+        val edge = last(view).model.edgeFrom("Sort")
+        caretTasks.clear()
+        editor.caretModel.moveToOffset(text.indexOf("Type: Succeed"))
+        val posted = caretTasks.single()
+        view.onSelect(edge.id)
+        posted.run()
+        assertEquals(emptyList<String>(), view.selects)
+        controller.chosenMode = LayoutMode.COMPACT
+        relayout(controller)
+        assertEquals(edge.id, last(view).selected)
+    }
+
+    fun `test a click on an outdated diagram does not move the caret`() {
+        val (_, view) = open(at = "Resource")
+        val id = last(view).model.id("Done")
+        replace("Film archive intake", "Film archive intake, revised and longer")
+        val before = caret
+        view.onSelect(id)
+        assertEquals(before, caret)
+    }
+
+    fun `test the first show of a new model after a toggle during its layout selects by the new model`() {
+        val (controller, view) = open(at = "Resource")
+        val old = last(view)
+        view.onSelect(old.model.id("Scan"))
+        replace("  Scan:", "  Early:\n    Type: Pass\n    End: true\n  Scan:")
+        editor.caretModel.moveToOffset(text.indexOf("Type: Succeed"))
+        view.calls.clear()
+        val hold = CountDownLatch(1)
+        view.hold = hold
+        val refresh = controller.refresh()
+        PlatformTestUtil.waitWithEventsDispatching("the layout did not start", { view.held.count == 0L }, 30)
+        view.onToggleBox("Each")
+        view.hold = null
+        hold.countDown()
+        PlatformTestUtil.waitForFuture(refresh)
+        relayout(controller)
+        val shown = view.shows.first()
+        assertNotNull(shown.model.root!!.states.firstOrNull { it.name == "Early" })
+        assertEquals(shown.model.id("Done"), shown.selected)
     }
 
     fun `test a selected path survives a layout switch and a box toggle, and not an edit`() {
