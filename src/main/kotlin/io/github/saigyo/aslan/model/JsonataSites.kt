@@ -62,12 +62,22 @@ class JsonataSites internal constructor(doc: AslDocument) {
                 when {
                     (kind == ValueKind.FreeForm || field.jsonata) && standsForAnyValue(value) -> unsettled += value.psi
                     kind == ValueKind.FreeForm -> freeForm(value, provides)
-                    value is AslScalar -> if (field.jsonata) candidate(value, provides)
+                    value is AslScalar && !standsForAnyValue(value) -> if (field.jsonata) candidate(value, provides)
                     kind is ValueKind.Struct && value is AslObject -> walk(value, AslSpec.structure(kind.id), stateLevel = false)
+                    // a whole structure the file does not settle, which may supply a field that takes JSONata
+                    kind is ValueKind.Struct && standsForAnyValue(value) -> structural(value, kind.id)
+                    kind is ValueKind.ListOf && kind.element is ValueKind.Struct && standsForAnyValue(value) -> structural(value, kind.element.id)
                     kind is ValueKind.ListOf && kind.element is ValueKind.Struct && value is AslArray ->
-                        for (item in value.items) if (item is AslObject) walk(item, AslSpec.structure(kind.element.id), stateLevel = false)
+                        for (item in value.items) {
+                            if (item is AslObject) walk(item, AslSpec.structure(kind.element.id), stateLevel = false)
+                            else if (standsForAnyValue(item)) structural(item, kind.element.id)
+                        }
                 }
             }
+        }
+
+        private fun structural(value: AslNode, id: StructureId) {
+            if (holdsEvaluated(id, QueryLanguage.JSONATA, { field, _ -> field.kind == ValueKind.FreeForm || field.jsonata })) unsettled += value.psi
         }
 
         private fun freeForm(node: AslNode, provides: Set<StatesField>) {

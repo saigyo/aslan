@@ -4,6 +4,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.spec.AslSpec
+import io.github.saigyo.aslan.spec.FieldSpec
 import io.github.saigyo.aslan.spec.QueryLanguage
 import io.github.saigyo.aslan.spec.StructureId
 import io.github.saigyo.aslan.spec.StructureSpec
@@ -147,12 +148,23 @@ object JsonPathReads {
                 when {
                     (kind == ValueKind.FreeForm || isPathField(entry.key, structure)) && standsForAnyValue(value) -> unsettled += value.psi
                     kind == ValueKind.FreeForm -> freeForm(value)
-                    value is AslScalar -> if (isPathField(entry.key, structure)) candidate(value)
+                    value is AslScalar && !standsForAnyValue(value) -> if (isPathField(entry.key, structure)) candidate(value)
                     kind is ValueKind.Struct && value is AslObject -> walk(value, AslSpec.structure(kind.id))
+                    // a whole structure the file does not settle, which may supply a path or a `.$` entry
+                    kind is ValueKind.Struct && standsForAnyValue(value) -> structural(value, kind.id)
+                    kind is ValueKind.ListOf && kind.element is ValueKind.Struct && standsForAnyValue(value) -> structural(value, kind.element.id)
                     kind is ValueKind.ListOf && kind.element is ValueKind.Struct && value is AslArray ->
-                        for (item in value.items) if (item is AslObject) walk(item, AslSpec.structure(kind.element.id))
+                        for (item in value.items) {
+                            if (item is AslObject) walk(item, AslSpec.structure(kind.element.id))
+                            else if (standsForAnyValue(item)) structural(item, kind.element.id)
+                        }
                 }
             }
+        }
+
+        private fun structural(value: AslNode, id: StructureId) {
+            val evaluated = { field: FieldSpec, structure: StructureSpec -> field.kind == ValueKind.FreeForm || isPathField(field.name, structure) }
+            if (holdsEvaluated(id, QueryLanguage.JSONPATH, evaluated)) unsettled += value.psi
         }
 
         private fun isPathField(key: String, structure: StructureSpec): Boolean =

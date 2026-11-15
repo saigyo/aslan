@@ -1006,6 +1006,20 @@ class VariableRenameTest : VariableTestCase() {
         assertEquals(map.replace("reel: 1", "frame: 1").replace("§", "$"), renameAtCaret(withCaret(map, "re|el: 1"), "frame", "map.asl.yaml"))
     }
 
+    fun `test a rename refuses where a whole structure the file does not settle may read the name`() {
+        fun readerMap(reader: String) = machine(
+            "Load:\n  Type: Pass\n  Assign:\n    reel: 1\n  Next: Each\n" +
+                "Each:\n  Type: Map\n  ItemReader:\n    Resource: arn:aws:states:::s3:getObject\n" + reader.prependIndent("    ") + "\n" +
+                "  ItemProcessor:\n    ProcessorConfig:\n      Mode: DISTRIBUTED\n      ExecutionType: STANDARD\n    StartAt: Show\n" +
+                "    States:\n      Show:\n        Type: Pass\n        End: true\n  End: true",
+            top = "QueryLanguage: JSONata",
+        )
+        assertEquals(setOf(UNREAD_MENTION), assertRenameConflict(withCaret(readerMap("ReaderConfig: §{ReaderConfig}"), "re|el: 1"), "film"))
+        // a placeholder inside payload data does not refuse
+        val payload = readerMap("Arguments:\n  a: §{A}")
+        assertEquals(payload.replace("reel: 1", "film: 1").replace("§", "$"), renameAtCaret(withCaret(payload, "re|el: 1"), "film", "payload.asl.yaml"))
+    }
+
     fun `test a rename refuses where a combining mark follows the name in a JSONPath read`() {
         val acute = String(Character.toChars(0x0301))
         val text = machine("Load:\n  Type: Pass\n  Assign:\n    a: 1\n    a$acute: 2\n  Next: Show\nShow:\n  Type: Pass\n  InputPath: §a$acute\n  End: true")
