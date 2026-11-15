@@ -16,6 +16,8 @@
             <li>Six JSONata inspections, each of which can be switched off: syntax error, a field of <code>$states</code> that does not exist where it is used, an operator of JSONata 2.1, a field name, <code>$</code> or <code>$$</code> without an input, a call of an unknown function, and <code>$eval</code></li>
             <li>JSONata completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation and parameter hints for the built-in functions and the Step Functions additions</li>
             <li>Local JSONata variables: go to declaration, find usages, highlight usages and rename</li>
+            <li>State machine variables (<code>Assign</code> and <code>$name</code>): usage highlighting that tells assignments from reads, go to declaration, find usages, rename and completion after <code>$</code>. Next Highlighted Usage and Previous Highlighted Usage step through the highlighted usages (Ctrl+Option+Down and Ctrl+Option+Up in the macOS keymaps; the other keymaps bind no shortcut, so assign one under Settings | Keymap)</li>
+            <li>Seven variable inspections, each of which can be switched off: a read of a variable that nothing assigns (two inspections), a read inside a Distributed Map of a variable that only an outer state machine assigns, an <code>Assign</code> key that Step Functions rejects as a name, an unusual name, an assignment of a name that an outer state machine assigns, and a variable that is never read</li>
             <li>Brackets, quotes and comment toggling inside expressions</li>
             <li>Support for <code>${name}</code> placeholders. An expression that contains <code>${</code> outside a string literal is not judged at all</li>
         </ul>
