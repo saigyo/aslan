@@ -4,6 +4,7 @@ import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector.Access
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
+import com.intellij.find.findUsages.FindUsagesHandler
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.ItemPresentationProviders
@@ -268,6 +269,59 @@ class VariableNavigationTest : VariableTestCase() {
         }
         assertEquals(2, offsetsOf("reel:").size)
         assertEquals(everyReelButTheCatcher(), found)
+    }
+
+    /** Adds an assignment of `reel` to Shelve, in the same file. */
+    private fun addShelveAssignment() {
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(hostFile())!!
+            document.insertString(document.text.indexOf("    InputPath: \$reel.title"), "    Assign:\n      reel: 7\n")
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+    }
+
+    /** Searches every one of [elements] with [handler], as the platform does with its primary elements. */
+    private fun search(handler: FindUsagesHandler, elements: List<PsiElement>): List<Pair<String, Int>> {
+        val found = ArrayList<UsageInfo>()
+        val options = handler.getFindUsagesOptions(null)
+        for (element in elements) handler.processElementUsages(element, { found += it; true }, options)
+        return found.map { inHost(it) }.sortedBy { it.second }
+    }
+
+    fun `test find usages from a go-to target finds an assignment added before the primary elements are read`() {
+        configure(archive)
+        val catcher = entryAt(offsetsOf("reel:")[1])
+        val target = AslVariableTargets.assignmentTargets(AslVariableTargets.variablesAt(catcher)).single { it.entry == catcher }
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(target, false)!!
+        // the target now holds a variable of the model before the edit
+        addShelveAssignment()
+        val found = search(handler, handler.primaryElements.toList())
+        assertEquals(everyReelButTheCatcher(), found)
+    }
+
+    fun `test find usages searches once with the primary elements read after an edit`() {
+        configure(archive)
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(entryAt(offsetsOf("reel:")[1]), false)!!
+        handler.primaryElements
+        addShelveAssignment()
+        val found = search(handler, handler.primaryElements.toList())
+        assertEquals(found.distinct(), found)
+        assertEquals(everyReelButTheCatcher(), found)
+    }
+
+    fun `test find usages searches once when no recorded element is left`() {
+        configure(archive)
+        val handler = AslVariableFindUsagesHandlerFactory().createFindUsagesHandler(entryAt(offsetsOf("reel:")[1]), false)!!
+        handler.primaryElements
+        // elements none of which the handler recorded: the assignments of a second file with the same text
+        myFixture.configureByText("second.asl.yaml", archive.replace("§", "$"))
+        val entries = offsetsOf("reel:").map { entryAt(it) }
+        repeat(2) {
+            // the first element passed searches, on the first run and on a rerun with the same elements
+            val found = search(handler, entries)
+            assertEquals(found.distinct(), found)
+            assertEquals(entries.size - 1 + offsetsOf("\$reel").size, found.size)
+        }
     }
 
     fun `test find usages still finds everything after a PSI change in another file`() {
