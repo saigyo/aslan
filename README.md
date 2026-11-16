@@ -19,7 +19,7 @@ From the JetBrains Marketplace, once the plugin is published there: open Setting
 
 From a release: download `aslan-<version>.zip` from the [releases page](https://github.com/saigyo/aslan/releases). In Settings | Plugins, choose Install Plugin from Disk in the gear menu and select the zip; do not unpack it.
 
-From a zip built locally: run `./gradlew buildPlugin`, which writes `build/distributions/aslan-0.9.0.zip`, and install it from disk in the same way.
+From a zip built locally: run `./gradlew buildPlugin`, which writes `build/distributions/aslan-1.0.0-SNAPSHOT.zip`, and install it from disk in the same way.
 
 ## Getting started
 
@@ -142,14 +142,14 @@ never the file content.
 
 ## Releasing
 
-A release is made by pushing a tag. Set `version` in `gradle.properties` and the change notes in `plugin.xml`, merge that to `main`, then tag the commit on `main` and push the tag:
+A release takes its version from its tag; `gradle.properties` only holds the version of local builds. Put the notes of the new version first in the change notes of `plugin.xml`, as a paragraph that starts with the version and a colon (`0.9.1: …`), merge that to `main`, then tag the commit on `main` and push the tag:
 
 ```
-git tag v0.9.0
-git push origin v0.9.0
+git tag v0.9.1
+git push origin v0.9.1
 ```
 
-The Release workflow checks that the tag matches the version and that the commit is on `main`, runs the tests and the plugin verifier, and publishes a GitHub release with the plugin zip and the change notes. The zip is not signed.
+The Release workflow checks that the tag is a version number, that the commit is on `main` and that the change notes start with that version. It runs the tests and the plugin verifier, builds the plugin with the version of the tag, and publishes a GitHub release with the plugin zip and the change notes. The zip is not signed.
 
 ## Design
 

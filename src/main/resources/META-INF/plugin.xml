@@ -51,6 +51,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p>0.9.1: Find Usages and Show Usages list the reads of a state machine variable in the order of the file.</p>
         <p>0.9.0: Preview of the first release, for testing.</p>
         <ul>
             <li>Editing: completion, checks, quick documentation, navigation and rename for states, and a structure view</li>
