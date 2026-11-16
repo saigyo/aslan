@@ -49,6 +49,8 @@ class DiagramPaneTest : DiagramTestCase() {
     /** A pane of [width] by [height] with its components laid out; without a size when [width] is 0. */
     private fun pane(width: Int = 900, height: Int = 900): DiagramPane {
         val pane = DiagramPane(testRootDisposable)
+        // the IDE fills the toolbar when the pane is added to a window, before anything is shown
+        pane.toolbar.updateActionsImmediately()
         if (width > 0) resize(pane, width, height)
         return pane
     }
