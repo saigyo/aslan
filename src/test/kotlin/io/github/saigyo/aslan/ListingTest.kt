@@ -1,7 +1,6 @@
 package io.github.saigyo.aslan
 
-import junit.framework.TestCase.assertEquals import junit.framework.TestCase.assertNotNull
-import junit.framework.TestCase.assertTrue
+import junit.framework.TestCase.assertEquals import junit.framework.TestCase.assertTrue
 import org.junit.Test
 import java.io.File
 import javax.imageio.ImageIO
@@ -90,13 +89,12 @@ class ListingTest {
     }
 
     @Test
-    fun `test the change notes describe the version of the build`() {
+    fun `test local builds are snapshots and the change notes start with a version`() {
+        // a release takes its version from its tag; the release workflow checks the notes against that version
         val line = File("gradle.properties").readLines().map { it.trim() }.firstOrNull { it.startsWith("version") }.orEmpty()
-        val version = Regex("""^version = (\d+\.\d+\.\d+)$""").find(line)?.groupValues?.get(1)
-        assertNotNull("the version has three numbers, was: $line", version)
+        assertTrue("the version of local builds is a snapshot, was: $line", Regex("""^version = \d+\.\d+\.\d+-SNAPSHOT$""").matches(line))
         val notes = Regex("""<change-notes>(.*?)</change-notes>""", RegexOption.DOT_MATCHES_ALL).find(pluginXml())?.groupValues?.get(1)
-        // the release workflow publishes the change notes as the text of the release of this version
-        assertTrue("the change notes do not start with $version", text(notes.orEmpty()).startsWith("$version:"))
+        assertTrue("the change notes do not start with a version", Regex("""^\d+\.\d+\.\d+: """).containsMatchIn(text(notes.orEmpty())))
         assertTrue("the change notes are empty", !notes.isNullOrBlank() && text(notes).isNotEmpty())
     }
 

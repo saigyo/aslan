@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag such as v0.9.0 builds the plugin from that commit and publishes a GitHub release
+# Pushing a tag such as v0.9.1 builds the plugin from that commit, with the version of the tag, and publishes a GitHub release
 # with the plugin zip attached. Nothing is released when a check fails.
 on:
   push:
@@ -32,13 +32,17 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          version=$(sed -n 's/^version *= *//p' gradle.properties)
-          if [ "$TAG" != "v$version" ]; then
-            echo "::error::The tag $TAG does not match the version $version in gradle.properties"
+          version="${TAG#v}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::The tag $TAG is not a version such as v0.9.1"
             exit 1
           fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::The tagged commit is not on main"
+            exit 1
+          fi
+          if ! tools/release/notes.sh | sed -n 1p | grep -Fq "<p>$version:"; then
+            echo "::error::The change notes in plugin.xml do not start with $version"
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -47,7 +51,8 @@ jobs:
           distribution: zulu
           java-version: 25
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew check buildPlugin verifyPlugin
+      # the version of the build is the version of the tag
+      - run: ./gradlew check buildPlugin verifyPlugin -Pversion="$VERSION"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
