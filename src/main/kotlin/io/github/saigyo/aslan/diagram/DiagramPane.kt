@@ -141,8 +141,8 @@ class DiagramPane(parent: Disposable) : DiagramView {
         toolbar = ActionManager.getInstance().createActionToolbar(TOOLBAR_PLACE, group, true)
         toolbar.setTargetComponent(component)
         toolbar.component.border = JBUI.Borders.customLineBottom(JBColor.border())
-        // filled now, the toolbar has its height at the first layout, so the diagram does not shrink after its first view
-        toolbar.updateActionsAsync()
+        // No update here: the platform ignores one before the toolbar is in a window and logs a warning; it fills a new
+        // toolbar itself when the toolbar is added to one.
         val south = JPanel(BorderLayout()).apply {
             add(legend, BorderLayout.NORTH)
             add(details, BorderLayout.CENTER)
