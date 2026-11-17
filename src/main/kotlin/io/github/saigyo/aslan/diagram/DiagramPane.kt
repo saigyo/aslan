@@ -106,6 +106,7 @@ class DiagramPane(parent: Disposable) : DiagramView {
     override val measure: TextMeasure get() = fonts
 
     internal val diagram = DiagramPanel()
+    internal val pinch = PinchZoom(diagram)
     internal val details = DiagramDetailsPanel { onNavigate(it) }
     private val legend = Legend { diagram.colors }
 
@@ -150,7 +151,7 @@ class DiagramPane(parent: Disposable) : DiagramView {
             add(details, BorderLayout.CENTER)
         }
         component.add(toolbar.component, BorderLayout.NORTH)
-        component.add(diagram, BorderLayout.CENTER)
+        component.add(pinch, BorderLayout.CENTER)
         component.add(south, BorderLayout.SOUTH)
         diagram.onClick = ::clicked
         // The IDE's image viewer zooms on the keys of Expand All and Collapse All (Cmd+Plus and Cmd+Minus on macOS).
