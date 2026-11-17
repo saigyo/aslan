@@ -48,9 +48,9 @@ class DiagramLabelsTest : AslTestCase() {
 
     fun `test a JSONata condition is shown without its delimiters`() {
         val single = rule("Condition: \"{% §states.input.status = 'split' %}\"\nNext: A", language = QueryLanguage.JSONATA)
-        assertEquals(Label("\$states.input.status = 'split'", null), single)
+        assertEquals(Label("\$states.input.status = 'split'", null, "\$states.input.status = 'split'"), single)
         val multiple = rule("Condition: |-\n  {% §a and\n     §b\n     and §c %}\nNext: A", language = QueryLanguage.JSONATA)
-        assertEquals(Label("\$a and \$b and \$c", null), multiple)
+        assertEquals(Label("\$a and \$b and \$c", null, "\$a and \$b and \$c"), multiple)
     }
 
     fun `test shorten cuts by code points`() {
@@ -64,7 +64,7 @@ class DiagramLabelsTest : AslTestCase() {
     }
 
     fun `test JSONPath rules`() {
-        assertEquals(Label("status = \"split\"", "\$.status = \"split\""), rule("Variable: §.status\nStringEquals: split\nNext: A"))
+        assertEquals(Label("status = \"split\"", "\$.status = \"split\"", "\$.status = \"split\""), rule("Variable: §.status\nStringEquals: split\nNext: A"))
         assertEquals("count >= 10", rule("Variable: §.count\nNumericGreaterThanEquals: 10\nNext: A").text)
         assertEquals("a = \$.b", rule("Variable: §.a\nStringEqualsPath: §.b\nNext: A").text)
         assertEquals("seal is not present", rule("Variable: §.seal\nIsPresent: false\nNext: A").text)

@@ -307,6 +307,30 @@ class DiagramPaneTest : DiagramTestCase() {
         assertSame(b, unsized.diagram.viewport)
     }
 
+    fun `test a long value that cannot wrap can still be scrolled to in a narrow pane`() {
+        val arn = "arn:aws:lambda:eu-central-1:123456789012:function:" + "reel-digitising-".repeat(5) + "frame-check"
+        val model = build(
+            """
+            StartAt: Scan
+            States:
+              Scan:
+                Type: Task
+                Resource: $arn
+                End: true
+            """,
+        ).first
+        val pane = pane(390, 700)
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        pane.select("s0")
+        resize(pane, 390, 700)
+        layOut(pane.component)
+        val label = components(pane.details.content).filterIsInstance<JLabel>().single { it.text == DiagramText.literal(arn) }
+        val viewport = (pane.details.body as JScrollPane).viewport
+        assertTrue("${label.preferredSize.width} <= ${viewport.width}", label.preferredSize.width > viewport.width)
+        // the table is as wide as its widest value, so the scroll pane can show the rest
+        assertTrue("${pane.details.content.width} < ${label.preferredSize.width}", pane.details.content.width >= label.preferredSize.width)
+    }
+
     fun `test zoom in and out take the shortcuts of expand all and collapse all`() {
         val pane = pane()
         for ((action, id) in listOf(pane.zoomIn to IdeActions.ACTION_EXPAND_ALL, pane.zoomOut to IdeActions.ACTION_COLLAPSE_ALL)) {

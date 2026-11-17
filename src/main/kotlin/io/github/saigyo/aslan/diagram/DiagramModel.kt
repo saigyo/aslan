@@ -90,6 +90,8 @@ class DiagramEdge(
     val label: String?,
     val title: String?,
     val offset: Int,
+    /** A Choice rule's whole condition, never cut, for the details panel; null for any other path. */
+    val condition: String? = null,
 )
 
 /** One row of the details panel. */
@@ -187,7 +189,7 @@ object DiagramBuilder {
                     TransitionKind.CHOICE -> DiagramLabels.rule(t.owner, t.index, state.queryLanguage)
                     TransitionKind.CATCH -> DiagramLabels.catcher(t.owner)
                 }
-                DiagramEdge(from + suffix(t), t.kind, from, stateIds.getValue(target), label?.text, label?.title, offset(state, t, range))
+                DiagramEdge(from + suffix(t), t.kind, from, stateIds.getValue(target), label?.text, label?.title, offset(state, t, range), label?.condition)
             }
         }
 

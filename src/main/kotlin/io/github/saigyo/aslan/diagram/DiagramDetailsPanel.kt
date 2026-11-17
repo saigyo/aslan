@@ -29,14 +29,17 @@ import javax.swing.Scrollable
  * the path's two states, and a control that collapses the panel to its header, and a two-column table of the rows. A
  * row's item with a place in the file is a link that reports its offset. Every text of a label goes through
  * [DiagramText.literal]; a [DetailItem.Kind.WRAPPED] item is a text area, which reads no markup. The table takes the
- * width of the panel, so its rows wrap instead of scrolling sideways.
+ * width of the panel, so its rows wrap instead of scrolling sideways, as long as its widest item that cannot wrap fits;
+ * else it is as wide as that item needs, and the panel scrolls sideways.
  */
 class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> Unit) : JPanel(BorderLayout()) {
     internal val header = JBLabel(DiagramText.literal(TITLE)).apply { font = JBFont.label().asBold() }
     internal val toggle = ActionLink("") { collapse(!collapsed) }
 
     /** The table of rows; it says so when it has none. */
-    internal val content: JComponent = Rows().withEmptyText(NOTHING).apply {
+    private val table = Rows()
+
+    internal val content: JComponent = table.withEmptyText(NOTHING).apply {
         border = JBUI.Borders.empty(0, 10, 6, 10)
     }
 
@@ -69,9 +72,12 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
         // a narrow pane clips a long name; the tool tip still holds it whole
         header.toolTipText = name?.let(DiagramText::literal)
         content.removeAll()
+        table.labels.clear()
+        table.pieces.clear()
         for ((i, row) in rows.withIndex()) {
             val label = JBLabel(DiagramText.literal(row.label)).apply { foreground = UIUtil.getContextHelpForeground() }
-            content.add(label, GridBagConstraints(0, i, 1, 1, 0.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, JBUI.insets(2, 0, 2, 16), 0, 0))
+            table.labels += label
+            content.add(label, GridBagConstraints(0, i, 1, 1, 0.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, JBUI.insets(2, 0, 2, LABEL_GAP), 0, 0))
             content.add(values(row.items), GridBagConstraints(1, i, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, JBUI.insets(2, 0), 0, 0))
         }
         if (rows.isNotEmpty()) {
@@ -99,6 +105,7 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
             one.add(if (offset != null) ActionLink(DiagramText.literal(item.text)) { onNavigate(offset) } else JBLabel(DiagramText.literal(item.text)))
             if (i < items.size - 1) one.add(JBLabel(DiagramText.literal(SEPARATOR)))
             panel.add(one)
+            table.pieces += one
         }
         return panel
     }
@@ -113,12 +120,29 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
         repaint()
     }
 
-    /** The table: as wide as the scroll pane's view, and as high as its rows or the view, whichever is higher. */
+    /**
+     * The table: as wide as the scroll pane's view while its widest item that cannot wrap fits there, else as wide as it
+     * wants; as high as its rows or the view, whichever is higher. [labels] are the rows' labels and [pieces] the items
+     * that cannot wrap, each a label or a link with its prefix; a text area wraps and is in neither.
+     */
     private class Rows : JBPanelWithEmptyText(GridBagLayout()), Scrollable {
+        val labels = ArrayList<JComponent>()
+        val pieces = ArrayList<JComponent>()
+
+        /** The width the table needs to show its widest item that cannot wrap whole. */
+        fun least(): Int {
+            val label = labels.maxOfOrNull { it.preferredSize.width }?.plus(JBUI.scale(LABEL_GAP)) ?: 0
+            val piece = pieces.maxOfOrNull { it.preferredSize.width } ?: 0
+            return insets.left + insets.right + label + piece
+        }
+
+        /** A row of items that wrap asks for no more width than it has; the widest item still needs its whole width. */
+        override fun getPreferredSize(): Dimension = super.getPreferredSize().let { Dimension(maxOf(it.width, least()), it.height) }
+
         override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
         override fun getScrollableUnitIncrement(visible: Rectangle, orientation: Int, direction: Int): Int = JBUI.scale(16)
         override fun getScrollableBlockIncrement(visible: Rectangle, orientation: Int, direction: Int): Int = visible.height
-        override fun getScrollableTracksViewportWidth(): Boolean = true
+        override fun getScrollableTracksViewportWidth(): Boolean = (parent as? JViewport)?.let { it.width >= least() } ?: true
         override fun getScrollableTracksViewportHeight(): Boolean = (parent as? JViewport)?.let { it.height > preferredSize.height } ?: false
     }
 
@@ -146,6 +170,8 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
         const val TITLE = "Details"
         const val NOTHING = "Select a state or a path to see its details"
         const val WRAPPED_WIDTH = 60
+        /** The space between a row's label and its items. */
+        const val LABEL_GAP = 16
         const val COLLAPSE = "Collapse"
         const val EXPAND = "Expand"
         const val SEPARATOR = ","
