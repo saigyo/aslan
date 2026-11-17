@@ -1,6 +1,7 @@
 package io.github.saigyo.aslan.diagram
 
 import org.eclipse.elk.alg.layered.options.CycleBreakingStrategy
+import org.eclipse.elk.alg.layered.options.GreedySwitchType
 import org.eclipse.elk.alg.layered.options.LayeredMetaDataProvider
 import org.eclipse.elk.alg.layered.options.LayeredOptions
 import org.eclipse.elk.alg.layered.options.NodePlacementStrategy
@@ -22,6 +23,7 @@ import org.eclipse.elk.graph.util.ElkGraphUtil
 import java.awt.geom.Point2D
 import java.awt.geom.Rectangle2D
 import java.util.concurrent.CancellationException
+import kotlin.math.abs
 
 /** The two layouts of the diagram; [maxLabel] is the number of characters at which a label on a path is cut. */
 enum class LayoutMode(val maxLabel: Int) {
@@ -100,10 +102,26 @@ object DiagramLayouter {
     private const val BRANCH_TOP = BRANCH_TEXT + START_MARK
 
     fun layout(model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure, cancelled: () -> Boolean = { false }): DiagramLayout {
+        val first = layoutOnce(model, mode, collapsed, measure, cancelled)
+        if (mode != LayoutMode.LOOSE) return first
+        val crossing = PathCrossings.pairs(first)
+        if (crossing.isEmpty()) return first
+        // Two paths of one state that cross: the one that leaves further left leaves at the right side instead, in a
+        // second pass. That pass is a new layout and may cross elsewhere, so the one with fewer such pairs is kept.
+        val sides = crossing.associate { (a, b) -> (if (a.points.first().x < b.points.first().x) a else b).edge.id to PortSide.EAST }
+        val second = layoutOnce(model, mode, collapsed, measure, cancelled, sides)
+        return if (PathCrossings.pairs(second).size < crossing.size) second else first
+    }
+
+    /** One pass of ELK; [sides] gives a path, by its ID, a fixed exit on that side of its state. */
+    internal fun layoutOnce(
+        model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure,
+        cancelled: () -> Boolean = { false }, sides: Map<String, PortSide> = emptyMap(),
+    ): DiagramLayout {
         val root = model.root ?: return DiagramLayout(0.0, 0.0, emptyList(), emptyList())
         registerLayeredAlgorithm()
         val graph = ElkGraphUtil.createGraph()
-        val run = Run(mode, collapsed, measure)
+        val run = Run(mode, collapsed, measure, sides)
         run.machine(root, graph, SIDE_PADDING)
         val monitor = FlagMonitor(cancelled)
         RecursiveGraphLayoutEngine().layout(graph, monitor)
@@ -114,7 +132,7 @@ object DiagramLayouter {
 
     private class Routed(val elk: ElkEdge, val edge: DiagramEdge, val label: ElkLabel?)
 
-    private class Run(val mode: LayoutMode, val collapsed: Set<String>, val measure: TextMeasure) {
+    private class Run(val mode: LayoutMode, val collapsed: Set<String>, val measure: TextMeasure, val sides: Map<String, PortSide>) {
         private val drafts = ArrayList<Pair<ElkNode, (Rectangle2D.Double) -> LaidNode>>()
         private val routed = ArrayList<Routed>()
         private val ports = HashMap<Pair<ElkNode, PortSide>, ElkPort>()
@@ -150,7 +168,8 @@ object DiagramLayouter {
                 val elk = if (mode == LayoutMode.COMPACT) {
                     ElkGraphUtil.createSimpleEdge(port(from, PortSide.SOUTH), port(to, PortSide.NORTH))
                 } else {
-                    ElkGraphUtil.createSimpleEdge(from, to)
+                    val side = sides[edge.id]
+                    ElkGraphUtil.createSimpleEdge(if (side == null) from else exit(from, side), to)
                 }
                 val label = edge.label?.let { DiagramLabels.shorten(it, mode.maxLabel) }?.let { text ->
                     ElkGraphUtil.createLabel(text, elk).apply {
@@ -190,6 +209,12 @@ object DiagramLayouter {
             ElkGraphUtil.createPort(node).apply { setProperty(CoreOptions.PORT_SIDE, side) }
         }
 
+        /** A port of its own on [side] of [node], for one path of the loose layout that is to leave there. */
+        private fun exit(node: ElkNode, side: PortSide): ElkPort {
+            node.setProperty(CoreOptions.PORT_CONSTRAINTS, PortConstraints.FIXED_SIDE)
+            return ElkGraphUtil.createPort(node).apply { setProperty(CoreOptions.PORT_SIDE, side) }
+        }
+
         /** The absolute place of [node]'s top left corner; ELK places a node relative to its parent. */
         private fun origin(node: ElkNode): Point2D.Double {
             var x = 0.0
@@ -224,9 +249,41 @@ object DiagramLayouter {
             // the compact layout's ports already keep every path out at the bottom and in at the top
             if (mode == LayoutMode.LOOSE) node.setProperty(LayeredOptions.FEEDBACK_EDGES, true)
             if (mode == LayoutMode.COMPACT) {
+                // ELK swaps neighbouring nodes to save crossings only in graphs of up to 40 nodes by default; on every
+                // graph, one-sided, it keeps the paths of one state from crossing each other
+                node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_ACTIVATION_THRESHOLD, 0)
+                node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_TYPE, GreedySwitchType.ONE_SIDED)
                 node.setProperty(LayeredOptions.NODE_PLACEMENT_STRATEGY, NodePlacementStrategy.NETWORK_SIMPLEX)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
             }
         }
     }
+}
+
+/** Where laid-out paths cross; the layouter uses it to choose between two layouts. */
+internal object PathCrossings {
+    /**
+     * Whether a line of [a] passes through a line of [b]: a horizontal and a vertical line that meet inside both. Paths
+     * that touch at an end or a bend, or run side by side, do not cross.
+     */
+    fun cross(a: LaidEdge, b: LaidEdge): Boolean {
+        for ((p, q) in a.points.zipWithNext()) for ((r, t) in b.points.zipWithNext()) {
+            val first = abs(p.y - q.y) < EPSILON
+            if (first == abs(r.y - t.y) < EPSILON) continue
+            val (h1, h2, v1, v2) = if (first) listOf(p, q, r, t) else listOf(r, t, p, q)
+            val x = v1.x
+            val y = h1.y
+            if (x > minOf(h1.x, h2.x) + EPSILON && x < maxOf(h1.x, h2.x) - EPSILON &&
+                y > minOf(v1.y, v2.y) + EPSILON && y < maxOf(v1.y, v2.y) - EPSILON
+            ) return true
+        }
+        return false
+    }
+
+    /** The pairs of paths of one state that cross each other, in the order of the layout's paths. */
+    fun pairs(layout: DiagramLayout): List<Pair<LaidEdge, LaidEdge>> = layout.edges.groupBy { it.edge.from }.values.flatMap { paths ->
+        paths.indices.flatMap { i -> (i + 1 until paths.size).map { j -> paths[i] to paths[j] } }.filter { (a, b) -> cross(a, b) }
+    }
+
+    private const val EPSILON = 0.5
 }
