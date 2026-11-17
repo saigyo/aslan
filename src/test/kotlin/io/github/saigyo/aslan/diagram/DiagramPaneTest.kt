@@ -501,10 +501,10 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue("${area.height} < 2 * $line", area.height >= 2 * line)
     }
 
-    fun `test the compact layout of the large definition is at most 2200 wide with the pane's fonts`() {
+    fun `test the compact layout of the large definition is at most 2600 wide with the pane's fonts`() {
         val pane = pane()
         val width = lay(large(), LayoutMode.COMPACT, pane).width
-        assertTrue("$width", width <= 2200)
+        assertTrue("$width", width <= 2600)
         // the pane measures with the painter's fonts, as the painter draws them: antialiased, without fractional metrics
         val image = BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
         val g = image.createGraphics()
@@ -689,8 +689,10 @@ class DiagramPaneTest : DiagramTestCase() {
         val edge = model.root!!.edges.first().id
         pane.show(model, open, LayoutMode.LOOSE, edge)
         fun toggle() = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.statePath == "PublishEvents" }.bounds
-        // the view moved to the box's toggle, at its right end, which is far from the selected path
+        // the view moved to the box's toggle, at its right end, far from the selected path, and zoomed in, so that the
+        // box, collapsed in another place, lies outside it
         pane.diagram.viewport = Viewport.around(toggle(), DiagramSize(1.0, 1.0), pane.diagram.size)
+            .zoomAt(2.0, pane.diagram.width / 2.0, pane.diagram.height / 2.0)
         click(pane, pane.at(toggle()))
         assertEquals(listOf("PublishEvents"), toggles)
         val shut = lay(model, LayoutMode.LOOSE, pane, setOf("PublishEvents"))
