@@ -51,6 +51,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p>0.9.2: Diagram improvements.</p>
+        <ul>
+            <li>The compact layout gives every path its own line, so large machines stay readable</li>
+            <li>A path that leads back leaves its state at the bottom; fewer paths of one state cross, and none runs through a start or end mark</li>
+            <li>Selecting a path shows the states it connects and its condition in the details panel</li>
+            <li>Zoom with Cmd+Plus and Cmd+Minus (Ctrl on Windows and Linux) and with the pinch on a trackpad</li>
+            <li>The layout and catch drop-downs close when an option is chosen</li>
+        </ul>
         <p>0.9.1: Find Usages and Show Usages list the reads of a state machine variable in the order of the file.</p>
         <p>0.9.0: Preview of the first release, for testing.</p>
         <ul>
