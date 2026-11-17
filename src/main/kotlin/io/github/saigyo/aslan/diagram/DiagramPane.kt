@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.actionSystem.KeepPopupOnPerform
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
@@ -316,6 +317,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
 
     /** An option of the catch drop-down. */
     private inner class CatchSwitch(private val value: CatchMode) : DumbAwareToggleAction(value.title(), "Catch paths: ${value.title().lowercase()}", null) {
+        init {
+            closesMenu()
+        }
+
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
         override fun isSelected(e: AnActionEvent): Boolean = catchMode == value
@@ -328,6 +333,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
 
     /** An option of the layout drop-down. */
     private inner class LayoutSwitch(private val value: LayoutMode) : DumbAwareToggleAction(value.title(), "${value.title()} layout", null) {
+        init {
+            closesMenu()
+        }
+
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
         /** The mode of the last [show]: the switch paints nothing itself, the controller lays out again and shows. */
@@ -374,6 +383,14 @@ class DiagramPane(parent: Disposable) : DiagramView {
     }
 
     private companion object {
+        /**
+         * An option of a drop-down closes it when chosen, as in a combo box. A toggle keeps its menu open by default, and
+         * an open menu is not updated when the new layout arrives a moment later, so it showed the old check mark.
+         */
+        fun ToggleAction.closesMenu() {
+            templatePresentation.keepPopupOnPerform = KeepPopupOnPerform.Never
+        }
+
         const val TOOLBAR_PLACE = "AslanDiagram"
         const val EMPTY = "No state machine to show yet."
         const val ZOOM_STEP = 1.25

@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.diagram
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.actionSystem.KeepPopupOnPerform
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -640,6 +641,18 @@ class DiagramPaneTest : DiagramTestCase() {
         assertFalse(pane.visible(pane.box("s8").bounds))
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s8")
         assertFalse(pane.visible(pane.box("s8").bounds))
+    }
+
+    fun `test choosing an option closes its drop-down`() {
+        val pane = pane()
+        val model = small()
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        // an open menu is not updated when the new layout arrives a moment later, so it would show the old check mark
+        for (option in pane.layoutMenu.options + pane.catchMenu.options) {
+            val event = TestActionEvent.createTestEvent(option)
+            option.update(event)
+            assertEquals(option.templateText, KeepPopupOnPerform.Never, event.presentation.keepPopupOnPerform)
+        }
     }
 
     fun `test every control of the toolbar is visible in a narrow pane`() {
