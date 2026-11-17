@@ -1,12 +1,11 @@
 package io.github.saigyo.aslan.diagram
 
 import com.intellij.psi.PsiFile
-import io.github.saigyo.aslan.AslTestCase
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.AslState
 
-class DiagramDetailsTest : AslTestCase() {
+class DiagramDetailsTest : DiagramTestCase() {
     private val listing = """
         QueryLanguage: JSONata
         StartAt: OpenBatch
@@ -59,6 +58,105 @@ class DiagramDetailsTest : AslTestCase() {
     private fun List<DetailRow>.row(label: String): DetailRow = first { it.label == label }
 
     private fun DetailRow.texts(): List<String> = items.map { it.prefix + it.text }
+
+    private fun DiagramModel.named(name: String): DiagramState {
+        fun find(m: DiagramMachine): DiagramState? =
+            m.states.firstOrNull { it.name == name } ?: m.states.flatMap { it.machines }.firstNotNullOfOrNull(::find)
+        return find(root!!)!!
+    }
+
+    private fun DiagramModel.path(from: String, suffix: String): DiagramEdge = edge(named(from).id + suffix)!!
+
+    private fun List<DetailRow>.labels() = map { it.label }
+
+    private fun List<DetailRow>.items(label: String) = row(label).items
+
+    fun `test the rows of a Next path name its two states`() {
+        val model = build(archive).first
+        val rows = DiagramDetails.pathRows(model, model.path("Scan", ".n"))
+        assertEquals(listOf("From", "To"), rows.labels())
+        val from = rows.items("From").single()
+        val to = rows.items("To").single()
+        assertEquals("Scan" to "Each", from.text to to.text)
+        assertEquals(DetailItem.Kind.STATE to DetailItem.Kind.STATE, from.kind to to.kind)
+        assertEquals(model.named("Scan").offset, from.offset)
+        assertEquals(model.named("Each").offset, to.offset)
+    }
+
+    fun `test the rows of a JSONPath Choice rule show its whole condition`() {
+        val model = build(archive).first
+        val rows = DiagramDetails.pathRows(model, model.path("Sort", ".c0"))
+        assertEquals(listOf("From", "To", "Condition"), rows.labels())
+        val condition = rows.items("Condition").single()
+        assertEquals("\$.format = \"nitrate\"", condition.text)
+        assertEquals(DetailItem.Kind.WRAPPED, condition.kind)
+        assertNull(condition.offset)
+    }
+
+    fun `test the rows of a JSONata Choice rule show the whole expression`() {
+        val expression = "§states.input.format = \"nitrate\" and   §states.input.reels > 3 and " + "x".repeat(60)
+        assertTrue(expression.length > 100)
+        val model = build(
+            """
+            QueryLanguage: JSONata
+            StartAt: Sort
+            States:
+              Sort:
+                Type: Choice
+                Choices:
+                  - Condition: '{% $expression %}'
+                    Next: Done
+                Default: Done
+              Done:
+                Type: Succeed
+            """,
+        ).first
+        val rows = DiagramDetails.pathRows(model, model.path("Sort", ".c0"))
+        val condition = rows.items("Condition").single()
+        assertEquals(expression.replace('§', '$').replace("   ", " "), condition.text)
+        assertEquals(DetailItem.Kind.WRAPPED, condition.kind)
+    }
+
+    fun `test the rows of a Default path say Default`() {
+        val model = build(archive).first
+        val rows = DiagramDetails.pathRows(model, model.path("Sort", ".d"))
+        assertEquals(listOf("From", "To", "Condition"), rows.labels())
+        val item = rows.items("Condition").single()
+        assertEquals("Default" to DetailItem.Kind.PLAIN, item.text to item.kind)
+        assertEquals("Done", rows.items("To").single().text)
+    }
+
+    fun `test the rows of a catch path name its errors`() {
+        val model = build(archive).first
+        val rows = DiagramDetails.pathRows(model, model.path("Scan", ".k0"))
+        assertEquals(listOf("From", "To", "Errors"), rows.labels())
+        assertEquals("Failed", rows.items("To").single().text)
+        val item = rows.items("Errors").single()
+        assertEquals("States.ALL" to DetailItem.Kind.PLAIN, item.text to item.kind)
+        val bare = build(
+            """
+            StartAt: Scan
+            States:
+              Scan:
+                Type: Task
+                Resource: arn:aws:states:::lambda:invoke
+                Catch:
+                  - Next: Failed
+                End: true
+              Failed:
+                Type: Fail
+            """,
+        ).first
+        assertEquals(listOf("From", "To"), DiagramDetails.pathRows(bare, bare.path("Scan", ".k0")).labels())
+    }
+
+    fun `test the rows of a path inside a Map name the inner states`() {
+        val model = build(archive).first
+        val rows = DiagramDetails.pathRows(model, model.path("Frame", ".n"))
+        assertEquals("Frame" to "Last", rows.items("From").single().text to rows.items("To").single().text)
+        assertEquals(model.named("Frame").offset, rows.items("From").single().offset)
+        assertEquals(model.named("Last").offset, rows.items("To").single().offset)
+    }
 
     fun `test a Task shows type, resource, reads, assigns, retry, catch and next`() {
         val (rows, file) = rows(listing, "ListReelFolder")

@@ -22,7 +22,9 @@ import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.AbstractButton
 import javax.swing.JLabel
+import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
+import javax.swing.text.JTextComponent
 
 class DiagramPaneTest : DiagramTestCase() {
     private lateinit var oldCatchMode: CatchMode
@@ -146,6 +148,9 @@ class DiagramPaneTest : DiagramTestCase() {
         }
     }
 
+    /** The texts the details panel shows in text components, which read no HTML: a wrapped condition. */
+    private fun DiagramPane.wrapped(): List<JTextComponent> = components(details.content).filterIsInstance<JTextComponent>()
+
     /** The labels of the rows the details panel shows. */
     private fun DiagramPane.rowLabels(): List<String> = details.rows.map { it.label }
 
@@ -167,7 +172,7 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue(pane.diagram.isFocusable)
     }
 
-    fun `test a click on a path selects the path and shows no details`() {
+    fun `test a click on a path selects the path and shows its details`() {
         val model = small()
         val pane = pane()
         val selects = ArrayList<String?>()
@@ -180,7 +185,10 @@ class DiagramPaneTest : DiagramTestCase() {
         assertEquals(listOf("s0.c0"), pane.paths().filter { it.selected }.map { it.id })
         assertEquals(listOf("s0", "s1"), pane.boxes().filter { it.linked }.map { it.id })
         assertTrue(pane.boxes().none { it.selected })
-        assertEquals(emptyList<String>(), pane.rowLabels())
+        assertEquals(listOf("From", "To", "Condition"), pane.rowLabels())
+        assertEquals(DiagramText.literal("Sort → Scan"), pane.details.header.text)
+        val links = pane.links().map { it.text }
+        assertTrue(links.toString(), DiagramText.literal("Sort") in links && DiagramText.literal("Scan") in links)
     }
 
     fun `test a click on the background clears the selection`() {
@@ -392,9 +400,41 @@ class DiagramPaneTest : DiagramTestCase() {
         pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, "s0.c0")
         assertEquals(listOf("s0.c0"), pane.paths().filter { it.selected }.map { it.id })
         assertEquals(listOf("s0", "s1"), pane.boxes().filter { it.linked }.map { it.id })
-        assertEquals(emptyList<String>(), pane.rowLabels())
+        assertEquals(listOf("From", "To", "Condition"), pane.rowLabels())
         pane.show(model, lay(model, LayoutMode.LOOSE, pane, setOf("Each")), LayoutMode.LOOSE, "s0.c0")
         assertEquals(listOf("s0.c0"), pane.paths().filter { it.selected }.map { it.id })
+        assertEquals(listOf("From", "To", "Condition"), pane.rowLabels())
+    }
+
+    fun `test a long condition wraps in a narrow pane`() {
+        val condition = (1..60).joinToString(" and ") { "§states.input.reel$it" }
+        assertTrue(condition.length > 400)
+        val model = build(
+            """
+            QueryLanguage: JSONata
+            StartAt: Sort
+            States:
+              Sort:
+                Type: Choice
+                Choices:
+                  - Condition: '{% $condition %}'
+                    Next: Done
+                Default: Done
+              Done:
+                Type: Succeed
+            """,
+        ).first
+        val pane = pane(390, 700)
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        pane.select("s0.c0")
+        resize(pane, 390, 700)
+        layOut(pane.component)
+        val viewport = (pane.details.body as JScrollPane).viewport
+        assertTrue("${pane.details.content.width} > ${viewport.width}", pane.details.content.width <= viewport.width)
+        val area = pane.wrapped().single()
+        assertEquals(condition.replace('§', '$'), area.text)
+        val line = area.getFontMetrics(area.font).height
+        assertTrue("${area.height} < 2 * $line", area.height >= 2 * line)
     }
 
     fun `test the compact layout of the large definition is at most 2200 wide with the pane's fonts`() {
@@ -439,7 +479,7 @@ class DiagramPaneTest : DiagramTestCase() {
         val edge = pane.paths().first { it.kind == TransitionKind.NEXT }.id
         pane.select(edge)
         assertEquals(listOf(edge), pane.paths().filter { it.selected }.map { it.id })
-        assertEquals(emptyList<String>(), pane.rowLabels())
+        assertEquals(listOf("From", "To"), pane.rowLabels())
         pane.select(null)
         assertTrue(pane.boxes().none { it.selected || it.linked })
         assertEquals(emptyList<String>(), pane.rowLabels())
@@ -703,6 +743,11 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue(texts.isNotEmpty())
         for (t in texts) assertTrue(t, t.startsWith("<html>") && t.endsWith("</html>"))
         assertTrue(pane.details.header.text.startsWith("<html>"))
+
+        // a condition is shown in a text component, which reads no HTML, as it is
+        pane.select("s1.c0")
+        assertEquals(DiagramText.literal("B → $name"), pane.details.header.text)
+        assertEquals(listOf(condition), pane.wrapped().map { it.text })
     }
 
     fun `test out of date keeps the diagram and marks it`() {

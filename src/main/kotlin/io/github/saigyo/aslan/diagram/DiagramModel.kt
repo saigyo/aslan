@@ -96,7 +96,8 @@ class DiagramEdge(
 class DetailRow(val label: String, val items: List<DetailItem>)
 
 class DetailItem(val text: String, val prefix: String = "", val kind: Kind = Kind.PLAIN, val offset: Int? = null) {
-    enum class Kind { PLAIN, STATE, VARIABLE }
+    /** [WRAPPED] is a plain text that the details panel wraps to its width, such as a long condition. */
+    enum class Kind { PLAIN, STATE, VARIABLE, WRAPPED }
 }
 
 /** The character between the parts of a [DiagramState.path]; a state name cannot hold it in a definition that is read. */
