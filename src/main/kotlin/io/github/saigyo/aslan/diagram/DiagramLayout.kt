@@ -94,6 +94,7 @@ object DiagramLayouter {
     private const val START_MARK = 12.0
     private const val END_MARK = 14.0
     private const val BOTTOM_PADDING = END_MARK + 4
+    private const val MARK_CLEARANCE = END_MARK + 3
     /** The text at the top of a group (the state's name and type line, baseline at 31) and of a branch (its title, baseline at 17). */
     private const val GROUP_TEXT = 34.0
     private const val BRANCH_TEXT = 26.0
@@ -238,6 +239,9 @@ object DiagramLayouter {
             node.setProperty(CoreOptions.EDGE_ROUTING, EdgeRouting.ORTHOGONAL)
             node.setProperty(CoreOptions.PADDING, ElkPadding(top, SIDE_PADDING, BOTTOM_PADDING, SIDE_PADDING))
             node.setProperty(LayeredOptions.SPACING_NODE_NODE_BETWEEN_LAYERS, LAYER_SPACING)
+            // a path that runs across between two layers keeps clear of the start and end marks the painter draws above
+            // and below a state; ELK knows nothing of them and ignores margins when it routes
+            node.setProperty(LayeredOptions.SPACING_EDGE_NODE_BETWEEN_LAYERS, MARK_CLEARANCE)
             // the default, greedy cycle breaking may turn a path that closes no loop upwards; depth first turns only loops
             node.setProperty(LayeredOptions.CYCLE_BREAKING_STRATEGY, CycleBreakingStrategy.DEPTH_FIRST)
             if (branches) {
@@ -248,11 +252,12 @@ object DiagramLayouter {
             // a path that closes a loop would otherwise leave its source at the top and enter its target at the bottom;
             // the compact layout's ports already keep every path out at the bottom and in at the top
             if (mode == LayoutMode.LOOSE) node.setProperty(LayeredOptions.FEEDBACK_EDGES, true)
+            // ELK swaps neighbouring nodes to save crossings only in graphs of up to 40 nodes by default; on every graph,
+            // one-sided, it keeps most paths of one state from crossing each other, and a label from being placed beyond
+            // a path its own path then has to cross
+            node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_ACTIVATION_THRESHOLD, 0)
+            node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_TYPE, GreedySwitchType.ONE_SIDED)
             if (mode == LayoutMode.COMPACT) {
-                // ELK swaps neighbouring nodes to save crossings only in graphs of up to 40 nodes by default; on every
-                // graph, one-sided, it keeps the paths of one state from crossing each other
-                node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_ACTIVATION_THRESHOLD, 0)
-                node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_TYPE, GreedySwitchType.ONE_SIDED)
                 node.setProperty(LayeredOptions.NODE_PLACEMENT_STRATEGY, NodePlacementStrategy.NETWORK_SIMPLEX)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
             }

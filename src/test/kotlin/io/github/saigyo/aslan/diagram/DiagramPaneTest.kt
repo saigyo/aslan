@@ -675,9 +675,9 @@ class DiagramPaneTest : DiagramTestCase() {
         val id = open.nodes.single { it.state?.name == "PublishEvents" }.id
         val edge = model.root!!.edges.first().id
         pane.show(model, open, LayoutMode.LOOSE, edge)
-        // the view moved to the box, which is far from the selected path
-        pane.diagram.viewport = Viewport.around(pane.box(id).bounds, DiagramSize(1.0, 1.0), pane.diagram.size)
         fun toggle() = pane.scene().items.filterIsInstance<SceneItem.Toggle>().single { it.statePath == "PublishEvents" }.bounds
+        // the view moved to the box's toggle, at its right end, which is far from the selected path
+        pane.diagram.viewport = Viewport.around(toggle(), DiagramSize(1.0, 1.0), pane.diagram.size)
         click(pane, pane.at(toggle()))
         assertEquals(listOf("PublishEvents"), toggles)
         val shut = lay(model, LayoutMode.LOOSE, pane, setOf("PublishEvents"))
