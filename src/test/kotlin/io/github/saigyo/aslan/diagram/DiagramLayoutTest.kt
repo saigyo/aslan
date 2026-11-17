@@ -243,6 +243,47 @@ class DiagramLayoutTest : DiagramTestCase() {
         }
     }
 
+    private fun path(id: String, from: String, vararg points: Pair<Double, Double>) = LaidEdge(
+        DiagramEdge(id, TransitionKind.NEXT, from, "x", null, null, 0),
+        points.map { (x, y) -> java.awt.geom.Point2D.Double(x, y) },
+        null,
+    )
+
+    fun `test two paths cross where a line of one passes through a line of the other`() {
+        val down = path("a", "s", 50.0 to 0.0, 50.0 to 100.0)
+        val across = path("b", "s", 0.0 to 50.0, 100.0 to 50.0)
+        assertTrue(PathCrossings.cross(down, across))
+        // touching at an end, meeting at a bend, and running side by side are no crossings
+        assertFalse(PathCrossings.cross(down, path("c", "s", 50.0 to 100.0, 90.0 to 100.0)))
+        assertFalse(PathCrossings.cross(down, path("d", "s", 0.0 to 0.0, 50.0 to 0.0)))
+        assertFalse(PathCrossings.cross(down, path("e", "s", 60.0 to 0.0, 60.0 to 100.0)))
+        assertFalse(PathCrossings.cross(down, path("f", "s", 0.0 to 150.0, 100.0 to 150.0)))
+    }
+
+    fun `test only paths of one state count as a crossing pair`() {
+        val down = path("a", "s", 50.0 to 0.0, 50.0 to 100.0)
+        val across = path("b", "s", 0.0 to 50.0, 100.0 to 50.0)
+        val other = path("c", "t", 0.0 to 60.0, 100.0 to 60.0)
+        val pairs = PathCrossings.pairs(DiagramLayout(100.0, 100.0, emptyList(), listOf(down, across, other)))
+        assertEquals(listOf("a" to "b"), pairs.map { (p, q) -> p.edge.id to q.edge.id })
+    }
+
+    fun `test no two paths of one state cross in the compact layout`() {
+        for ((name, model) in definitions()) {
+            val pairs = PathCrossings.pairs(lay(model, LayoutMode.COMPACT))
+            assertEquals("$name ${pairs.map { (a, b) -> a.edge.id + "/" + b.edge.id }}", 0, pairs.size)
+        }
+    }
+
+    fun `test the loose layout has fewer crossing paths of one state than a single pass`() {
+        for ((name, model) in definitions()) {
+            val once = PathCrossings.pairs(DiagramLayouter.layoutOnce(model, LayoutMode.LOOSE, emptySet(), measure)).size
+            val laid = PathCrossings.pairs(lay(model, LayoutMode.LOOSE)).size
+            assertTrue("$name $laid > $once", laid <= once)
+            if (once > 0) assertTrue("$name $laid >= $once", laid < once)
+        }
+    }
+
     fun `test a state that leads to itself and two edges between the same states lay out`() {
         val loops = build(
             """
