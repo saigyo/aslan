@@ -249,6 +249,26 @@ class DiagramLayoutTest : DiagramTestCase() {
         null,
     )
 
+    /** The places of a box's start mark (above it) and end mark (below it), as the painter draws them, with a pixel to spare. */
+    private fun marks(node: LaidNode): List<Rectangle2D> {
+        val b = node.bounds
+        return listOfNotNull(
+            if (node.start) Rectangle2D.Double(b.x + 10, b.y - 13, 12.0, 13.0) else null,
+            if (node.state?.terminal == true && node.kind == LaidNode.Kind.STATE) Rectangle2D.Double(b.x + 10, b.maxY, 12.0, 15.0) else null,
+        )
+    }
+
+    fun `test no path runs through a start or an end mark`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            val hits = ArrayList<String>()
+            for (node in layout.nodes) for (mark in marks(node)) for (e in layout.edges) {
+                if (e.points.zipWithNext().any { (a, b) -> mark.intersectsLine(Line2D.Double(a, b)) }) hits += "${node.state?.name}/${e.edge.id}"
+            }
+            assertEquals("$name $mode $hits", 0, hits.size)
+        }
+    }
+
     fun `test two paths cross where a line of one passes through a line of the other`() {
         val down = path("a", "s", 50.0 to 0.0, 50.0 to 100.0)
         val across = path("b", "s", 0.0 to 50.0, 100.0 to 50.0)
