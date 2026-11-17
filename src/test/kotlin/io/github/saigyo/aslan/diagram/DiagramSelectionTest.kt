@@ -167,6 +167,19 @@ class DiagramSelectionTest : DiagramTestCase() {
         assertEquals("select ${model.id("Done")}", view.selects.single())
     }
 
+    fun `test a link in the details of a path selects that state`() {
+        val (_, view) = open()
+        val model = last(view).model
+        val edge = model.edgeFrom("Sort")
+        view.onSelect(edge.id)
+        val to = model.state(edge.to)!!
+        caretTasks.clear()
+        view.onNavigate(to.offset)
+        assertEquals(to.offset, caret)
+        caretTasks.single().run()
+        assertEquals("select ${to.id}", view.selects.single())
+    }
+
     fun `test a new diagram after an edit selects the state at the caret`() {
         val (controller, view) = open(at = "Resource")
         assertEquals(last(view).model.id("Scan"), last(view).selected)

@@ -231,9 +231,19 @@ class DiagramPane(parent: Disposable) : DiagramView {
         diagram.repaint()
     }
 
+    /** The details of the selected state or path; a path is named by its two states. */
     private fun showDetails() {
-        val state = selected?.let { model?.state(it) }
-        details.show(state?.name, state?.let { model?.details?.get(it.id) }.orEmpty())
+        val m = model
+        val id = selected
+        val edge = id?.let { m?.edge(it) }
+        if (m != null && edge != null) {
+            val from = m.state(edge.from)?.name ?: edge.from
+            val to = m.state(edge.to)?.name ?: edge.to
+            details.show("$from → $to", DiagramDetails.pathRows(m, edge))
+            return
+        }
+        val state = id?.let { m?.state(it) }
+        details.show(state?.name, state?.let { m?.details?.get(it.id) }.orEmpty())
     }
 
     /**

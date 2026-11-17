@@ -297,6 +297,14 @@ Measured at 6 pixels per character with nothing collapsed, the large synthetic d
 
 Variables, retriers and target states are links into the source. The type, the resource and "End" are plain text: they belong to the selected state, where the caret already is. The plan of stage 4 had made every item with a place in the file a link. A target that names no state is plain text too.
 
+**(my call, made while building the diagram improvements of 2026-11-17)** For a selected path, which showed nothing before, the header names its two states as `from → to`, and the rows, each left out when it has nothing to show, are:
+
+- From and To: the two states, as links into the source; following one moves the caret there and so selects that state;
+- Condition: for a Choice rule its whole condition, not cut as on the path (the hover text when there is one, else the label), wrapped to the panel's width; "Default" for a `Default` path;
+- Errors: for a catch path the names in its `ErrorEquals`. The commissioner's request named no row for catch paths; this one was added by the builder.
+
+The table of the panel takes the panel's width, so its rows wrap instead of scrolling sideways. A condition is shown in a text area, which reads no markup.
+
 **Building blocks (my call, made in the plan of stage 4).** Model, layout, scene and painting are four separate steps. A builder turns the document model into plain data; the layouter gives every state and path a place; the scene turns the layout and the selection into the items to paint and answers what lies at a point; the painter draws the scene. What is painted and what a click hits are decided in the scene, so both are tested without a window.
 
 **No browser.** The diagram needs no embedded browser and is available wherever the plugin runs (revised 2026-11-15).

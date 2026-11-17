@@ -19,6 +19,7 @@ import java.util.IdentityHashMap
 object DiagramDetails {
     private const val ARROW = " → "
     private const val END = "End"
+    private const val DEFAULT = "Default"
 
     /** The reads and assignments of a document, grouped by their state in document order. */
     class Variables private constructor(
@@ -52,6 +53,26 @@ object DiagramDetails {
         row("Catch", catches(state)),
         row("Next", next(state)),
     ).filterNotNull()
+
+    /**
+     * The rows of the path [edge] of [model]: its two states as links, a Choice rule's whole condition (its hover text
+     * when it has one, else its label), "Default" for a `Default` path, and a catch path's error names. Made from the
+     * model alone, so callable on any thread.
+     */
+    fun pathRows(model: DiagramModel, edge: DiagramEdge): List<DetailRow> = listOf(
+        row("From", listOfNotNull(model.state(edge.from)?.let(::link))),
+        row("To", listOfNotNull(model.state(edge.to)?.let(::link))),
+        row("Condition", listOfNotNull(condition(edge))),
+        row("Errors", listOfNotNull(edge.title?.takeIf { edge.kind == TransitionKind.CATCH }?.let { DetailItem(it) })),
+    ).filterNotNull()
+
+    private fun link(state: DiagramState) = DetailItem(state.name, kind = DetailItem.Kind.STATE, offset = state.offset)
+
+    private fun condition(edge: DiagramEdge): DetailItem? = when (edge.kind) {
+        TransitionKind.CHOICE -> (edge.title ?: edge.label)?.let { DetailItem(it, kind = DetailItem.Kind.WRAPPED) }
+        TransitionKind.DEFAULT -> DetailItem(DEFAULT)
+        else -> null
+    }
 
     private fun row(label: String, items: List<DetailItem>): DetailRow? = if (items.isEmpty()) null else DetailRow(label, items)
 
