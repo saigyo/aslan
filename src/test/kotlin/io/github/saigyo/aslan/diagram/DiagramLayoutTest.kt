@@ -231,6 +231,18 @@ class DiagramLayoutTest : DiagramTestCase() {
         }
     }
 
+    fun `test no path leaves its state at the top or enters it at the bottom`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            for (e in layout.edges) {
+                val from = layout.node(e.edge.from).bounds
+                val to = layout.node(e.edge.to).bounds
+                assertTrue("$name $mode ${e.edge.id} leaves at the top", abs(e.points.first().y - from.minY) >= 0.5)
+                assertTrue("$name $mode ${e.edge.id} enters at the bottom", abs(e.points.last().y - to.maxY) >= 0.5)
+            }
+        }
+    }
+
     fun `test a state that leads to itself and two edges between the same states lay out`() {
         val loops = build(
             """

@@ -264,10 +264,11 @@ Statements marked **(my call, made in the plan of stage 4)** are decisions of th
 - Padding of 14 pixels at the sides and 18 at the bottom; at the top, 14 for the whole diagram, 46 for a Map or Parallel box and 38 for a branch. This keeps the start mark of the first inner state and the end marks clear of a box's texts and border.
 - A Parallel box keeps its branches side by side in file order: its parts are not laid out as separate components, and the order of nodes and edges in the file is kept.
 - Every label lies on its path.
+- In the loose layout only: ELK's feedback edges. **(my call, made while building the diagram improvements of 2026-11-17)** A path that closes a loop leaves its state at the bottom, runs around the side and enters its target at the top. Without this option ELK attached such a path to the top of its state and the bottom of its target, so a path seemed to leave where paths come in (4 of the 112 paths of the large synthetic definition). The large synthetic definition is about 4% wider for it.
 - In the compact layout only: network-simplex placement of the states, the file's order of nodes and edges kept, and on every state one port at the top for the paths that come in and one at the bottom for the paths that leave. The paths into one state share a line, and a path that leads back enters its target at the top, as in a flow chart; with the spike's options it ended at the point where the target's own paths leave, which misled the reader about the flow. ELK's edge merging, which the spike used, has no effect with ports and is not set.
 - A state's box is 190 by 40 pixels; a collapsed Map or Parallel box has the same size.
 
-Measured at 6 pixels per character with nothing collapsed, the large synthetic definition is 4,762 by 5,386 pixels in the loose layout and 1,844 by 5,304 in the compact one.
+Measured at 6 pixels per character with nothing collapsed, the large synthetic definition is 4,971 by 5,406 pixels in the loose layout and 1,844 by 5,304 in the compact one.
 
 **Interaction**
 

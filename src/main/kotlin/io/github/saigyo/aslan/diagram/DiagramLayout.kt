@@ -220,6 +220,9 @@ object DiagramLayouter {
                 node.setProperty(LayeredOptions.SEPARATE_CONNECTED_COMPONENTS, false)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
             }
+            // a path that closes a loop would otherwise leave its source at the top and enter its target at the bottom;
+            // the compact layout's ports already keep every path out at the bottom and in at the top
+            if (mode == LayoutMode.LOOSE) node.setProperty(LayeredOptions.FEEDBACK_EDGES, true)
             if (mode == LayoutMode.COMPACT) {
                 node.setProperty(LayeredOptions.NODE_PLACEMENT_STRATEGY, NodePlacementStrategy.NETWORK_SIMPLEX)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
