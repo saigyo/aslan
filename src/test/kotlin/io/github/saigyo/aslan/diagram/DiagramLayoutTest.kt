@@ -288,19 +288,34 @@ class DiagramLayoutTest : DiagramTestCase() {
         assertEquals(listOf("a" to "b"), pairs.map { (p, q) -> p.edge.id to q.edge.id })
     }
 
-    fun `test no two paths of one state cross in the compact layout`() {
-        for ((name, model) in definitions()) {
-            val pairs = PathCrossings.pairs(lay(model, LayoutMode.COMPACT))
-            assertEquals("$name ${pairs.map { (a, b) -> a.edge.id + "/" + b.edge.id }}", 0, pairs.size)
+    fun `test a second pass is kept only with fewer crossing paths of one state and no more width`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val first = DiagramLayouter.layoutOnce(model, mode, emptySet(), measure)
+            val laid = lay(model, mode)
+            val once = PathCrossings.pairs(first).size
+            val pairs = PathCrossings.pairs(laid).size
+            assertTrue("$name $mode $pairs > $once", pairs <= once)
+            if (pairs < once) assertTrue("$name $mode ${laid.width} > ${first.width}", laid.width <= first.width)
         }
+        // the large definition: the loose layout gains from it, the compact one would grow wider and keeps its first pass
+        val large = large()
+        val loose = DiagramLayouter.layoutOnce(large, LayoutMode.LOOSE, emptySet(), measure)
+        assertTrue(PathCrossings.pairs(lay(large, LayoutMode.LOOSE)).size < PathCrossings.pairs(loose).size)
+        val compact = DiagramLayouter.layoutOnce(large, LayoutMode.COMPACT, emptySet(), measure)
+        assertEquals(compact.width, lay(large, LayoutMode.COMPACT).width)
     }
 
-    fun `test the loose layout has fewer crossing paths of one state than a single pass`() {
-        for ((name, model) in definitions()) {
-            val once = PathCrossings.pairs(DiagramLayouter.layoutOnce(model, LayoutMode.LOOSE, emptySet(), measure)).size
-            val laid = PathCrossings.pairs(lay(model, LayoutMode.LOOSE)).size
-            assertTrue("$name $laid > $once", laid <= once)
-            if (once > 0) assertTrue("$name $laid >= $once", laid < once)
+    fun `test every path has its own line where it leaves and where it enters`() {
+        for ((name, model) in definitions()) for (mode in LayoutMode.entries) {
+            val layout = lay(model, mode)
+            for ((key, paths) in layout.edges.groupBy { it.edge.from }) {
+                val starts = paths.map { it.points.first().let { p -> Math.round(p.x) to Math.round(p.y) } }
+                assertEquals("$name $mode paths out of $key", starts.size, starts.toSet().size)
+            }
+            for ((key, paths) in layout.edges.groupBy { it.edge.to }) {
+                val ends = paths.map { it.points.last().let { p -> Math.round(p.x) to Math.round(p.y) } }
+                assertEquals("$name $mode paths into $key", ends.size, ends.toSet().size)
+            }
         }
     }
 
@@ -399,11 +414,11 @@ class DiagramLayoutTest : DiagramTestCase() {
         }
     }
 
-    fun `test the compact layout of the large definition is at most 2200 wide`() {
+    fun `test the compact layout of the large definition is at most 2600 wide`() {
         val model = large()
         val compact = lay(model, LayoutMode.COMPACT)
         val loose = lay(model, LayoutMode.LOOSE)
-        assertTrue("${compact.width}", compact.width <= 2200)
+        assertTrue("${compact.width}", compact.width <= 2600)
         assertTrue("${loose.width} ${compact.width}", loose.width > compact.width)
     }
 

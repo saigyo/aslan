@@ -104,14 +104,14 @@ object DiagramLayouter {
 
     fun layout(model: DiagramModel, mode: LayoutMode, collapsed: Set<String>, measure: TextMeasure, cancelled: () -> Boolean = { false }): DiagramLayout {
         val first = layoutOnce(model, mode, collapsed, measure, cancelled)
-        if (mode != LayoutMode.LOOSE) return first
         val crossing = PathCrossings.pairs(first)
         if (crossing.isEmpty()) return first
         // Two paths of one state that cross: the one that leaves further left leaves at the right side instead, in a
-        // second pass. That pass is a new layout and may cross elsewhere, so the one with fewer such pairs is kept.
+        // second pass. That pass is a new layout and may cross elsewhere or spread wider, so it is kept only when it has
+        // fewer such pairs and is no wider; the compact layout is there for its width.
         val sides = crossing.associate { (a, b) -> (if (a.points.first().x < b.points.first().x) a else b).edge.id to PortSide.EAST }
         val second = layoutOnce(model, mode, collapsed, measure, cancelled, sides)
-        return if (PathCrossings.pairs(second).size < crossing.size) second else first
+        return if (PathCrossings.pairs(second).size < crossing.size && second.width <= first.width) second else first
     }
 
     /** One pass of ELK; [sides] gives a path, by its ID, a fixed exit on that side of its state. */
@@ -136,7 +136,6 @@ object DiagramLayouter {
     private class Run(val mode: LayoutMode, val collapsed: Set<String>, val measure: TextMeasure, val sides: Map<String, PortSide>) {
         private val drafts = ArrayList<Pair<ElkNode, (Rectangle2D.Double) -> LaidNode>>()
         private val routed = ArrayList<Routed>()
-        private val ports = HashMap<Pair<ElkNode, PortSide>, ElkPort>()
 
         /** Adds the states and edges of [machine] to [parent], which shows it with [top] as its upper padding. */
         fun machine(machine: DiagramMachine, parent: ElkNode, top: Double) {
@@ -166,12 +165,9 @@ object DiagramLayouter {
             for (edge in machine.edges) {
                 val from = boxes[edge.from] ?: continue
                 val to = boxes[edge.to] ?: continue
-                val elk = if (mode == LayoutMode.COMPACT) {
-                    ElkGraphUtil.createSimpleEdge(port(from, PortSide.SOUTH), port(to, PortSide.NORTH))
-                } else {
-                    val side = sides[edge.id]
-                    ElkGraphUtil.createSimpleEdge(if (side == null) from else exit(from, side), to)
-                }
+                // every path has its own line; the compact layout once let the paths into a state share one
+                val side = sides[edge.id]
+                val elk = ElkGraphUtil.createSimpleEdge(if (side == null) from else exit(from, side), to)
                 val label = edge.label?.let { DiagramLabels.shorten(it, mode.maxLabel) }?.let { text ->
                     ElkGraphUtil.createLabel(text, elk).apply {
                         setDimensions(measure.width(text, LABEL_SIZE, false) + LABEL_PADDING, LABEL_HEIGHT)
@@ -199,18 +195,7 @@ object DiagramLayouter {
 
         private fun box(parent: ElkNode): ElkNode = ElkGraphUtil.createNode(parent).apply { setDimensions(STATE_WIDTH, STATE_HEIGHT) }
 
-        /**
-         * The one port on [side] of [node]. In the compact layout every path leaves a state at the bottom and enters at the
-         * top, so the paths into a state share a line, and a path that leads back enters at the top as in a flow chart.
-         * ELK's merged edges did the sharing per side after cycle breaking had turned such a path, so it shared the point
-         * where the paths leave; with ports, edge merging has no effect and is not set.
-         */
-        private fun port(node: ElkNode, side: PortSide): ElkPort = ports.getOrPut(node to side) {
-            node.setProperty(CoreOptions.PORT_CONSTRAINTS, PortConstraints.FIXED_SIDE)
-            ElkGraphUtil.createPort(node).apply { setProperty(CoreOptions.PORT_SIDE, side) }
-        }
-
-        /** A port of its own on [side] of [node], for one path of the loose layout that is to leave there. */
+        /** A port of its own on [side] of [node], for one path that is to leave there. */
         private fun exit(node: ElkNode, side: PortSide): ElkPort {
             node.setProperty(CoreOptions.PORT_CONSTRAINTS, PortConstraints.FIXED_SIDE)
             return ElkGraphUtil.createPort(node).apply { setProperty(CoreOptions.PORT_SIDE, side) }
@@ -249,15 +234,15 @@ object DiagramLayouter {
                 node.setProperty(LayeredOptions.SEPARATE_CONNECTED_COMPONENTS, false)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
             }
-            // a path that closes a loop would otherwise leave its source at the top and enter its target at the bottom;
-            // the compact layout's ports already keep every path out at the bottom and in at the top
-            if (mode == LayoutMode.LOOSE) node.setProperty(LayeredOptions.FEEDBACK_EDGES, true)
+            // a path that closes a loop would otherwise leave its source at the top and enter its target at the bottom
+            node.setProperty(LayeredOptions.FEEDBACK_EDGES, true)
             // ELK swaps neighbouring nodes to save crossings only in graphs of up to 40 nodes by default; on every graph,
             // one-sided, it keeps most paths of one state from crossing each other, and a label from being placed beyond
             // a path its own path then has to cross
             node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_ACTIVATION_THRESHOLD, 0)
             node.setProperty(LayeredOptions.CROSSING_MINIMIZATION_GREEDY_SWITCH_TYPE, GreedySwitchType.ONE_SIDED)
             if (mode == LayoutMode.COMPACT) {
+                // the states close to the paths between them: the large synthetic definition about half as wide
                 node.setProperty(LayeredOptions.NODE_PLACEMENT_STRATEGY, NodePlacementStrategy.NETWORK_SIMPLEX)
                 node.setProperty(LayeredOptions.CONSIDER_MODEL_ORDER_STRATEGY, OrderingStrategy.NODES_AND_EDGES)
             }
