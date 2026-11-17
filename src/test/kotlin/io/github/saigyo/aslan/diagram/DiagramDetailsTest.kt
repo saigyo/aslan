@@ -117,6 +117,30 @@ class DiagramDetailsTest : DiagramTestCase() {
         assertEquals(DetailItem.Kind.WRAPPED, condition.kind)
     }
 
+    fun `test the rows of a compound Choice rule show the whole rule`() {
+        val values = (1..12).joinToString("\n") { "                      - Variable: §.reel$it\n                        StringEquals: nitrate-$it" }
+        val model = build(
+            """
+            StartAt: Sort
+            States:
+              Sort:
+                Type: Choice
+                Choices:
+                  - And:
+$values
+                    Next: Done
+                Default: Done
+              Done:
+                Type: Succeed
+            """,
+        ).first
+        val condition = DiagramDetails.pathRows(model, model.path("Sort", ".c0")).items("Condition").single().text
+        assertTrue(condition.length.toString(), condition.length > 200)
+        assertFalse(condition, condition.endsWith("…"))
+        assertTrue(condition, condition.startsWith("And:"))
+        assertTrue(condition, "nitrate-12" in condition)
+    }
+
     fun `test the rows of a Default path say Default`() {
         val model = build(archive).first
         val rows = DiagramDetails.pathRows(model, model.path("Sort", ".d"))
@@ -132,7 +156,7 @@ class DiagramDetailsTest : DiagramTestCase() {
         assertEquals(listOf("From", "To", "Errors"), rows.labels())
         assertEquals("Failed", rows.items("To").single().text)
         val item = rows.items("Errors").single()
-        assertEquals("States.ALL" to DetailItem.Kind.PLAIN, item.text to item.kind)
+        assertEquals("States.ALL" to DetailItem.Kind.WRAPPED, item.text to item.kind)
         val bare = build(
             """
             StartAt: Scan

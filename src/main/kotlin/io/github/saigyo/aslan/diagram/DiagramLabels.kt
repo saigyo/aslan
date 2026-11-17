@@ -16,8 +16,11 @@ import io.github.saigyo.aslan.tree.ScalarType
  * layouter cuts them to the limit of its layout.
  */
 object DiagramLabels {
-    /** [text] is the whole label; [title] a longer form for hover, or null. */
-    data class Label(val text: String, val title: String?)
+    /**
+     * [text] is the whole label; [title] a longer form for hover, or null; [condition] a Choice rule's whole condition
+     * for the details panel, never cut, or null.
+     */
+    data class Label(val text: String, val title: String?, val condition: String? = null)
 
     private const val ARN_PARTS = 6
     private const val TITLE_MAX = 200
@@ -95,14 +98,15 @@ object DiagramLabels {
         if (said != null) return said
         // an empty mapping such as `{}` has nothing to show on hover
         val written = if (rule.entries.isEmpty()) "" else collapse(rule.psi.text)
-        return Label("Rule ${index + 1}", written.takeIf { it.isNotEmpty() }?.let { shorten(it, TITLE_MAX) })
+        val whole = written.takeIf { it.isNotEmpty() }
+        return Label("Rule ${index + 1}", whole?.let { shorten(it, TITLE_MAX) }, whole)
     }
 
     private fun jsonataRule(rule: AslObject): Label? {
         val condition = (rule["Condition"]?.value as? AslScalar)?.takeIf { it.type == ScalarType.STRING } ?: return null
         val text = condition.text.trim()
         if (text.length < 4 || !text.startsWith("{%") || !text.endsWith("%}")) return null
-        return spaced(text.substring(2, text.length - 2)).takeIf { it.isNotEmpty() }?.let { Label(it, null) }
+        return spaced(text.substring(2, text.length - 2)).takeIf { it.isNotEmpty() }?.let { Label(it, null, it) }
     }
 
     private fun jsonPathRule(rule: AslObject): Label? {
@@ -123,7 +127,8 @@ object DiagramLabels {
             "$sign ${if (quoted) "\"${value.text}\"" else value.text}"
         }
         val shown = variable.text.removePrefix("$.")
-        return Label("$shown $condition", "${variable.text} $condition")
+        val whole = "${variable.text} $condition"
+        return Label("$shown $condition", whole, whole)
     }
 
     /** The label of a Catcher: "Catch", and the names in its `ErrorEquals` for hover. */

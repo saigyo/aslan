@@ -55,21 +55,20 @@ object DiagramDetails {
     ).filterNotNull()
 
     /**
-     * The rows of the path [edge] of [model]: its two states as links, a Choice rule's whole condition (its hover text
-     * when it has one, else its label), "Default" for a `Default` path, and a catch path's error names. Made from the
-     * model alone, so callable on any thread.
+     * The rows of the path [edge] of [model]: its two states as links, a Choice rule's whole condition, "Default" for a
+     * `Default` path, and a catch path's error names. Made from the model alone, so callable on any thread.
      */
     fun pathRows(model: DiagramModel, edge: DiagramEdge): List<DetailRow> = listOf(
         row("From", listOfNotNull(model.state(edge.from)?.let(::link))),
         row("To", listOfNotNull(model.state(edge.to)?.let(::link))),
         row("Condition", listOfNotNull(condition(edge))),
-        row("Errors", listOfNotNull(edge.title?.takeIf { edge.kind == TransitionKind.CATCH }?.let { DetailItem(it) })),
+        row("Errors", listOfNotNull(edge.title?.takeIf { edge.kind == TransitionKind.CATCH }?.let { DetailItem(it, kind = DetailItem.Kind.WRAPPED) })),
     ).filterNotNull()
 
     private fun link(state: DiagramState) = DetailItem(state.name, kind = DetailItem.Kind.STATE, offset = state.offset)
 
     private fun condition(edge: DiagramEdge): DetailItem? = when (edge.kind) {
-        TransitionKind.CHOICE -> (edge.title ?: edge.label)?.let { DetailItem(it, kind = DetailItem.Kind.WRAPPED) }
+        TransitionKind.CHOICE -> edge.condition?.let { DetailItem(it, kind = DetailItem.Kind.WRAPPED) }
         TransitionKind.DEFAULT -> DetailItem(DEFAULT)
         else -> null
     }

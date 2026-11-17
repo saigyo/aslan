@@ -305,7 +305,7 @@ Variables, retriers and target states are links into the source. The type, the r
 - Condition: for a Choice rule its whole condition, not cut as on the path (the hover text when there is one, else the label), wrapped to the panel's width; "Default" for a `Default` path;
 - Errors: for a catch path the names in its `ErrorEquals`. The commissioner's request named no row for catch paths; this one was added by the builder.
 
-The table of the panel takes the panel's width, so its rows wrap instead of scrolling sideways. A condition is shown in a text area, which reads no markup.
+The condition and the errors are shown in text areas, which read no markup and wrap at spaces. The table of the panel takes the panel's width, so its rows wrap instead of scrolling sideways, as long as its widest item that cannot wrap, such as a long resource, fits; else the table is as wide as that item and the panel scrolls sideways, as before. A Choice rule's condition is carried uncut in the model for this; the hover text on the path stays cut at 200 characters.
 
 **Building blocks (my call, made in the plan of stage 4).** Model, layout, scene and painting are four separate steps. A builder turns the document model into plain data; the layouter gives every state and path a place; the scene turns the layout and the selection into the items to paint and answers what lies at a point; the painter draws the scene. What is painted and what a click hits are decided in the scene, so both are tested without a window.
 
