@@ -9,11 +9,13 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
@@ -151,6 +153,10 @@ class DiagramPane(parent: Disposable) : DiagramView {
         component.add(diagram, BorderLayout.CENTER)
         component.add(south, BorderLayout.SOUTH)
         diagram.onClick = ::clicked
+        // The IDE's image viewer zooms on the keys of Expand All and Collapse All (Cmd+Plus and Cmd+Minus on macOS).
+        // Registered on the diagram, they zoom only while it has the focus, so in the text editor they still fold.
+        zoomIn.registerCustomShortcutSet(KeymapUtil.getActiveKeymapShortcuts(IdeActions.ACTION_EXPAND_ALL), diagram)
+        zoomOut.registerCustomShortcutSet(KeymapUtil.getActiveKeymapShortcuts(IdeActions.ACTION_COLLAPSE_ALL), diagram)
 
         val bus = ApplicationManager.getApplication().messageBus.connect(parent)
         bus.subscribe(EditorColorsManager.TOPIC, EditorColorsListener { recolour() })

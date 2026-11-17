@@ -1,9 +1,12 @@
 package io.github.saigyo.aslan.diagram
 
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
@@ -302,6 +305,16 @@ class DiagramPaneTest : DiagramTestCase() {
         // a later size leaves the view alone
         resize(unsized, 900, 800)
         assertSame(b, unsized.diagram.viewport)
+    }
+
+    fun `test zoom in and out take the shortcuts of expand all and collapse all`() {
+        val pane = pane()
+        for ((action, id) in listOf(pane.zoomIn to IdeActions.ACTION_EXPAND_ALL, pane.zoomOut to IdeActions.ACTION_COLLAPSE_ALL)) {
+            val expected = KeymapUtil.getActiveKeymapShortcuts(id).shortcuts.toList()
+            assertTrue(id, expected.isNotEmpty())
+            assertEquals(id, expected, action.shortcutSet.shortcuts.toList())
+            assertTrue(id, action in ActionUtil.getActions(pane.diagram))
+        }
     }
 
     fun `test a later diagram keeps zoom and position`() {
