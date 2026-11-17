@@ -24,6 +24,7 @@ import java.awt.event.MouseWheelEvent
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.AbstractButton
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
@@ -305,6 +306,31 @@ class DiagramPaneTest : DiagramTestCase() {
         // a later size leaves the view alone
         resize(unsized, 900, 800)
         assertSame(b, unsized.diagram.viewport)
+    }
+
+    /** Where the text of [c] starts, in the coordinates of the details table. */
+    private fun DiagramPane.textLeft(c: JComponent): Int {
+        val margin = (c as? JTextComponent)?.margin?.left ?: 0
+        return SwingUtilities.convertPoint(c, c.insets.left + margin, 0, details.content).x
+    }
+
+    fun `test a wrapped value starts where the other values start`() {
+        val model = small()
+        val pane = pane()
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        for (path in listOf("s0.c0", "s1.k0")) {
+            pane.select(path)
+            layOut(pane.component)
+            val link = pane.links().first()
+            val wrapped = pane.wrapped().single()
+            assertEquals(path, pane.textLeft(link), pane.textLeft(wrapped))
+        }
+        // a plain value of a state starts there too
+        pane.select("s1")
+        layOut(pane.component)
+        val plain = components(pane.details.content).filterIsInstance<JLabel>().single { it.text == DiagramText.literal("Task") }
+        val next = pane.links().single { it.text == DiagramText.literal("Each") }
+        assertEquals(pane.textLeft(next), pane.textLeft(plain))
     }
 
     fun `test a long value that cannot wrap can still be scrolled to in a narrow pane`() {
