@@ -90,7 +90,7 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
 
     private fun values(items: List<DetailItem>): JComponent {
         items.singleOrNull()?.takeIf { it.kind == DetailItem.Kind.WRAPPED }?.let { return WrappedText(it.text) }
-        val panel = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false }
+        val panel = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(ITEM_GAP), 0)).apply { isOpaque = false }
         for ((i, item) in items.withIndex()) {
             val one = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -157,7 +157,8 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
             isEditable = false
             isFocusable = false
             isOpaque = false
-            border = JBUI.Borders.empty()
+            // a row of items starts after one gap of its layout; the text starts there too
+            border = JBUI.Borders.emptyLeft(ITEM_GAP)
             font = JBFont.label()
         }
 
@@ -170,6 +171,8 @@ class DiagramDetailsPanel internal constructor(private val onNavigate: (Int) -> 
         const val TITLE = "Details"
         const val NOTHING = "Select a state or a path to see its details"
         const val WRAPPED_WIDTH = 60
+        /** The space between the items of a row, and before its first one. */
+        const val ITEM_GAP = 6
         /** The space between a row's label and its items. */
         const val LABEL_GAP = 16
         const val COLLAPSE = "Collapse"
