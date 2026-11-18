@@ -4,7 +4,7 @@
     <vendor email="aslan@kaixo.de" url="https://github.com/saigyo/aslan">saigyo</vendor>
 
     <description><![CDATA[
-        <p>Editor support for AWS Step Functions state machine definitions (Amazon States Language) in YAML and JSON: completion, checks, JSONata, variable navigation and a live diagram.</p>
+        <p>Editor support for AWS Step Functions state machine definitions (Amazon States Language) in YAML and JSON: completion, checks, JSONata, variable navigation, links from comments to code and a live diagram.</p>
         <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/diagram.png" width="700" alt="A definition in the editor beside its diagram, with the selected state's details below"></p>
         <p><b>Editing</b></p>
         <ul>
@@ -36,8 +36,15 @@
             <li>A diagram of the state machine beside the editor, redrawn shortly after you stop typing; buttons switch between editor, both, and diagram</li>
             <li>Selection shared with the editor: the caret selects its state, and a click on a state or a path moves the caret there</li>
             <li>Choice paths labelled with their conditions, catch paths that can be shown, muted or hidden, and collapsible boxes for Map and Parallel states</li>
-            <li>A loose and a compact layout, zoom and fit to window, and a details panel with the selected state's resource, variables, retriers, catchers and next states</li>
+            <li>A loose and a compact layout, zoom and fit to window, also with the keyboard and the trackpad's pinch, and a details panel with the selected state's description, notes, resource, variables, retriers, catchers and next states, whose height a divider sets</li>
         </ul>
+        <p><b>Comments and links to code</b></p>
+        <ul>
+            <li>The block of <code>#</code> lines above a state's name and its <code>Comment</code> field show as the state's description in the details panel, and the comment lines inside the state as its notes</li>
+            <li>A file path in a comment, such as <code>lambdas/src/intake/handler.ts</code>, opens its file with Cmd+Click (Ctrl+Click) or Go to Declaration; <code>contracts.ts#IntakeInput</code> goes to the type's declaration in any language the IDE reads, such as TypeScript, Java or Python. The same paths are links in the details panel</li>
+            <li>Find Usages on a declaration in the source lists the comments that link to it; a path that names no file, or a type that is not found, gets a weak warning</li>
+        </ul>
+        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/links.png" width="700" alt="A Task state whose comment lines name its Lambda handler and the types of its input and output, and the details panel showing them as links"></p>
         <p><b>Getting started</b></p>
         <ol>
             <li>Name the definition <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code>, or add your own pattern under Settings | Languages &amp; Frameworks | Amazon States Language.</li>
@@ -48,6 +55,7 @@
         <p>A problem is shown as an error only where AWS rejects the definition at deployment; anything that deploys is at most a warning. Placeholders, YAML anchors and aliases, and the contents of free-form data fields are never reported, and a JSONata expression that contains <code>${</code> outside a string literal is not judged. The plugin makes no network requests.</p>
         <p>Documentation: <a href="https://github.com/saigyo/aslan#readme">README</a>. Questions and problems: <a href="https://github.com/saigyo/aslan/issues">issue tracker</a>.</p>
         <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.</p>
+        <p>"JetBrains", "IntelliJ IDEA" and the names of other JetBrains products are trademarks of JetBrains. This project is not affiliated with or endorsed by JetBrains.</p>
     ]]></description>
 
     <change-notes><![CDATA[
