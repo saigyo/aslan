@@ -16,7 +16,7 @@ The script deletes the folder and fills it again with copies of the synthetic de
 
 # Screenshots
 
-The pictures in `docs/images/` are used in the repository README, in the plugin description, and in the Media section of the Marketplace listing. The six full-window pictures are in `docs/images/media/`. The four detail pictures are in `docs/images/`.
+The pictures in `docs/images/` are used in the repository README, in the plugin description, and in the Media section of the Marketplace listing. The seven full-window pictures are in `docs/images/media/`. The five detail pictures are in `docs/images/`.
 
 ## Conditions
 
@@ -42,9 +42,11 @@ which gives 2560 by 1600 pixels on a display of double density. The Project tool
 | `media/04-jsonata.png` | `intake.asl.yaml`, editor only. The JSONata expression of the first branch of `PublishEvents` (about twenty lines), with the completion list of functions and their signatures after typing `$su`. |
 | `media/05-variables.png` | `intake.asl.yaml`, editor only. The caret is on `$shelfPages` in the state `ReadShelfIndex`, the assignment and the reads are highlighted in two colours, and Find Usages below lists the reads. |
 | `media/06-diagram.png` | `reel-restoration.asl.yaml`, diagram only, loose layout. A Choice path is selected, catch paths are muted, the two Map boxes show their inner states, and the details panel is collapsed. |
+| `media/07-links.png` | `intake.asl.yaml` in split mode, compact layout. The caret is on the `# Input:` comment of the state `MeasureReel` (Go to Line 664:11), the diagram shows its box marked, and the details panel, dragged to about 300 points, shows its description and the three comment lines with their links to the invented sources. |
 | `completion.png` | From `02-completion.png`: `crop.swift media/02-completion.png 84 350 1600 1210 completion.png` |
 | `jsonata.png` | From `04-jsonata.png`: `crop.swift media/04-jsonata.png 100 385 1600 985 jsonata.png` |
 | `variables.png` | From `05-variables.png`: `crop.swift media/05-variables.png 84 300 1600 1240 variables.png` |
+| `links.png` | From `07-links.png` without the tool window stripes, scaled down to a width of 1600: `crop.swift media/07-links.png 84 85 2394 1450 links.png 1600` |
 | `diagram.png` | From `01-overview.png` without the Structure tool window, scaled down to a width of 1600: `crop.swift media/01-overview.png 546 85 1934 1455 diagram.png 1600` |
 
 The crop commands are run from `docs/images/`, with `crop.swift` run through `swift`.
