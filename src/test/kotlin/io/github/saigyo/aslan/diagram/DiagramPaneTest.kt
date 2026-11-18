@@ -315,9 +315,10 @@ class DiagramPaneTest : DiagramTestCase() {
     }
 
     /** Where the text of [c] starts, in the coordinates of the details table. */
+    /** Where the text of [c] starts in the details table: a text component's first character as drawn, else its insets. */
     private fun DiagramPane.textLeft(c: JComponent): Int {
-        val margin = (c as? JTextComponent)?.margin?.left ?: 0
-        return SwingUtilities.convertPoint(c, c.insets.left + margin, 0, details.content).x
+        val x = (c as? JTextComponent)?.modelToView2D(0)?.x?.toInt() ?: c.insets.left
+        return SwingUtilities.convertPoint(c, x, 0, details.content).x
     }
 
     fun `test a wrapped value starts where the other values start`() {

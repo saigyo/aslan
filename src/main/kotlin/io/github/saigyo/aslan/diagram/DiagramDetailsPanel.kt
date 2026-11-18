@@ -207,6 +207,8 @@ class DiagramDetailsPanel internal constructor(
             isFocusable = false
             isOpaque = false
             border = JBUI.Borders.emptyLeft(ITEM_GAP)
+            // the look and feel of Linux gives a text pane a margin; the text starts where the other values start
+            margin = JBUI.emptyInsets()
             font = JBFont.label()
             // a text pane scrolls its caret into view as the text goes in, which moved the panel to the end of a long
             // line when the rows are wider than the pane
