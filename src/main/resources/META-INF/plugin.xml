@@ -237,6 +237,8 @@
                          displayName="Outer variable read inside a Distributed Map" groupName="Amazon States Language" enabledByDefault="true" level="ERROR"/>
         <localInspection shortName="AslUnusualVariableName" implementationClass="io.github.saigyo.aslan.check.AslUnusualVariableNameInspection"
                          displayName="Unusual variable name" groupName="Amazon States Language" enabledByDefault="true" level="WARNING"/>
+        <localInspection shortName="AslCodeLink" implementationClass="io.github.saigyo.aslan.links.AslCodeLinkInspection"
+                         displayName="Path in a comment names no file or type" groupName="Amazon States Language" enabledByDefault="true" level="WEAK WARNING"/>
     </extensions>
 
     <!-- Next and Previous Highlighted Usage from inside an expression of an ASL file: they share the platform actions'
