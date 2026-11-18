@@ -914,4 +914,76 @@ class DiagramPaneTest : DiagramTestCase() {
             manager.setGlobalScheme(old)
         }
     }
+
+    private fun commented(description: String = "Scans the reels.") = build(
+        """
+        StartAt: Scan
+        States:
+          # $description
+          Scan:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            # Input: lambdas/src/contracts.json#IntakeInput
+            End: true
+        """,
+    ).first
+
+    private fun DiagramPane.linked(): List<JTextComponent> = wrapped().filter { it.javaClass.simpleName == "LinkedText" }
+
+    /** Shows [model] in a pane of [width] with its only state selected. */
+    private fun showCommented(model: DiagramModel, width: Int = 900): DiagramPane {
+        val pane = pane(width, 700)
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        pane.select("s0")
+        resize(pane, width, 700)
+        layOut(pane.component)
+        return pane
+    }
+
+    fun `test a description and notes show as wrapping text with their links`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        val pane = showCommented(commented())
+        assertEquals(listOf("Description", "Notes"), pane.rowLabels().take(2))
+        val texts = pane.linked()
+        assertEquals(listOf("Scans the reels.", "Input: lambdas/src/contracts.json#IntakeInput"), texts.map { it.document.getText(0, it.document.length) })
+    }
+
+    fun `test text from a comment is literal`() {
+        val pane = showCommented(commented("<b>bold</b> & <i>"))
+        val text = pane.linked().first()
+        assertEquals("<b>bold</b> & <i>", text.document.getText(0, text.document.length))
+    }
+
+    fun `test a click on a link reports it`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        val pane = showCommented(commented())
+        val opened = ArrayList<CodeLink>()
+        pane.onOpenCode = { opened += it }
+        val note = pane.linked()[1]
+        val text = note.document.getText(0, note.document.length)
+        val at = note.modelToView2D(text.indexOf("contracts") + 1)
+        note.dispatchEvent(MouseEvent(note, MouseEvent.MOUSE_CLICKED, 0, 0, at.centerX.toInt(), at.centerY.toInt(), 1, false, MouseEvent.BUTTON1))
+        assertEquals("lambdas/src/contracts.json", opened.single().path)
+        assertEquals("IntakeInput", opened.single().type)
+        // a click on the plain text before the link reports nothing
+        val plain = note.modelToView2D(1)
+        note.dispatchEvent(MouseEvent(note, MouseEvent.MOUSE_CLICKED, 0, 0, plain.centerX.toInt(), plain.centerY.toInt(), 1, false, MouseEvent.BUTTON1))
+        assertEquals(1, opened.size)
+    }
+
+    fun `test a comment's text starts where the other values start`() {
+        val pane = showCommented(commented())
+        val plain = components(pane.details.content).filterIsInstance<JLabel>().single { it.text == DiagramText.literal("Task") }
+        assertEquals(pane.textLeft(plain), pane.textLeft(pane.linked().first()))
+    }
+
+    fun `test a long description wraps in a narrow pane`() {
+        val long = (1..40).joinToString(" ") { "word$it" }
+        val pane = showCommented(commented(long), width = 390)
+        val viewport = (pane.details.body as JScrollPane).viewport
+        assertTrue("${pane.details.content.width} > ${viewport.width}", pane.details.content.width <= viewport.width)
+        val text = pane.linked().first()
+        val line = text.getFontMetrics(text.font).height
+        assertTrue("${text.height} < 2 * $line", text.height >= 2 * line)
+    }
 }

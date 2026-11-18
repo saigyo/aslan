@@ -17,6 +17,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.UIUtil
+import io.github.saigyo.aslan.links.CodeLinks
 import io.github.saigyo.aslan.model.AslModel
 import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
@@ -213,6 +214,7 @@ class DiagramController(
         editor.contentComponent.addHierarchyListener(shows)
         Disposer.register(parent) { editor.contentComponent.removeHierarchyListener(shows) }
         view.onSelect = { id -> if (!disposed) selectFromView(id) }
+        view.onOpenCode = { link -> if (!disposed) CodeLinks.open(project, file, link.path, link.type) }
         view.onNavigate = { offset ->
             // the offsets are those of the model shown; the document may have changed since
             if (!disposed && document.modificationStamp == shownStamp) moveCaret(offset, selecting = true)
