@@ -59,6 +59,7 @@ class DiagramControllerTest : DiagramTestCase() {
         override var onNavigate: (offset: Int) -> Unit = {}
         override var onToggleBox: (statePath: String) -> Unit = {}
         override var onLayoutMode: (LayoutMode) -> Unit = {}
+        override var onOpenCode: (CodeLink) -> Unit = {}
 
         override val measure = TextMeasure { text, _, _ ->
             val application = ApplicationManager.getApplication()

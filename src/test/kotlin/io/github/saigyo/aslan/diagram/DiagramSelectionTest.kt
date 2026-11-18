@@ -3,6 +3,7 @@ package io.github.saigyo.aslan.diagram
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.psi.PsiDocumentManager
@@ -30,6 +31,7 @@ class DiagramSelectionTest : DiagramTestCase() {
         override var onNavigate: (offset: Int) -> Unit = {}
         override var onToggleBox: (statePath: String) -> Unit = {}
         override var onLayoutMode: (LayoutMode) -> Unit = {}
+        override var onOpenCode: (CodeLink) -> Unit = {}
         /** While set, the first measurement waits for it, so a layout can be held on its thread. */
         @Volatile
         var hold: CountDownLatch? = null
@@ -396,5 +398,39 @@ class DiagramSelectionTest : DiagramTestCase() {
         controller.caretMovedNow()
         assertTrue(ApplicationManager.getApplication().isDispatchThread)
         assertFalse(editor.contentComponent.hasFocus())
+    }
+
+    private val commented = """
+        StartAt: Scan
+        States:
+          Scan:
+            Type: Pass
+            # Input: lambdas/src/contracts.json#IntakeInput
+            End: true
+    """
+
+    fun `test a link to code opens the file at its type`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"Other\": {}, \"IntakeInput\": {}}")
+        val (_, view) = open(commented)
+        val model = last(view).model
+        val link = model.details.getValue(model.id("Scan")).first { it.label == "Notes" }.items.single().links.single()
+        val asl = editor.virtualFile
+        view.onOpenCode(link)
+        val manager = FileEditorManager.getInstance(project)
+        val opened = manager.selectedTextEditor!!
+        assertEquals("contracts.json", opened.virtualFile!!.name)
+        assertEquals(opened.document.text.indexOf("\"IntakeInput\""), opened.caretModel.offset)
+        assertTrue(asl in manager.openFiles)
+    }
+
+    fun `test a link to code that no longer resolves does nothing`() {
+        val target = myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        val (_, view) = open(commented)
+        val model = last(view).model
+        val link = model.details.getValue(model.id("Scan")).first { it.label == "Notes" }.items.single().links.single()
+        WriteCommandAction.runWriteCommandAction(project) { target.virtualFile.delete(this) }
+        val before = FileEditorManager.getInstance(project).openFiles.toList()
+        view.onOpenCode(link)
+        assertEquals(before, FileEditorManager.getInstance(project).openFiles.toList())
     }
 }

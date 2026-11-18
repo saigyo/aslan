@@ -49,6 +49,9 @@ interface DiagramView {
     /** A link in the details panel. */
     var onNavigate: (offset: Int) -> Unit
 
+    /** A link to code in the details panel. */
+    var onOpenCode: (CodeLink) -> Unit
+
     /** A click on a box's toggle. */
     var onToggleBox: (statePath: String) -> Unit
 
@@ -102,13 +105,14 @@ class DiagramPane(parent: Disposable) : DiagramView {
     override var onNavigate: (offset: Int) -> Unit = {}
     override var onToggleBox: (statePath: String) -> Unit = {}
     override var onLayoutMode: (LayoutMode) -> Unit = {}
+    override var onOpenCode: (CodeLink) -> Unit = {}
 
     private val fonts = FontMeasure()
     override val measure: TextMeasure get() = fonts
 
     internal val diagram = DiagramPanel()
     internal val pinch = PinchZoom(diagram)
-    internal val details = DiagramDetailsPanel { onNavigate(it) }
+    internal val details = DiagramDetailsPanel({ onNavigate(it) }, { onOpenCode(it) })
     private val legend = Legend { diagram.colors }
 
     private var model: DiagramModel? = null
