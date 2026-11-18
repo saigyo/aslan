@@ -1042,4 +1042,33 @@ class DiagramPaneTest : DiagramTestCase() {
         assertNull(pane.split.lastComponent)
         assertTrue(pane.details.height < JBUI.scale(60))
     }
+
+    fun `test a description in a panel wider than the pane leaves the view at its left edge`() {
+        val long = (1..30).joinToString(" ") { "word$it" }
+        val model = build(
+            """
+            StartAt: Scan
+            States:
+              # $long
+              Scan:
+                Type: Task
+                Resource: arn:aws:states:::lambda:invoke
+                # Function: lambdas/src/handler.ts
+                Retry:
+                  - ErrorEquals: [Lambda.ServiceException, Lambda.AWSLambdaException, Lambda.SdkClientException, Lambda.TooManyRequestsException]
+                End: true
+            """,
+        ).first
+        val pane = pane(500, 700)
+        pane.show(model, lay(model, LayoutMode.LOOSE, pane), LayoutMode.LOOSE, null)
+        pane.select("s0")
+        resize(pane, 500, 700)
+        layOut(pane.component)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        layOut(pane.component)
+        val viewport = (pane.details.body as JScrollPane).viewport
+        assertTrue("the rows are wider than the pane", pane.details.content.width > viewport.width)
+        assertEquals(0, viewport.viewPosition.x)
+        assertTrue(pane.linked().all { it.caretPosition == 0 })
+    }
 }

@@ -28,6 +28,7 @@ import javax.swing.JPanel
 import javax.swing.JTextPane
 import javax.swing.JViewport
 import javax.swing.Scrollable
+import javax.swing.text.DefaultCaret
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
 
@@ -207,6 +208,9 @@ class DiagramDetailsPanel internal constructor(
             isOpaque = false
             border = JBUI.Borders.emptyLeft(ITEM_GAP)
             font = JBFont.label()
+            // a text pane scrolls its caret into view as the text goes in, which moved the panel to the end of a long
+            // line when the rows are wider than the pane
+            (caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE
             val plain = SimpleAttributeSet()
             val link = SimpleAttributeSet().apply {
                 StyleConstants.setForeground(this, JBUI.CurrentTheme.Link.Foreground.ENABLED)
