@@ -102,6 +102,8 @@
         <lang.documentationProvider language="JSON" order="first" implementationClass="io.github.saigyo.aslan.docs.AslDocumentationProvider"/>
         <psi.referenceContributor language="yaml" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
         <psi.referenceContributor language="JSON" implementation="io.github.saigyo.aslan.refs.AslReferenceContributor"/>
+        <psi.referenceContributor language="yaml" implementation="io.github.saigyo.aslan.links.CodeLinkReferenceContributor"/>
+        <psi.referenceContributor language="JSON" implementation="io.github.saigyo.aslan.links.CodeLinkReferenceContributor"/>
         <referencesSearch implementation="io.github.saigyo.aslan.refs.AslReferencesSearcher"/>
         <gotoDeclarationHandler implementation="io.github.saigyo.aslan.refs.AslVariableGotoDeclarationHandler"/>
         <findUsagesHandlerFactory order="first" implementation="io.github.saigyo.aslan.refs.AslVariableFindUsagesHandlerFactory"/>
