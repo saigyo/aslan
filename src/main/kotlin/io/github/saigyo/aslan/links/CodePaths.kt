@@ -8,13 +8,14 @@ data class CodePath(val start: Int, val end: Int, val path: String, val type: St
 
 /**
  * Finds the words of a comment that count as file paths: a word with at least one `/` whose last part has a file
- * extension (letters and digits after a dot), and no `://`, so a URL is never one. Backticks, quotes and brackets
- * around a word and punctuation after it are not part of it. A `#` and an identifier after the extension name a type.
+ * extension (a letter, then letters and digits, after a dot), and no `://`, so a URL is never one, nor a version such
+ * as `v1.2/v1.3`. A word with `*`, `{`, `}` or `](` is a glob, a placeholder or a Markdown link, not a path.
+ * Backticks, quotes and brackets around a word and punctuation after it are not part of it. A `#` and an identifier after the extension name a type.
  */
 object CodePaths {
     private val word = Regex("""\S+""")
     private val identifier = Regex("""[A-Za-z_$][A-Za-z0-9_$]*""")
-    private val lastPart = Regex(""".+\.[A-Za-z0-9]+""")
+    private val lastPart = Regex(""".+\.[A-Za-z][A-Za-z0-9]*""")
     private const val OPENING = "`'\"([<"
     private const val CLOSING = "`'\")]>,.:;"
 
@@ -27,7 +28,7 @@ object CodePaths {
     }.toList()
 
     private fun path(word: String, at: Int): CodePath? {
-        if ("://" in word) return null
+        if ("://" in word || "](" in word || word.any { it == '*' || it == '{' || it == '}' }) return null
         val hash = word.lastIndexOf('#')
         val type = if (hash >= 0) word.substring(hash + 1).takeIf { identifier.matches(it) } else null
         val path = if (hash >= 0) word.substring(0, hash) else word

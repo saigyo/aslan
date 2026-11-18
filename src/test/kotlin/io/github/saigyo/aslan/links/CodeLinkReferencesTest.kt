@@ -88,4 +88,18 @@ class CodeLinkReferencesTest : AslTestCase() {
         assertEquals("readme.txt", notes.name)
         assertTrue(asl.text.contains("# See lambdas/src/notes.txt"))
     }
+
+    fun `test a type that is not in the file goes to the start of the file`() {
+        val target = resolved(machine("# lambdas/src/notes.txt#Miss<caret>ing"))
+        assertNotNull(target)
+        (target as Navigatable).navigate(true)
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
+        assertEquals("notes.txt", editor.virtualFile!!.name)
+        assertEquals(0, editor.caretModel.offset)
+    }
+
+    fun `test a Comment key in payload data is no place for links`() {
+        assertNull(resolved(machine("", "\n            Parameters:\n              Comment: lambdas/src/hand<caret>ler.ts")))
+        assertTrue("the definition reads as meant", myFixture.file.text.contains("\n    Parameters:\n      Comment: lambdas"))
+    }
 }

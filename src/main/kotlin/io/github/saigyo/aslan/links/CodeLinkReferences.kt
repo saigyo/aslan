@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.links
 
+import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
@@ -22,9 +23,14 @@ import org.jetbrains.yaml.YAMLLanguage
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 
-/** The places in an ASL file whose text may hold paths to code: its YAML comments and the values of `Comment` fields. */
+/**
+ * The places in an ASL file whose text may hold paths to code: its YAML comments and the values of `Comment` fields of
+ * states, machines, Choice rules, retriers and catchers, told from a `Comment` in payload data by a field of their own
+ * beside it.
+ */
 object CodeLinkSites {
     private const val COMMENT = "Comment"
+    private val owners = setOf("Type", "States", "StartAt", "Next", "ErrorEquals")
 
     /** The ranges within [element] to search for paths, with their text; empty for anything else. Read action. */
     fun texts(element: PsiElement): List<Pair<TextRange, String>> {
@@ -36,8 +42,12 @@ object CodeLinkSites {
 
     private fun isSite(element: PsiElement): Boolean = when (element) {
         is PsiComment -> element.language.isKindOf(YAMLLanguage.INSTANCE)
-        is YAMLScalar -> (element.parent as? YAMLKeyValue)?.let { it.keyText == COMMENT && it.value === element } == true
-        is JsonStringLiteral -> (element.parent as? JsonProperty)?.let { it.name == COMMENT && it.value === element } == true
+        is YAMLScalar -> (element.parent as? YAMLKeyValue)?.let { entry ->
+            entry.keyText == COMMENT && entry.value === element && owners.any { entry.parentMapping?.getKeyValueByKey(it) != null }
+        } == true
+        is JsonStringLiteral -> (element.parent as? JsonProperty)?.let { property ->
+            property.name == COMMENT && property.value === element && owners.any { (property.parent as? JsonObject)?.findProperty(it) != null }
+        } == true
         else -> false
     }
 
@@ -93,7 +103,8 @@ class CodeTypeReference(
         return when (val target = CodeLinks.findType(file, type)) {
             is CodeLinks.TypeTarget.Declared -> target.element
             is CodeLinks.TypeTarget.Text -> TextTarget(file, target.offset, type)
-            null -> null
+            // the name does not occur: the jump goes to the start of the file, as from the details panel
+            null -> TextTarget(file, 0, type)
         }
     }
 
