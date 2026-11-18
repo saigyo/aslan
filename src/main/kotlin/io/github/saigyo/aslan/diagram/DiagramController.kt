@@ -16,7 +16,10 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.ui.UIUtil
 import io.github.saigyo.aslan.model.AslModel
+import java.awt.event.HierarchyEvent
+import java.awt.event.HierarchyListener
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Future
@@ -99,6 +102,12 @@ class DiagramController(
 
     /** Whether the controller itself is moving the caret, which changes no selection. UI thread. */
     private var movingCaret = false
+
+    /** Whether the text editor is on screen; tests replace it. UI thread. */
+    internal var editorShowing: () -> Boolean = { UIUtil.isShowing(editor.contentComponent) }
+
+    /** Whether the controller moved the caret while the text editor was not on screen, as in the preview alone. UI thread. */
+    private var movedWhileHidden = false
 
     /** The delayed refresh after the last change, if it has not run. UI thread. */
     private var pending: Future<*>? = null
@@ -198,6 +207,11 @@ class DiagramController(
                 pendingCaret = caretDelay(Runnable { if (move == caretMoves) caretMovedNow() })
             }
         }, parent)
+        val shows = HierarchyListener { event ->
+            if (event.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L && editorShowing()) editorShown()
+        }
+        editor.contentComponent.addHierarchyListener(shows)
+        Disposer.register(parent) { editor.contentComponent.removeHierarchyListener(shows) }
         view.onSelect = { id -> if (!disposed) selectFromView(id) }
         view.onNavigate = { offset ->
             // the offsets are those of the model shown; the document may have changed since
@@ -238,6 +252,27 @@ class DiagramController(
             editor.selectionModel.removeSelection()
             editor.caretModel.moveToOffset(target)
             editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+        } finally {
+            movingCaret = false
+        }
+        movedWhileHidden = !editorShowing()
+    }
+
+    /**
+     * Called when the text editor comes on screen. The platform marks the name under the caret only after a caret move
+     * in an editor on screen, so a move made while the editor was hidden left the old mark in place. The caret steps
+     * aside and back, which changes no selection.
+     */
+    internal fun editorShown() {
+        if (disposed || !movedWhileHidden) return
+        movedWhileHidden = false
+        val offset = editor.caretModel.offset
+        val aside = if (offset > 0) offset - 1 else offset + 1
+        if (aside > document.textLength) return
+        movingCaret = true
+        try {
+            editor.caretModel.moveToOffset(aside)
+            editor.caretModel.moveToOffset(offset)
         } finally {
             movingCaret = false
         }
