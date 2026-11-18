@@ -1,5 +1,6 @@
 package io.github.saigyo.aslan.check
 
+import com.intellij.codeHighlighting.HighlightDisplayLevel
 import com.intellij.codeInspection.LocalInspectionEP
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.lang.annotation.HighlightSeverity
@@ -26,8 +27,13 @@ class InspectionsTest : CheckTestCase() {
         val ours = LocalInspectionEP.LOCAL_INSPECTION.extensionList.filter { it.pluginDescriptor.pluginId.idString == "io.github.saigyo.aslan" }
         val names = AslProblem.entries.map { it.shortName }.toSet()
         assertEquals(AslProblem.entries.size, names.size)
-        assertEquals(names, ours.map { it.shortName }.toSet())
+        // the check of paths in comments is no problem of the checker and has an inspection of its own
+        assertEquals(names + "AslCodeLink", ours.map { it.shortName }.toSet())
         assertEquals(names, AslInspections.all().map { it.shortName }.toSet())
+        val links = ours.single { it.shortName == "AslCodeLink" }
+        assertEquals(HighlightDisplayLevel.WEAK_WARNING, links.defaultLevel)
+        assertEquals("Amazon States Language", links.groupDisplayName)
+        assertNotNull(javaClass.getResource("/inspectionDescriptions/AslCodeLink.html"))
         for (p in AslProblem.entries) {
             val ep = ours.single { it.shortName == p.shortName }
             assertEquals(p.name, p.level, ep.defaultLevel)
