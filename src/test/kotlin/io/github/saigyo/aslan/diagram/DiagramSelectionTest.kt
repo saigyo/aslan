@@ -3,9 +3,12 @@ package io.github.saigyo.aslan.diagram
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.event.CaretEvent
+import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
+import java.awt.event.HierarchyEvent
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
@@ -248,6 +251,70 @@ class DiagramSelectionTest : DiagramTestCase() {
         assertEquals(1, editor.caretModel.caretCount)
         assertFalse(editor.selectionModel.hasSelection())
         assertEquals(target, caret)
+    }
+
+    /** The offsets the primary caret moves to from now on, in order. */
+    private fun caretMoves(): MutableList<Int> {
+        val moves = ArrayList<Int>()
+        editor.caretModel.addCaretListener(object : CaretListener {
+            override fun caretPositionChanged(event: CaretEvent) {
+                moves += editor.logicalPositionToOffset(event.newPosition)
+            }
+        }, testRootDisposable)
+        return moves
+    }
+
+    fun `test the caret moved while the editor was hidden moves again when it shows`() {
+        val (controller, view) = open()
+        val model = last(view).model
+        val id = model.id("Scan")
+        controller.editorShowing = { false }
+        view.onSelect(id)
+        val moves = caretMoves()
+        caretTasks.clear()
+        controller.editorShowing = { true }
+        controller.editorShown()
+        val at = model.offsets.getValue(id)
+        assertEquals(at, caret)
+        assertEquals("the platform's highlighting of the name under the caret follows a caret move", at, moves.lastOrNull())
+        assertTrue("the moves schedule no selection", caretTasks.isEmpty())
+        assertEquals(emptyList<String>(), view.selects)
+
+        moves.clear()
+        controller.editorShown()
+        assertEquals("only once", emptyList<Int>(), moves)
+    }
+
+    fun `test the caret moved by a link while the editor was hidden moves again when it shows`() {
+        val (controller, view) = open()
+        val target = text.indexOf("Type: Succeed")
+        controller.editorShowing = { false }
+        view.onNavigate(target)
+        val moves = caretMoves()
+        controller.editorShowing = { true }
+        controller.editorShown()
+        assertEquals(target, caret)
+        assertEquals(target, moves.lastOrNull())
+    }
+
+    fun `test the editor coming on screen moves the caret again`() {
+        val (controller, view) = open()
+        controller.editorShowing = { false }
+        view.onSelect(last(view).model.id("Scan"))
+        val moves = caretMoves()
+        controller.editorShowing = { true }
+        val component = editor.contentComponent
+        component.dispatchEvent(HierarchyEvent(component, HierarchyEvent.HIERARCHY_CHANGED, component, component.parent, HierarchyEvent.SHOWING_CHANGED.toLong()))
+        assertEquals(caret, moves.lastOrNull())
+    }
+
+    fun `test the caret moved while the editor was shown does not move again`() {
+        val (controller, view) = open()
+        controller.editorShowing = { true }
+        view.onSelect(last(view).model.id("Scan"))
+        val moves = caretMoves()
+        controller.editorShown()
+        assertEquals(emptyList<Int>(), moves)
     }
 
     fun `test the first show of a new model after a toggle during its layout selects by the new model`() {
