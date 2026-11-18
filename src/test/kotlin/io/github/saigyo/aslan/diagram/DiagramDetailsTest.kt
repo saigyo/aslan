@@ -557,4 +557,58 @@ $values
         )
         for (state in doc.allStates()) DiagramDetails.rows(doc, state)
     }
+
+    private val commented = """
+        StartAt: Scan
+        States:
+          # Scans the reels.
+          Scan:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            # Input: lambdas/src/contracts.json#IntakeInput
+            # Function: lambdas/src/none.ts
+            Arguments:
+              FunctionName: scan
+            End: true
+    """
+
+    fun `test a state's rows start with its description and notes`() {
+        val (rows, _) = rows(commented, "Scan")
+        assertEquals(listOf("Description", "Notes", "Type"), rows.labels().take(3))
+        assertEquals(listOf("Scans the reels."), rows.row("Description").texts())
+        assertEquals(listOf("Input: lambdas/src/contracts.json#IntakeInput", "Function: lambdas/src/none.ts"), rows.row("Notes").texts())
+        assertTrue((rows.items("Description") + rows.items("Notes")).all { it.kind == DetailItem.Kind.TEXT })
+    }
+
+    fun `test a resolvable path in a note is a link with its type`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        val (rows, _) = rows(commented, "Scan")
+        val item = rows.items("Notes").first()
+        val link = item.links.single()
+        assertEquals("lambdas/src/contracts.json", link.path)
+        assertEquals("IntakeInput", link.type)
+        assertEquals("lambdas/src/contracts.json#IntakeInput", item.text.substring(link.start, link.end))
+    }
+
+    fun `test a path that resolves to nothing is no link`() {
+        val (rows, _) = rows(commented, "Scan")
+        assertTrue(rows.items("Notes").all { it.links.isEmpty() })
+    }
+
+    fun `test a state without comments has neither row`() {
+        val (plain, _) = rows("StartAt: A\nStates:\n  A:\n    Type: Succeed\n", "A")
+        assertFalse(plain.labels().contains("Description"))
+        assertFalse(plain.labels().contains("Notes"))
+    }
+
+    fun `test the rows of a JSON state show its Comment field`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        val file = json("""{"StartAt": "Scan", "States": {"Scan": {"Type": "Succeed", "Comment": "Reads lambdas/src/contracts.json."}}}""")
+        val doc = AslModel.of(file)!!
+        val rows = DiagramDetails.rows(doc, doc.allStates().single())
+        assertEquals(listOf("Description", "Type"), rows.labels().take(2))
+        val item = rows.items("Description").single()
+        assertEquals("Reads lambdas/src/contracts.json.", item.text)
+        assertEquals("lambdas/src/contracts.json", item.links.single().path)
+    }
 }

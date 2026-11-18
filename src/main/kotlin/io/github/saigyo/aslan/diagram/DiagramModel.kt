@@ -6,6 +6,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.model.AslDocument
 import io.github.saigyo.aslan.model.AslState
 import io.github.saigyo.aslan.model.AslStateMachine
+import io.github.saigyo.aslan.model.StateComments
 import io.github.saigyo.aslan.model.AslTransition
 import io.github.saigyo.aslan.model.TransitionKind
 import io.github.saigyo.aslan.spec.StructureId
@@ -97,10 +98,23 @@ class DiagramEdge(
 /** One row of the details panel. */
 class DetailRow(val label: String, val items: List<DetailItem>)
 
-class DetailItem(val text: String, val prefix: String = "", val kind: Kind = Kind.PLAIN, val offset: Int? = null) {
-    /** [WRAPPED] is a plain text that the details panel wraps to its width, such as a long condition. */
-    enum class Kind { PLAIN, STATE, VARIABLE, WRAPPED }
+class DetailItem(
+    val text: String,
+    val prefix: String = "",
+    val kind: Kind = Kind.PLAIN,
+    val offset: Int? = null,
+    /** The paths in a [Kind.TEXT] item that named a file when the rows were made. */
+    val links: List<CodeLink> = emptyList(),
+) {
+    /**
+     * [WRAPPED] is a plain text that the details panel wraps to its width, such as a long condition; [TEXT] is a text
+     * from a comment that it wraps too, with its [links] to code.
+     */
+    enum class Kind { PLAIN, STATE, VARIABLE, WRAPPED, TEXT }
 }
+
+/** A path to code in the text of a [DetailItem]: [start] and [end] cover the path and its `#Type` in the item's text. */
+class CodeLink(val start: Int, val end: Int, val path: String, val type: String?)
 
 /** The character between the parts of a [DiagramState.path]; a state name cannot hold it in a definition that is read. */
 const val PATH_SEPARATOR = "\u0000"
@@ -129,7 +143,8 @@ object DiagramBuilder {
         doc.allMachines().forEachIndexed { i, m -> machineIds[m] = "m$i" }
         val builder = Builder(stateIds, machineIds)
         val variables = DiagramDetails.Variables.of(doc)
-        val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(variables, it) }
+        val comments = StateComments.of(doc)
+        val details = doc.allStates().associate { stateIds.getValue(it) to DiagramDetails.rows(variables, comments, it) }
         return DiagramModel(builder.machine(root, null, null), details, doc.allStates().size)
     }
 
