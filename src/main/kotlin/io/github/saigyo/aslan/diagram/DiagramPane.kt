@@ -1,11 +1,5 @@
 package io.github.saigyo.aslan.diagram
 
-import kotlin.math.roundToInt
-import java.awt.event.ComponentEvent
-import java.awt.event.ComponentAdapter
-import java.awt.Dimension
-import com.intellij.ui.scale.JBUIScale
-import com.intellij.openapi.ui.ThreeComponentsSplitter
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
@@ -26,21 +20,27 @@ import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
+import com.intellij.openapi.ui.ThreeComponentsSplitter
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.WrapLayout
 import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.geom.Rectangle2D
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
+import kotlin.math.roundToInt
 
 /**
  * What the controller sees of the diagram pane. The pane shows what it is given and reports what the user does; it

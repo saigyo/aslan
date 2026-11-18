@@ -22,6 +22,7 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.InputEvent
 import java.awt.event.MouseEvent
+import java.awt.event.KeyEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
@@ -29,6 +30,7 @@ import javax.swing.AbstractButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JScrollPane
+import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
 
@@ -1071,5 +1073,52 @@ class DiagramPaneTest : DiagramTestCase() {
         assertTrue("the rows are wider than the pane", pane.details.content.width > viewport.width)
         assertEquals(0, viewport.viewPosition.x)
         assertTrue(pane.linked().all { it.caretPosition == 0 })
+    }
+
+    private fun twoLinks(): DiagramModel = build(
+        """
+        StartAt: Scan
+        States:
+          Scan:
+            Type: Pass
+            # See lambdas/src/contracts.json#IntakeInput and lambdas/src/notes.txt
+            End: true
+        """,
+    ).first
+
+    fun `test a right click on a link opens nothing`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        myFixture.addFileToProject("lambdas/src/notes.txt", "notes")
+        val pane = showCommented(twoLinks())
+        val opened = ArrayList<CodeLink>()
+        pane.onOpenCode = { opened += it }
+        val note = pane.linked().single()
+        val at = note.modelToView2D(note.document.getText(0, note.document.length).indexOf("contracts") + 1)
+        note.dispatchEvent(MouseEvent(note, MouseEvent.MOUSE_CLICKED, 0, InputEvent.BUTTON3_DOWN_MASK, at.centerX.toInt(), at.centerY.toInt(), 1, true, MouseEvent.BUTTON3))
+        assertEquals(emptyList<CodeLink>(), opened)
+    }
+
+    fun `test the links of a text are reached and opened with the keyboard`() {
+        myFixture.addFileToProject("lambdas/src/contracts.json", "{\"IntakeInput\": {}}")
+        myFixture.addFileToProject("lambdas/src/notes.txt", "notes")
+        val pane = showCommented(twoLinks())
+        val opened = ArrayList<CodeLink>()
+        pane.onOpenCode = { opened += it }
+        val note = pane.linked().single()
+        assertTrue(note.isFocusable)
+        fun press(key: Int, modifiers: Int = 0) {
+            val name = note.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(key, modifiers))
+            assertNotNull("no action for $key", name)
+            note.actionMap.get(name).actionPerformed(java.awt.event.ActionEvent(note, 0, ""))
+        }
+        press(KeyEvent.VK_ENTER)
+        press(KeyEvent.VK_TAB)
+        press(KeyEvent.VK_SPACE)
+        press(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK)
+        press(KeyEvent.VK_ENTER)
+        assertEquals(listOf("lambdas/src/contracts.json", "lambdas/src/notes.txt", "lambdas/src/contracts.json"), opened.map { it.path })
+        // a text without links is not a stop of the keyboard
+        val plain = showCommented(commented()).linked().first()
+        assertFalse(plain.isFocusable)
     }
 }

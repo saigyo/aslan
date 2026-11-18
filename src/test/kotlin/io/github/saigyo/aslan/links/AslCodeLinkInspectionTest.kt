@@ -48,4 +48,9 @@ class AslCodeLinkInspectionTest : AslTestCase() {
         myFixture.configureByText("sm.asl.yaml", "StartAt: Scan\nStates:\n  Scan:\n    Type: Pass\n    Parameters:\n      Comment: incoming/report.pdf\n    End: true\n")
         myFixture.checkHighlighting(false, false, true)
     }
+
+    fun `test a path right after the comment's hash is checked as a path`() {
+        check("#<weak_warning descr=\"File not found: lambdas/none.ts\">lambdas/none.ts</weak_warning>")
+        check("#lambdas/src/contracts.json#IntakeInput")
+    }
 }

@@ -19,15 +19,23 @@ import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Rectangle
+import java.awt.event.ActionEvent
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.AbstractAction
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JTextPane
 import javax.swing.JViewport
+import javax.swing.KeyStroke
 import javax.swing.Scrollable
+import javax.swing.SwingUtilities
 import javax.swing.text.DefaultCaret
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
@@ -197,14 +205,20 @@ class DiagramDetailsPanel internal constructor(
     /**
      * A text from a comment, wrapped at spaces to the width of its column like [WrappedText], with its links to code
      * underlined in the colour of links. The text goes into the document as it is, so it is never read as markup; a
-     * click on a link reports it.
+     * click with the primary button on a link reports it. A text with links is a stop of the keyboard: it selects its
+     * first link (its last when reached backwards), Tab and Shift+Tab move to the next and the previous link and then
+     * on, and Enter or Space report the selected one.
      */
     private class LinkedText(item: DetailItem, onOpen: (CodeLink) -> Unit) : JTextPane() {
         private val links = item.links.sortedBy { it.start }
 
+        /** The link the keyboard has selected. */
+        private var current = 0
+
         init {
             isEditable = false
-            isFocusable = false
+            isFocusable = links.isNotEmpty()
+            focusTraversalKeysEnabled = false
             isOpaque = false
             border = JBUI.Borders.emptyLeft(ITEM_GAP)
             // the look and feel of Linux gives a text pane a margin; the text starts where the other values start
@@ -228,14 +242,53 @@ class DiagramDetailsPanel internal constructor(
             styledDocument.insertString(styledDocument.length, item.text.substring(at), plain)
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
+                    if (!SwingUtilities.isLeftMouseButton(e) || e.isPopupTrigger) return
                     linkAt(e)?.let(onOpen)
                 }
             })
+            addFocusListener(object : FocusAdapter() {
+                override fun focusGained(e: FocusEvent) {
+                    current = if (e.cause == FocusEvent.Cause.TRAVERSAL_BACKWARD) links.lastIndex else 0
+                    mark()
+                }
+
+                override fun focusLost(e: FocusEvent) = select(0, 0)
+            })
+            key(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "openLink") { links.getOrNull(current)?.let(onOpen) }
+            key(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "openLink") { links.getOrNull(current)?.let(onOpen) }
+            key(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "nextLink") {
+                if (current < links.lastIndex) {
+                    current++
+                    mark()
+                } else {
+                    transferFocus()
+                }
+            }
+            key(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "previousLink") {
+                if (current > 0) {
+                    current--
+                    mark()
+                } else {
+                    transferFocusBackward()
+                }
+            }
             addMouseMotionListener(object : MouseAdapter() {
                 override fun mouseMoved(e: MouseEvent) {
                     cursor = if (linkAt(e) != null) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
                 }
             })
+        }
+
+        private fun key(stroke: KeyStroke, name: String, run: () -> Unit) {
+            getInputMap(WHEN_FOCUSED).put(stroke, name)
+            actionMap.put(name, object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent) = run()
+            })
+        }
+
+        /** Selects the link the keyboard is on, so it can be seen. */
+        private fun mark() {
+            links.getOrNull(current)?.let { select(it.start, it.end) }
         }
 
         /** The link under the pointer of [e], or null; a point beside the text, which the nearest offset is found for, has none. */

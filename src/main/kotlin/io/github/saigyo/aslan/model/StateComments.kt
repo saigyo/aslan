@@ -27,6 +27,12 @@ class StateComments private constructor(private val text: CharSequence, private 
 
     private val starts: IntArray = lineStarts(text)
 
+    /**
+     * The lines of the `States` of a machine nested in a state, and the column of its state names: a comment there in
+     * that column or further right belongs to the nested states, one further left to the outer state.
+     */
+    private class Nested(val lines: IntRange, val column: Int)
+
     fun of(state: AslState): Comments {
         val field = (state.obj?.get(COMMENT)?.value as? AslScalar)
             ?.takeIf { it.type == ScalarType.STRING && !it.dynamic }?.text?.trim()?.takeIf { it.isNotEmpty() }
@@ -57,10 +63,12 @@ class StateComments private constructor(private val text: CharSequence, private 
             val last = machine.states.lastOrNull() ?: return@mapNotNull null
             val lastKey = last.entry.keyPsi.textRange.startOffset
             val lastLine = lineOf(lastKey)
-            lineOf(states.keyPsi.textRange.startOffset) + 1 until end(lastLine, lastKey - starts[lastLine])
+            val firstKey = machine.states.first().entry.keyPsi.textRange.startOffset
+            val nestedColumn = firstKey - starts[lineOf(firstKey)]
+            Nested(lineOf(states.keyPsi.textRange.startOffset) + 1 until end(lastLine, lastKey - starts[lastLine]), nestedColumn)
         }
         return (line until end).mapNotNull { l ->
-            comments[l]?.takeIf { it.column > column && nested.none { range -> l in range } }?.body
+            comments[l]?.takeIf { comment -> comment.column > column && nested.none { l in it.lines && comment.column >= it.column } }?.body
         }
     }
 
