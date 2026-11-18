@@ -1,6 +1,5 @@
 package io.github.saigyo.aslan.links
 
-import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
@@ -19,36 +18,45 @@ import com.intellij.psi.PsiReferenceRegistrar
 import com.intellij.psi.impl.FakePsiElement
 import com.intellij.util.ProcessingContext
 import io.github.saigyo.aslan.files.AslFiles
+import io.github.saigyo.aslan.model.AslModel
 import org.jetbrains.yaml.YAMLLanguage
 import org.jetbrains.yaml.psi.YAMLKeyValue
 import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
- * The places in an ASL file whose text may hold paths to code: its YAML comments and the values of `Comment` fields of
- * states, machines, Choice rules, retriers and catchers, told from a `Comment` in payload data by a field of their own
- * beside it.
+ * The places in an ASL file whose text may hold paths to code: its YAML comments, without the `#` that starts them, and
+ * the values of `Comment` fields of states, machines, Choice rules, retriers and catchers. A `Comment` key in payload
+ * data is no field of the definition, as the definition's schema tells.
  */
 object CodeLinkSites {
     private const val COMMENT = "Comment"
-    private val owners = setOf("Type", "States", "StartAt", "Next", "ErrorEquals")
 
     /** The ranges within [element] to search for paths, with their text; empty for anything else. Read action. */
     fun texts(element: PsiElement): List<Pair<TextRange, String>> {
         if (!isSite(element)) return emptyList()
         val file = element.containingFile ?: return emptyList()
         if (!AslFiles.isAslFile(file)) return emptyList()
-        return listOf(TextRange(0, element.textLength) to element.text)
+        val text = element.text
+        val start = if (element is PsiComment) text.indexOfFirst { it != '#' }.let { if (it < 0) text.length else it } else 0
+        return listOf(TextRange(start, text.length) to text.substring(start))
     }
 
     private fun isSite(element: PsiElement): Boolean = when (element) {
         is PsiComment -> element.language.isKindOf(YAMLLanguage.INSTANCE)
         is YAMLScalar -> (element.parent as? YAMLKeyValue)?.let { entry ->
-            entry.keyText == COMMENT && entry.value === element && owners.any { entry.parentMapping?.getKeyValueByKey(it) != null }
+            entry.keyText == COMMENT && entry.value === element && isField(element, entry.key)
         } == true
         is JsonStringLiteral -> (element.parent as? JsonProperty)?.let { property ->
-            property.name == COMMENT && property.value === element && owners.any { (property.parent as? JsonObject)?.findProperty(it) != null }
+            property.name == COMMENT && property.value === element && isField(element, property.nameElement)
         } == true
         else -> false
+    }
+
+    /** Whether [key] declares a field of the definition, not a key in free-form data such as `Parameters`. */
+    private fun isField(element: PsiElement, key: PsiElement?): Boolean {
+        val file = element.containingFile ?: return false
+        if (key == null || !AslFiles.isAslFile(file)) return false
+        return AslModel.of(file)?.schema?.field(key) != null
     }
 
     /** The ASL file [element] lies in, as a file on disk; null for one held in memory only. */

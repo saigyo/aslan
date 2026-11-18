@@ -102,4 +102,19 @@ class CodeLinkReferencesTest : AslTestCase() {
         assertNull(resolved(machine("", "\n            Parameters:\n              Comment: lambdas/src/hand<caret>ler.ts")))
         assertTrue("the definition reads as meant", myFixture.file.text.contains("\n    Parameters:\n      Comment: lambdas"))
     }
+
+    fun `test a path right after the comment's hash resolves`() {
+        assertEquals("handler.ts", (resolved(machine("#lambdas/src/hand<caret>ler.ts")) as PsiFile).name)
+        assertEquals("IntakeInput", (resolved(machine("#lambdas/src/contracts.json#Intake<caret>Input")) as JsonProperty).name)
+    }
+
+    fun `test a Comment key in payload data beside a Type key is no place for links`() {
+        assertNull(resolved(machine("", "\n            Parameters:\n              Type: report\n              Comment: lambdas/src/hand<caret>ler.ts")))
+        assertTrue("the definition reads as meant", myFixture.file.text.contains("\n      Type: report\n      Comment: lambdas"))
+    }
+
+    fun `test the Comment field of the machine is a place for links`() {
+        val target = resolved("Comment: See lambdas/src/hand<caret>ler.ts\nStartAt: Scan\nStates:\n  Scan:\n    Type: Succeed\n")
+        assertEquals("handler.ts", (target as PsiFile).name)
+    }
 }

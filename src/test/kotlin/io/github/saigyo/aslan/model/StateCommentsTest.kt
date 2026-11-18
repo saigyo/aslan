@@ -212,4 +212,23 @@ class StateCommentsTest : AslTestCase() {
 
     fun `test a state without comments has none`() =
         assertEquals(StateComments.Comments(emptyList(), emptyList()), of("StartAt: A\nStates:\n  A:\n    Type: Succeed\n", "A"))
+
+    fun `test a note of the parent after a nested machine stays with the parent`() {
+        val text = """
+            StartAt: Fan
+            States:
+              Fan:
+                Type: Parallel
+                Branches:
+                  - StartAt: Inner
+                    States:
+                      Inner:
+                        Type: Succeed
+                        # inner note
+                # outer note after the branches
+                End: true
+        """
+        assertEquals(listOf("outer note after the branches"), notes(text, "Fan"))
+        assertEquals(listOf("inner note"), notes(text, "Inner"))
+    }
 }
