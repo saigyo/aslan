@@ -1121,4 +1121,20 @@ class DiagramPaneTest : DiagramTestCase() {
         val plain = showCommented(commented()).linked().first()
         assertFalse(plain.isFocusable)
     }
+
+    fun `test a window too short for the dragged height gives it back when it grows again`() {
+        val pane = pane()
+        pane.split.lastSize = JBUI.scale(300)
+        pane.dividerMoved()
+        layOut(pane.component)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        resize(pane, 900, 330)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertTrue("${pane.details.height}", pane.details.height < JBUI.scale(300))
+        assertEquals(300, DiagramPrefs.detailsHeight)
+        resize(pane, 900, 900)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals(JBUI.scale(300), pane.details.height)
+        assertEquals(300, DiagramPrefs.detailsHeight)
+    }
 }

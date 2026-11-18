@@ -5,6 +5,8 @@ import com.intellij.psi.util.PsiTreeUtil
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.ScalarType
 import org.jetbrains.yaml.YAMLLanguage
+import org.jetbrains.yaml.psi.YAMLKeyValue
+import org.jetbrains.yaml.psi.YAMLMapping
 
 /**
  * The description and the notes of the states of one document, read from its comments, which are collected once.
@@ -58,14 +60,15 @@ class StateComments private constructor(private val text: CharSequence, private 
 
     private fun notes(state: AslState, line: Int, column: Int): List<String> {
         val end = end(line, column)
+        // the bounds come from the States mapping as written: a state merged in with << keeps the place of its anchor
         val nested = state.children.mapNotNull { machine ->
-            val states = machine.statesEntry ?: return@mapNotNull null
-            val last = machine.states.lastOrNull() ?: return@mapNotNull null
-            val lastKey = last.entry.keyPsi.textRange.startOffset
+            val states = machine.statesEntry?.entryPsi as? YAMLKeyValue ?: return@mapNotNull null
+            val keys = (states.value as? YAMLMapping)?.keyValues?.mapNotNull { it.key } ?: return@mapNotNull null
+            val first = keys.firstOrNull() ?: return@mapNotNull null
+            val lastKey = keys.last().textRange.startOffset
             val lastLine = lineOf(lastKey)
-            val firstKey = machine.states.first().entry.keyPsi.textRange.startOffset
-            val nestedColumn = firstKey - starts[lineOf(firstKey)]
-            Nested(lineOf(states.keyPsi.textRange.startOffset) + 1 until end(lastLine, lastKey - starts[lastLine]), nestedColumn)
+            val nestedColumn = first.textRange.startOffset - starts[lineOf(first.textRange.startOffset)]
+            Nested(lineOf(states.textRange.startOffset) + 1 until end(lastLine, lastKey - starts[lastLine]), nestedColumn)
         }
         return (line until end).mapNotNull { l ->
             comments[l]?.takeIf { comment -> comment.column > column && nested.none { l in it.lines && comment.column >= it.column } }?.body

@@ -231,4 +231,29 @@ class StateCommentsTest : AslTestCase() {
         assertEquals(listOf("outer note after the branches"), notes(text, "Fan"))
         assertEquals(listOf("inner note"), notes(text, "Inner"))
     }
+
+    fun `test a note in a branch that merges shared states stays out of the parent's notes`() {
+        val text = """
+            StartAt: Fan
+            States:
+              Fan:
+                Type: Parallel
+                Branches:
+                  - StartAt: Shared
+                    States: &shared
+                      Shared:
+                        Type: Succeed
+                  - StartAt: Local
+                    States:
+                      Local:
+                        Type: Pass
+                        # local note
+                        Next: Shared
+                      <<: *shared
+                # outer note
+                End: true
+        """
+        assertEquals(listOf("outer note"), notes(text, "Fan"))
+        assertEquals(listOf("local note"), notes(text, "Local"))
+    }
 }
