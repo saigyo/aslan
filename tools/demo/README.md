@@ -11,6 +11,7 @@ The script deletes the folder and fills it again with copies of the synthetic de
 
 - `intake.asl.yaml`: the large intake definition (`film-archive-intake.asl.yaml`), for the diagram.
 - `reel-restoration.asl.yaml` and `reel-check.asl.json`: two smaller definitions, one of them in JSON.
+- `lambdas/src/`: invented TypeScript sources of the Lambda functions the definitions call, with their contracts in `shared/contracts.ts`. The Lambda states link to them from their comments (and `reel-check.asl.json` from a `Comment` field), for the links to code in the editor and the details panel.
 - `intake-with-problems.asl.yaml`: the intake definition with three planted problems, for the inspections: a `Next` that names no state, a Task without `Resource` and an unknown `JitterStrategy`. The script stops with an error when one of its edits finds nothing to change.
 
 # Screenshots
