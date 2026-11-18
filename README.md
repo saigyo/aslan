@@ -12,6 +12,7 @@ Aslan is a plugin for JetBrains IDEs that gives editor support for AWS Step Func
 - **JSONata expressions behave like code.** The expressions inside `{% … %}` strings are highlighted, checked for syntax as Step Functions parses them, and have completion, documentation and local variables you can rename.
 - **State machine variables can be followed.** With the caret on a variable, its assignments and reads are highlighted in two colours, and you can step through them, go to an assignment, find all usages and rename the variable.
 - **A live diagram sits beside the editor.** It shows the states and paths of the machine, follows the caret, and moves the caret to a state or path you click.
+- **Comments lead to the code.** A state's comments appear as its description and notes beside the diagram, and file paths in them, with an optional type, open the Lambda handler or the contract they name.
 
 ## Installation
 
@@ -41,7 +42,7 @@ Shortcuts below are those of the default keymaps, first for macOS and then for W
 - **The Structure tool window** (Cmd+7 / Alt+7) lists the states in file order with an icon for each type. The states of a Map or Parallel state are nested below it, and below each state are its assignments, Choice rules and Catchers. It works for YAML and JSON.
 - **State names:** Go to Declaration (Cmd+B / Ctrl+B) on a transition goes to the state it names, Find Usages (Option+F7 / Alt+F7) lists the transitions that name a state, and Rename (Shift+F6) renames a state together with all of them. A rename stays inside its own state machine, and the plugin reports name conflicts.
 - **Highlighting** sets ASL field names apart from keys inside free-form data such as `Arguments`, and marks state names and transition targets.
-- **Links to code in comments:** a file path in a `#` comment or a `Comment` field, such as `lambdas/src/intake/handler.ts`, opens its file with Cmd+Click or Go to Declaration. Add `#` and a type name, as in `lambdas/src/shared/contracts.ts#IntakeInput`, to go to that type's declaration; in a file whose language the IDE cannot read, the jump goes to the first place the name appears. A word counts as a path when it holds a `/`, ends in a file extension and is not part of a URL. A path is looked up from the ASL file's folder, then from the content roots that hold it, the root of its Git repository and the project's base folder. A path that names no file, or a type that is not found, is marked with a weak warning.
+- **Links to code:** a file path in a comment opens its file; see [Comments and links to code](#comments-and-links-to-code).
 
 ASL files have their own icon in the editor tabs and the Project tool window.
 
@@ -96,12 +97,40 @@ An ASL file opens in a split editor, with the text on the left and the diagram o
 - **Catch: Normal, Muted, Hidden** in the toolbar draws catch paths normally, faint, or not at all. No state moves when you change it.
 - **Layout: Loose, Compact.** Both give every path its own line. The loose layout lines states up straight under each other and has room for longer labels; the compact layout places states closer, so a large machine fits the width of a screen, and cuts labels shorter. A machine with at most 25 states, nested ones included, opens in the loose layout, a larger one in the compact layout. A layout you choose is remembered for the file, as long as it is not renamed or moved.
 - **Selection is shared with the editor.** Moving the caret selects the state it is in. Clicking a box moves the caret to the state's name and shows the state's details. Clicking a path marks the path and its two states and moves the caret to the line that creates it. Clicking the background clears the selection. Selecting a state in the Structure tool window moves the caret, so the diagram follows. With its default settings the Structure tool window does not follow a click in the diagram; its option Always Select Opened Element makes it follow the editor.
-- **The details panel** below the diagram shows the selected state's description and notes first: the description is the state's `Comment` field and the block of `#` lines directly above its name, and the notes are the `#` lines inside the state. Paths to code in them are links that open the file, at the type when one is given. Then come the state's type, resource, the variables it reads and assigns, its retriers, its catchers and its next states. Variables, retriers and target states are links to their place in the file. For a selected path it shows the two states it connects, as links, and the condition of a Choice rule, "Default" for a Default path, or the errors of a catch path. Drag the divider above the panel to change its height; the panel keeps that height when the window changes size. Collapse and Expand hide and show the panel.
+- **The details panel** below the diagram shows the selected state's description and notes first (see [Comments and links to code](#comments-and-links-to-code)), then its type, resource, the variables it reads and assigns, its retriers, its catchers and its next states. Variables, retriers and target states are links to their place in the file. For a selected path it shows the two states it connects, as links, and the condition of a Choice rule, "Default" for a Default path, or the errors of a catch path. Drag the divider above the panel to change its height; the panel keeps that height when the window changes size. Collapse and Expand hide and show the panel.
 - **Zoom and move:** Zoom Out, Zoom In and Fit to Window in the toolbar, or the mouse wheel with Cmd or Ctrl. After a click into the diagram, Cmd+Plus and Cmd+Minus on macOS, or Ctrl+Plus and Ctrl+Minus on Windows and Linux, zoom too; these are the keys of Expand All and Collapse All in your keymap. On a Mac trackpad, pinching over the diagram zooms around the pointer. The wheel and dragging the background move the view. A diagram opens at full size with the state at the caret in view, or the start state when the caret is in no state.
 
 The diagram is redrawn shortly after you stop typing. "Out of date" over the diagram means that the last diagram stays because the newest one cannot be drawn: a JSON file has a syntax error, or a layout was given up after ten seconds or failed. In the second case the mark stays until the next edit, layout switch or collapsed box. YAML is read tolerantly, so a half-typed YAML line does not get that mark; the diagram shows what can be read. The diagram follows the IDE's theme. It is read-only and changes nothing in the file.
 
 The catch setting, whether the details panel is collapsed and its height are remembered for the whole IDE.
+
+### Comments and links to code
+
+<img src="docs/images/links.png" width="800" alt="A Task state in the editor with comment lines that name its Lambda handler and the types of its input and output; the details panel below the diagram shows the state's description and its comment lines, with the file paths as links">
+
+Most states are easier to follow with a word on what they do and which code they call. The plugin reads both from comments:
+
+```yaml
+  # Measures one reel on the archive's scanner bench.
+  MeasureReel:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    # Function: lambdas/src/reel-inspector/handler.ts
+    # Input: lambdas/src/shared/contracts.ts#MeasureReelInput
+    Arguments:
+      FunctionName: ${ReelInspectorArn}
+    # Output: lambdas/src/shared/contracts.ts#ReelMeasurement
+    End: true
+```
+
+- **Description and notes.** The details panel below the diagram shows a selected state's description and notes before its other rows. The description is the text of the state's `Comment` field, then the block of `#` lines directly above the state's name, in the same column and with no blank line between; a line that is only `#` starts a new paragraph. The notes are the `#` lines inside the state, one per line, without those of states nested in a Map or Parallel state. A comment in the column of the state names that is not directly above a state, such as a section heading, belongs to no state. In JSON, which has no comments, a state's `Comment` field is its description.
+- **Paths.** A word in a comment, or in a `Comment` field, is a path when it holds a `/`, ends in a file extension and is not part of a URL. Backticks, quotes and brackets around it and punctuation after it are not part of it. A word with `*`, `{`, `}`, `<` or `>`, such as `uploads/*.json` or `incoming/<batchId>/manifest.json`, is a pattern, not a path. A path is looked up from the ASL file's folder, then from the content roots that hold the file, the root of its Git repository and the project's base folder; the first one that holds the file wins. A path that starts with `/` skips the ASL file's folder.
+- **Types.** `#` and a name after the path, as in `contracts.ts#MeasureReelInput`, name a type in that file. The link goes to its declaration in any language the IDE reads, such as TypeScript, Java or Python, passing over an import of the same name. In a file whose language the IDE cannot read, it goes to the first place the name appears, and when the name does not appear, to the start of the file.
+- **In the editor**, Cmd+Click (Ctrl+Click) or Go to Declaration (Cmd+B / Ctrl+B) on a path opens its file, and on the type its declaration. The other way round, Find Usages on the declaration in the source file lists the comments that link to it.
+- **In the details panel**, the paths in the description and the notes are links. A click opens the file in an editor tab of its own, at the type when one is given; the ASL file stays open.
+- **Warnings.** A path that names no file, or a type that its file neither declares nor contains, is marked with a weak warning. The inspection "Path in a comment names no file or type" under Settings | Editor | Inspections | Amazon States Language turns it off.
+
+Paths are not completed while you type, and they are not changed when a linked file is renamed or moved.
 
 ### Placeholders
 
@@ -163,6 +192,8 @@ The design, with the reasons behind the checks and the evidence they rest on, is
 Apache-2.0. See [LICENSE](LICENSE).
 
 "Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.
+
+"JetBrains", "IntelliJ IDEA" and the names of other JetBrains products are trademarks of JetBrains. This project is not affiliated with or endorsed by JetBrains.
 
 The project includes third-party material (see also [NOTICE](NOTICE)):
 
