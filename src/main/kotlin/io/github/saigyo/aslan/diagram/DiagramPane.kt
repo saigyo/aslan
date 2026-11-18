@@ -1,5 +1,11 @@
 package io.github.saigyo.aslan.diagram
 
+import kotlin.math.roundToInt
+import java.awt.event.ComponentEvent
+import java.awt.event.ComponentAdapter
+import java.awt.Dimension
+import com.intellij.ui.scale.JBUIScale
+import com.intellij.openapi.ui.ThreeComponentsSplitter
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
@@ -134,6 +140,34 @@ class DiagramPane(parent: Disposable) : DiagramView {
     internal val fit: AnAction = Zoom("Fit to Window", AllIcons.General.FitContent) { fitToWindow() }
 
     override val component: JComponent = JPanel(BorderLayout())
+
+    /**
+     * The diagram with its legend above a divider, and the details panel below it; dragging the divider sets the
+     * panel's height, which stays when the pane grows or shrinks and is remembered for the whole IDE.
+     */
+    internal val split: ThreeComponentsSplitter = Split()
+
+    /** The height the details panel should have: the one dragged to last, else its default. */
+    private var wantedHeight = 0
+
+    /**
+     * Fits the details panel into the splitter whenever the splitter's own height changes, which a drag of the divider
+     * never does: the panel takes [wantedHeight] as far as the diagram keeps its least height.
+     */
+    private inner class Split : ThreeComponentsSplitter(true, true) {
+        private var laidHeight = -1
+
+        override fun doLayout() {
+            if (height != laidHeight) {
+                laidHeight = height
+                fitDetails()
+            }
+            super.doLayout()
+        }
+    }
+
+    /** Holds the collapsed details panel, which shows only its header and cannot be dragged. */
+    private val collapsedDetails = JPanel(BorderLayout())
     internal val toolbar: ActionToolbar
 
     init {
@@ -151,13 +185,23 @@ class DiagramPane(parent: Disposable) : DiagramView {
         toolbar.component.border = JBUI.Borders.customLineBottom(JBColor.border())
         // No update here: the platform ignores one before the toolbar is in a window and logs a warning; it fills a new
         // toolbar itself when the toolbar is added to one.
-        val south = JPanel(BorderLayout()).apply {
-            add(legend, BorderLayout.NORTH)
-            add(details, BorderLayout.CENTER)
+        val area = object : JPanel(BorderLayout()) {
+            override fun getMinimumSize(): Dimension = Dimension(super.getMinimumSize().width, JBUI.scale(MIN_DIAGRAM_HEIGHT))
+        }.apply {
+            add(pinch, BorderLayout.CENTER)
+            add(legend, BorderLayout.SOUTH)
         }
+        split.innerComponent = area
+        split.setHonorComponentsMinimumSize(true)
+        split.addDividerResizeListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) = dividerMoved()
+            override fun componentMoved(e: ComponentEvent) = dividerMoved()
+        })
         component.add(toolbar.component, BorderLayout.NORTH)
-        component.add(pinch, BorderLayout.CENTER)
-        component.add(south, BorderLayout.SOUTH)
+        component.add(split, BorderLayout.CENTER)
+        component.add(collapsedDetails, BorderLayout.SOUTH)
+        placeDetails(details.collapsed)
+        details.onCollapse = ::placeDetails
         diagram.onClick = ::clicked
         // The IDE's image viewer zooms on the keys of Expand All and Collapse All (Cmd+Plus and Cmd+Minus on macOS).
         // Registered on the diagram, they zoom only while it has the focus, so in the text editor they still fold.
@@ -208,6 +252,37 @@ class DiagramPane(parent: Disposable) : DiagramView {
     override fun setStale() {
         diagram.stale = true
         diagram.repaint()
+    }
+
+    /** Puts the details panel below the divider at its remembered height, or, [collapsed], under the diagram without one. */
+    private fun placeDetails(collapsed: Boolean) {
+        if (collapsed) {
+            split.lastComponent = null
+            collapsedDetails.add(details, BorderLayout.CENTER)
+        } else {
+            collapsedDetails.remove(details)
+            split.lastComponent = details
+            wantedHeight = DiagramPrefs.detailsHeight?.let(JBUI::scale) ?: details.preferredSize.height
+            split.lastSize = wantedHeight
+            fitDetails()
+        }
+        component.revalidate()
+        component.repaint()
+    }
+
+    /** Remembers the height the divider was dragged to, in pixels at 100% scale. */
+    internal fun dividerMoved() {
+        if (details.collapsed || split.lastComponent !== details) return
+        wantedHeight = split.lastSize
+        DiagramPrefs.detailsHeight = (split.lastSize / JBUIScale.scale(1f)).roundToInt()
+    }
+
+    /** Gives the details panel [wantedHeight], or less where the diagram would get less than its least height. */
+    private fun fitDetails() {
+        if (split.lastComponent !== details || split.height <= 0) return
+        val room = split.height - (split.innerComponent?.minimumSize?.height ?: 0) - split.dividerWidth
+        val fitted = minOf(wantedHeight, room).coerceAtLeast(details.minimumSize.height)
+        if (split.lastSize != fitted) split.lastSize = fitted
     }
 
     private fun clicked(hit: Hit?) {
@@ -396,6 +471,8 @@ class DiagramPane(parent: Disposable) : DiagramView {
         }
 
         const val TOOLBAR_PLACE = "AslanDiagram"
+        /** The least height of the diagram with its legend above the divider. */
+        const val MIN_DIAGRAM_HEIGHT = 100
         const val EMPTY = "No state machine to show yet."
         const val ZOOM_STEP = 1.25
         const val FIT_PADDING = 16

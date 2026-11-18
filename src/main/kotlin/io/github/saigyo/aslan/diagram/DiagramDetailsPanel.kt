@@ -65,6 +65,13 @@ class DiagramDetailsPanel internal constructor(
     internal var collapsed: Boolean = DiagramPrefs.detailsCollapsed
         private set
 
+    /** Told when the panel is collapsed or expanded, with the new state. */
+    internal var onCollapse: (Boolean) -> Unit = {}
+
+    /** Expanded, the panel keeps its header and about one row in view; collapsed, it is as high as its header. */
+    override fun getMinimumSize(): Dimension =
+        if (collapsed) super.getMinimumSize() else Dimension(super.getMinimumSize().width, JBUI.scale(MIN_HEIGHT))
+
     init {
         border = JBUI.Borders.customLineTop(JBColor.border())
         val top = JPanel(BorderLayout()).apply {
@@ -136,6 +143,7 @@ class DiagramDetailsPanel internal constructor(
         toggle.icon = if (value) AllIcons.General.ArrowRight else AllIcons.General.ArrowDown
         revalidate()
         repaint()
+        onCollapse(value)
     }
 
     /**
@@ -249,6 +257,9 @@ class DiagramDetailsPanel internal constructor(
         const val COLLAPSE = "Collapse"
         const val EXPAND = "Expand"
         const val SEPARATOR = ","
+        /** The height of the rows before the divider is first dragged. */
         const val BODY_HEIGHT = 150
+        /** The least height of the expanded panel: its header and about one row. */
+        const val MIN_HEIGHT = 60
     }
 }

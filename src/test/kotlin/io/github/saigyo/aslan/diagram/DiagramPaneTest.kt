@@ -13,6 +13,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.ActionLink
+import com.intellij.util.ui.JBUI
 import io.github.saigyo.aslan.model.AslModel
 import io.github.saigyo.aslan.model.TransitionKind
 import java.awt.Component
@@ -34,20 +35,24 @@ import javax.swing.text.JTextComponent
 class DiagramPaneTest : DiagramTestCase() {
     private lateinit var oldCatchMode: CatchMode
     private var oldCollapsed = false
+    private var oldHeight: Int? = null
 
     override fun setUp() {
         super.setUp()
         // the application's properties are shared by all test classes
         oldCatchMode = DiagramPrefs.catchMode
         oldCollapsed = DiagramPrefs.detailsCollapsed
+        oldHeight = DiagramPrefs.detailsHeight
         DiagramPrefs.catchMode = CatchMode.NORMAL
         DiagramPrefs.detailsCollapsed = false
+        DiagramPrefs.detailsHeight = null
     }
 
     override fun tearDown() {
         try {
             DiagramPrefs.catchMode = oldCatchMode
             DiagramPrefs.detailsCollapsed = oldCollapsed
+            DiagramPrefs.detailsHeight = oldHeight
         } finally {
             super.tearDown()
         }
@@ -985,5 +990,56 @@ class DiagramPaneTest : DiagramTestCase() {
         val text = pane.linked().first()
         val line = text.getFontMetrics(text.font).height
         assertTrue("${text.height} < 2 * $line", text.height >= 2 * line)
+    }
+
+    fun `test the details panel lies below a divider at its default height`() {
+        val pane = pane()
+        assertSame(pane.details, pane.split.lastComponent)
+        assertEquals(pane.details.preferredSize.height, pane.details.height)
+    }
+
+    fun `test a dragged height stays when the pane is resized and is remembered`() {
+        val pane = pane()
+        // a drag sets the size and tells the divider's listeners, which a test cannot do with the mouse
+        pane.split.lastSize = JBUI.scale(300)
+        pane.dividerMoved()
+        layOut(pane.component)
+        assertEquals(JBUI.scale(300), pane.details.height)
+        resize(pane, 900, 650)
+        assertEquals(JBUI.scale(300), pane.details.height)
+        assertEquals(300, DiagramPrefs.detailsHeight)
+        assertEquals(JBUI.scale(300), pane().details.height)
+    }
+
+    fun `test the details panel and the diagram keep their minimum heights`() {
+        val pane = pane()
+        assertEquals(JBUI.scale(60), pane.details.minimumSize.height)
+        assertTrue(pane.split.innerComponent!!.minimumSize.height >= JBUI.scale(100))
+        DiagramPrefs.detailsHeight = 10
+        assertEquals(JBUI.scale(60), pane().details.height)
+        DiagramPrefs.detailsHeight = 5000
+        assertTrue(pane().details.height <= JBUI.scale(900 - 100))
+    }
+
+    fun `test a collapsed panel shows only its header and no divider, and expands to its height`() {
+        val pane = pane()
+        pane.split.lastSize = JBUI.scale(300)
+        pane.dividerMoved()
+        layOut(pane.component)
+        pane.details.toggle.doClick()
+        layOut(pane.component)
+        assertNull(pane.split.lastComponent)
+        assertTrue("${pane.details.height}", pane.details.height < JBUI.scale(60))
+        pane.details.toggle.doClick()
+        layOut(pane.component)
+        assertSame(pane.details, pane.split.lastComponent)
+        assertEquals(JBUI.scale(300), pane.details.height)
+    }
+
+    fun `test a pane that starts collapsed has no divider`() {
+        DiagramPrefs.detailsCollapsed = true
+        val pane = pane()
+        assertNull(pane.split.lastComponent)
+        assertTrue(pane.details.height < JBUI.scale(60))
     }
 }
