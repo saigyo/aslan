@@ -59,6 +59,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p>0.9.3: Descriptions and links to code.</p>
+        <ul>
+            <li>The details panel shows a selected state's description, from its <code>Comment</code> field and the <code>#</code> lines above its name, and the comment lines inside it as notes</li>
+            <li>A file path in a comment, with an optional <code>#Type</code>, opens the file and goes to the type's declaration, from the editor and from the details panel; Find Usages on the declaration lists the comments that link to it</li>
+            <li>A weak warning marks a path in a comment that names no file, or a type that is not found</li>
+            <li>A divider sets the height of the details panel, which is remembered</li>
+            <li>After a state is selected in the diagram alone, the editor marks its name when it is shown again</li>
+        </ul>
         <p>0.9.2: Diagram improvements.</p>
         <ul>
             <li>The compact layout gives every path its own line, so large machines stay readable</li>
