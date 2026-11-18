@@ -294,6 +294,7 @@ Measured at 6 pixels per character with nothing collapsed, the large synthetic d
 
 **(my call, made while building stage 4)** The header names the selected state. The rows, each left out when it has nothing to show, are:
 
+- Description and Notes, first (decided on 2026-11-18, see `2026-11-18-state-descriptions-and-code-links-design.md`): the description is the text of the state's `Comment` field, then the block of `#` lines directly above its key, in the key's column, joined into paragraphs; the notes are the `#` lines inside the state, one per line, without those of states nested in it. Both are wrapped to the panel's width, read no markup, and their paths to code are links that open the file in a tab of its own, at the type when one is given. **(my call, made while building it)** They are text panes that receive the text as plain strings, with links underlined in the link colour; a path is a link only when it names a file when the rows are made;
 - Type, and Resource as written in the file;
 - Reads and Assigns: each variable once, as `$name`;
 - Retry: each retrier by the name of its YAML alias, else by its error names, else as "Retrier n";
@@ -309,6 +310,8 @@ Variables, retriers and target states are links into the source. The type, the r
 - Errors: for a catch path the names in its `ErrorEquals`. The commissioner's request named no row for catch paths; this one was added by the builder.
 
 The condition and the errors are shown in text areas, which read no markup and wrap at spaces. The table of the panel takes the panel's width, so its rows wrap instead of scrolling sideways, as long as its widest item that cannot wrap, such as a long resource, fits; else the table is as wide as that item and the panel scrolls sideways, as before. A Choice rule's condition is carried uncut in the model for this; the hover text on the path stays cut at 200 characters.
+
+**Links to code in comments (decided on 2026-11-18).** A file path in a `#` comment of a YAML definition or in a `Comment` field, with an optional `#Type`, carries references to its file and type: Cmd+Click and Go to Declaration open it. What counts as a path, where it is looked up and how a type is found are set out in `2026-11-18-state-descriptions-and-code-links-design.md`. **(my call, made while building it)** A type is the first named element of that name that has a name identifier and refers nowhere else, so an import of the same name in a TypeScript file is passed over. The inspection `AslCodeLink` marks a path that names no file and a type that is not found, as a weak warning. Paths are not completed and not updated when a file is renamed; that is left for a later iteration.
 
 **Building blocks (my call, made in the plan of stage 4).** Model, layout, scene and painting are four separate steps. A builder turns the document model into plain data; the layouter gives every state and path a place; the scene turns the layout and the selection into the items to paint and answers what lies at a point; the painter draws the scene. What is painted and what a click hits are decided in the scene, so both are tested without a window.
 
