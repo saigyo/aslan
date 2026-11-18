@@ -1,12 +1,12 @@
 package io.github.saigyo.aslan.links
 
-import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.roots.ProjectRootManager
-import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiBinaryFile
@@ -31,8 +31,8 @@ object CodeLinks {
 
     /**
      * The folders a path of [aslFile] is looked up in, in turn: the ASL file's folder (left out for an [absolute] path,
-     * one that starts with `/`), the content roots that hold it, innermost first, the root of its version control
-     * repository and the project's base folder. Called in a read action.
+     * one that starts with `/`), the content roots that hold it, innermost first, the root of its Git repository and
+     * the project's base folder. Called in a read action.
      */
     fun bases(project: Project, aslFile: VirtualFile, absolute: Boolean): List<VirtualFile> {
         val roots = ProjectRootManager.getInstance(project).contentRoots
@@ -41,10 +41,17 @@ object CodeLinks {
         return buildList {
             if (!absolute) aslFile.parent?.let(::add)
             addAll(roots)
-            ProjectLevelVcsManager.getInstance(project).getVcsRootFor(aslFile)?.let(::add)
+            repositoryRoot(aslFile)?.let(::add)
             project.guessProjectDir()?.let(::add)
         }.distinct()
     }
+
+    /**
+     * The nearest folder above [file] that holds a `.git` folder or file (a worktree has a file), found in the file
+     * system alone, since the IDE's version control service is not part of every IDE the plugin runs in.
+     */
+    private fun repositoryRoot(file: VirtualFile): VirtualFile? =
+        generateSequence(file.parent) { it.parent }.firstOrNull { it.findChild(".git") != null }
 
     /** The file [path] names for [aslFile], from the first of its [bases] that holds it; null for none or a folder. Read action. */
     fun resolve(project: Project, aslFile: VirtualFile, path: String): VirtualFile? {
@@ -97,11 +104,11 @@ object CodeLinks {
      * False, and nothing opened, when the path no longer resolves. UI thread.
      */
     fun open(project: Project, aslFile: VirtualFile, path: String, type: String?): Boolean {
-        val (file, offset) = runReadAction {
-            val file = resolve(project, aslFile, path) ?: return@runReadAction null
+        val (file, offset) = ApplicationManager.getApplication().runReadAction(Computable<Pair<VirtualFile, Int>?> {
+            val file = resolve(project, aslFile, path) ?: return@Computable null
             val offset = type?.let { t -> PsiManager.getInstance(project).findFile(file)?.let { findType(it, t)?.offset } } ?: 0
             file to offset
-        } ?: return false
+        }) ?: return false
         OpenFileDescriptor(project, file, offset).navigate(true)
         return true
     }

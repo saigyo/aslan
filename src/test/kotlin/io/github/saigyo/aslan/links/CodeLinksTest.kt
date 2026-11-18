@@ -112,4 +112,12 @@ class CodeLinksTest : AslTestCase() {
         assertNotSame(first, second)
         assertTrue(runReadAction { CodeLinks.findType(file, "Later") } is CodeLinks.TypeTarget.Declared)
     }
+
+    fun `test a path is resolved against the root of the repository the ASL file lies in`() {
+        myFixture.addFileToProject("repo/.git/HEAD", "ref: refs/heads/main\n")
+        myFixture.addFileToProject("repo/functions/scan.ts", "export const scan = 1;\n")
+        val inner = myFixture.addFileToProject("repo/infra/cdk/sm.asl.yaml", "StartAt: A\nStates:\n  A:\n    Type: Succeed\n").virtualFile
+        assertEquals("scan.ts", runReadAction { CodeLinks.resolve(project, inner, "functions/scan.ts") }?.name)
+        assertNull(runReadAction { CodeLinks.resolve(project, asl, "functions/scan.ts") })
+    }
 }

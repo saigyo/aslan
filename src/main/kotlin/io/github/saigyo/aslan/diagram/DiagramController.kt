@@ -16,7 +16,6 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.ui.UIUtil
 import io.github.saigyo.aslan.links.CodeLinks
 import io.github.saigyo.aslan.model.AslModel
 import java.awt.event.HierarchyEvent
@@ -105,7 +104,7 @@ class DiagramController(
     private var movingCaret = false
 
     /** Whether the text editor is on screen; tests replace it. UI thread. */
-    internal var editorShowing: () -> Boolean = { UIUtil.isShowing(editor.contentComponent) }
+    internal var editorShowing: () -> Boolean = { editor.contentComponent.isShowing }
 
     /** Whether the controller moved the caret while the text editor was not on screen, as in the preview alone. UI thread. */
     private var movedWhileHidden = false
