@@ -7,12 +7,15 @@ import io.github.saigyo.aslan.model.AslRead
 import io.github.saigyo.aslan.model.AslState
 import io.github.saigyo.aslan.model.JsonataRead
 import io.github.saigyo.aslan.model.PathRead
+import io.github.saigyo.aslan.model.StateComments
 import io.github.saigyo.aslan.model.TransitionKind
 import io.github.saigyo.aslan.tree.AslArray
 import io.github.saigyo.aslan.tree.AslNode
 import io.github.saigyo.aslan.tree.AslObject
 import io.github.saigyo.aslan.tree.AslScalar
 import io.github.saigyo.aslan.tree.ScalarType
+import io.github.saigyo.aslan.links.CodeLinks
+import io.github.saigyo.aslan.links.CodePaths
 import java.util.IdentityHashMap
 
 /** The rows of the details panel for one state, as plain data. */
@@ -40,11 +43,36 @@ object DiagramDetails {
         }
     }
 
-    /** One state's rows; groups the document's variables first, so a caller with many states uses [rows] with [Variables]. */
-    fun rows(doc: AslDocument, state: AslState): List<DetailRow> = rows(Variables.of(doc), state)
+    /**
+     * One state's rows; reads the document's variables and comments first, so a caller with many states uses [rows] with
+     * [Variables] and [StateComments].
+     */
+    fun rows(doc: AslDocument, state: AslState): List<DetailRow> = rows(Variables.of(doc), StateComments.of(doc), state)
 
     /** Called in a read action. Never throws on a half-typed state; a row without items is left out. */
-    fun rows(variables: Variables, state: AslState): List<DetailRow> = listOf(
+    fun rows(variables: Variables, comments: StateComments, state: AslState): List<DetailRow> {
+        val own = comments.of(state)
+        val texts = Texts(state)
+        return listOf(
+            row("Description", own.description.map(texts::item)),
+            row("Notes", own.notes.map(texts::item)),
+        ).filterNotNull() + rows(variables, state)
+    }
+
+    /** Makes [DetailItem.Kind.TEXT] items whose paths that name a file, seen from the ASL file of [state], are links. */
+    private class Texts(state: AslState) {
+        private val file = state.entry.entryPsi.containingFile
+        private val asl = file?.originalFile?.virtualFile
+
+        fun item(text: String): DetailItem {
+            val links = if (asl == null) emptyList() else CodePaths.find(text)
+                .filter { CodeLinks.resolve(file.project, asl, it.path) != null }
+                .map { CodeLink(it.start, it.end, it.path, it.type) }
+            return DetailItem(text, kind = DetailItem.Kind.TEXT, links = links)
+        }
+    }
+
+    private fun rows(variables: Variables, state: AslState): List<DetailRow> = listOf(
         row("Type", listOfNotNull(state.typeName?.let { DetailItem(it) })),
         row("Resource", listOfNotNull(resource(state))),
         row("Reads", reads(variables, state)),
