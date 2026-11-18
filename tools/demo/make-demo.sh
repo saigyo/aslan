@@ -13,6 +13,8 @@ mkdir -p "$demo"
 cp "$source_dir/film-archive-intake.asl.yaml" "$demo/intake.asl.yaml"
 cp "$source_dir/reel-restoration.asl.yaml" "$demo/reel-restoration.asl.yaml"
 cp "$source_dir/reel-check.asl.json" "$demo/reel-check.asl.json"
+# The invented Lambda handlers and contracts that the definitions link to from their comments.
+cp -R "$source_dir/lambdas" "$demo/lambdas"
 
 # The intake definition with three planted problems:
 # - SkipUnchangedBatch goes to a state that does not exist (CleanUpIncoming is still reached from two other states),

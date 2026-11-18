@@ -14,6 +14,8 @@ States:
   AssessDamage:
     Type: Task
     Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+    # Function: lambdas/src/damage-assessor/handler.ts
+    # Input: lambdas/src/shared/contracts.ts#DamageAssessmentRequest
     Parameters:
       FunctionName: ${AssessDamageFn}
       Payload:
@@ -21,6 +23,7 @@ States:
         taskToken.$: $$.Task.Token
     TimeoutSecondsPath: $.limits.assessmentSeconds
     HeartbeatSecondsPath: $.limits.heartbeatSeconds
+    # Result: lambdas/src/shared/contracts.ts#DamageAssessment, sent by the conservator through the task token
     ResultPath: $.assessment
     Catch:
       - ErrorEquals: [States.Timeout]
@@ -134,9 +137,12 @@ States:
         RestoreReel:
           Type: Task
           Resource: arn:aws:states:::lambda:invoke
+          # Function: lambdas/src/reel-restorer/handler.ts
+          # Input: lambdas/src/shared/contracts.ts#RestoreReelInput
           Parameters:
             FunctionName: ${RestoreReelFn}
             Payload.$: $
+          # Output: lambdas/src/shared/contracts.ts#RestoredReel
           ResultSelector:
             reelId.$: $.Payload.reelId
             restored.$: $.Payload.restored

@@ -51,4 +51,7 @@ class CodePathsTest : TestCase() {
 
     fun `test versions, numbers, globs and placeholders are no paths`() =
         assertEquals(emptyList<Pair<String, String?>>(), paths("upgrade v1.2/v1.3, ratio 1/2.5, uploads/*.json {bucket}/key.json [a](lambdas/a.ts)"))
+
+    fun `test a key with a placeholder in angle brackets is no path`() =
+        assertEquals(emptyList<Pair<String, String?>>(), paths("uploading incoming/<batchId>/manifest.json to the bucket"))
 }

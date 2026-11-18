@@ -660,12 +660,15 @@ States:
         MeasureReel:
           Type: Task
           Resource: arn:aws:states:::lambda:invoke
+          # Function: lambdas/src/reel-inspector/handler.ts
+          # Input: lambdas/src/shared/contracts.ts#MeasureReelInput
           Arguments:
             FunctionName: ${ReelInspectorArn}:live
             Payload:
               reel: '{% $states.input.reel %}'
               batchId: '{% $states.input.batchId %}'
               checks: [shrinkage, acidity, splices]
+          # Output: lambdas/src/shared/contracts.ts#ReelMeasurement
           Assign:
             measurement: '{% $states.result.Payload %}'
           Output: '{% $states.input %}'
@@ -1127,6 +1130,8 @@ States:
   ReportIncident:
     Type: Task
     Resource: arn:aws:states:::lambda:invoke
+    # Function: lambdas/src/incident-reporter/handler.ts
+    # Input: lambdas/src/shared/contracts.ts#IncidentReport
     Arguments: |-
       {% {
         "FunctionName": "${IncidentReporterArn}",
@@ -1145,6 +1150,7 @@ States:
       } %}
     Assign:
       outcome: failed
+    # Output: lambdas/src/shared/contracts.ts#IncidentTicket
     Output: '{% {"ticket": $states.result.Payload.ticketId} %}'
     Retry: [*noRetry, *retryLambda]
     Catch:

@@ -60,6 +60,7 @@
     },
     "MeasureAgain": {
       "Type": "Task",
+      "Comment": "Calls lambdas/src/reel-inspector/handler.ts with lambdas/src/shared/contracts.ts#MeasureReelInput and gets lambdas/src/shared/contracts.ts#ReelMeasurement back",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
         "FunctionName": "${ReelInspectorArn}:live",
