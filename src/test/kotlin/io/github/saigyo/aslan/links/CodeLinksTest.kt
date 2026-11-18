@@ -98,4 +98,18 @@ class CodeLinksTest : AslTestCase() {
         assertFalse(CodeLinks.open(project, asl, "lambdas/src/none.ts", "X"))
         assertEquals(before, FileEditorManager.getInstance(project).openFiles.toList())
     }
+
+    fun `test the declarations of a file are read once until it changes`() {
+        val file = psi("lambdas/src/a.ts")
+        val first: Map<String, CodeLinks.TypeTarget.Declared> = runReadAction { CodeLinks.declarations(file) }
+        assertSame(first, runReadAction { CodeLinks.declarations(file) })
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            val document = com.intellij.psi.PsiDocumentManager.getInstance(project).getDocument(file)!!
+            document.insertString(document.textLength, "export interface Later {}\n")
+            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        val second: Map<String, CodeLinks.TypeTarget.Declared> = runReadAction { CodeLinks.declarations(file) }
+        assertNotSame(first, second)
+        assertTrue(runReadAction { CodeLinks.findType(file, "Later") } is CodeLinks.TypeTarget.Declared)
+    }
 }

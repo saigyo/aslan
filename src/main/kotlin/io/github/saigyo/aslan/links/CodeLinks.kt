@@ -2,6 +2,7 @@ package io.github.saigyo.aslan.links
 
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.roots.ProjectRootManager
@@ -14,6 +15,8 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.PsiNamedElement
+import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiTreeUtil
 
 /** Resolves a path from a comment of an ASL file to a file, and finds a type in it; see [CodePaths] for what a path is. */
@@ -60,14 +63,33 @@ object CodeLinks {
      */
     fun findType(file: PsiFile, name: String): TypeTarget? {
         if (file is PsiBinaryFile || file.fileType.isBinary) return null
-        val named = PsiTreeUtil.collectElements(file) { it !is PsiFile && it is PsiNamedElement && it.name == name }
-        val declaration = named.firstOrNull { it is PsiNameIdentifierOwner && it.references.isEmpty() } ?: named.firstOrNull()
-        if (declaration != null) {
-            val at = (declaration as? PsiNameIdentifierOwner)?.nameIdentifier?.textOffset ?: declaration.textOffset
-            return TypeTarget.Declared(declaration, at)
-        }
+        declarations(file)[name]?.let { return it }
         val word = Regex("(?<![A-Za-z0-9_$])" + Regex.escape(name) + "(?![A-Za-z0-9_$])")
         return word.find(file.viewProvider.contents)?.let { TypeTarget.Text(it.range.first) }
+    }
+
+    /**
+     * Every name declared in [file] with its declaration as [findType] picks it, read once and kept until the file
+     * changes, so many links to one file walk its tree once. Read action.
+     */
+    internal fun declarations(file: PsiFile): Map<String, TypeTarget.Declared> =
+        CachedValuesManager.getCachedValue(file) { CachedValueProvider.Result.create(readDeclarations(file), file) }
+
+    private fun readDeclarations(file: PsiFile): Map<String, TypeTarget.Declared> {
+        val preferred = HashMap<String, TypeTarget.Declared>()
+        val any = HashMap<String, TypeTarget.Declared>()
+        PsiTreeUtil.processElements(file) { element ->
+            ProgressManager.checkCanceled()
+            val name = (element as? PsiNamedElement)?.takeIf { it !is PsiFile }?.name
+            if (name != null) {
+                val owner = element as? PsiNameIdentifierOwner
+                val target = TypeTarget.Declared(element, owner?.nameIdentifier?.textOffset ?: element.textOffset)
+                any.putIfAbsent(name, target)
+                if (owner != null && element.references.isEmpty()) preferred.putIfAbsent(name, target)
+            }
+            true
+        }
+        return any + preferred
     }
 
     /**

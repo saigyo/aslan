@@ -43,4 +43,9 @@ class AslCodeLinkInspectionTest : AslTestCase() {
         myFixture.configureByText("other.yaml", "# lambdas/none.ts\nkey: value\n")
         myFixture.checkHighlighting(false, false, true)
     }
+
+    fun `test a Comment key in payload data is not checked`() {
+        myFixture.configureByText("sm.asl.yaml", "StartAt: Scan\nStates:\n  Scan:\n    Type: Pass\n    Parameters:\n      Comment: incoming/report.pdf\n    End: true\n")
+        myFixture.checkHighlighting(false, false, true)
+    }
 }

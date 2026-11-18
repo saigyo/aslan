@@ -48,4 +48,7 @@ class CodePathsTest : TestCase() {
 
     fun `test an empty text has no paths`() =
         assertEquals(emptyList<Pair<String, String?>>(), paths(""))
+
+    fun `test versions, numbers, globs and placeholders are no paths`() =
+        assertEquals(emptyList<Pair<String, String?>>(), paths("upgrade v1.2/v1.3, ratio 1/2.5, uploads/*.json {bucket}/key.json [a](lambdas/a.ts)"))
 }
