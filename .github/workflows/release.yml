@@ -85,16 +85,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # the signed zip, under the name of the plugin's zip
+          # The signed zip, under the name of the plugin's zip. When a retry finds the release made by an earlier
+          # attempt, the zip of that release is passed on, so that GitHub and the Marketplace get the same bytes.
           mkdir -p dist
-          cp "build/distributions/aslan-$VERSION-signed.zip" "dist/aslan-$VERSION.zip"
-          tools/release/notes.sh > "$RUNNER_TEMP/notes.html"
-          gh release create "$TAG" "dist/aslan-$VERSION.zip" --verify-tag --title "Aslan $VERSION" --notes-file "$RUNNER_TEMP/notes.html"
+          zip="dist/aslan-$VERSION.zip"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            if ! gh release download "$TAG" --pattern "aslan-$VERSION.zip" --dir dist --clobber; then
+              cp "build/distributions/aslan-$VERSION-signed.zip" "$zip"
+              gh release upload "$TAG" "$zip"
+            fi
+          else
+            cp "build/distributions/aslan-$VERSION-signed.zip" "$zip"
+            tools/release/notes.sh > "$RUNNER_TEMP/notes.html"
+            gh release create "$TAG" "$zip" --verify-tag --title "Aslan $VERSION" --notes-file "$RUNNER_TEMP/notes.html"
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: plugin
           path: dist/aslan-${{ env.VERSION }}.zip
           if-no-files-found: error
+          overwrite: true
 
   marketplace:
     name: Upload to the JetBrains Marketplace
