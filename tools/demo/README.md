@@ -30,7 +30,7 @@ which gives 2560 by 1600 pixels on a display of double density. The Project tool
 
 ## Capturing a picture
 
-`tools/demo/capture/capture.sh <file>` captures the sandbox IDE's window. The application appears under the name "Main". The script takes the screen rectangle that the window occupies, so that the IDE's popups (completion lists, tooltips) are in the picture, and then cuts it to the window's own shape, so that nothing behind the window's rounded corners is in it. It needs macOS with the Swift command-line tools and the screen recording permission for the terminal, and the IDE's window must be in front. `window.swift` finds the window, `compose.swift` applies the window's shape, and `crop.swift` cuts a rectangle out of a picture (pixels, origin at the top left) and can scale it down to a given width.
+`tools/demo/capture/capture.sh <file>` captures the sandbox IDE's window. The application appears under the name "Main". The script takes the screen rectangle that the window occupies, so that the IDE's popups (completion lists, tooltips) are in the picture, and then cuts it to the window's own shape, so that nothing behind the window's rounded corners is in it. It needs macOS with the Swift command-line tools and the screen recording permission for the terminal, and the IDE's window must be in front. `window.swift` finds the window, `compose.swift` applies the window's shape, `crop.swift` cuts a rectangle out of a picture (pixels, origin at the top left) and can scale it down to a given width, and `erase.swift` paints over a rectangle.
 
 ## The pictures
 
@@ -55,6 +55,6 @@ Two pictures differ from the plan's list. Picture 2 shows the completion list wi
 
 ## Things to know when looking at the pictures
 
-- The title bar shows "Unlock Ultimate" because the sandbox IDE runs without a licence.
+- The sandbox IDE runs without a licence, so its title bar has an "Unlock Ultimate" button at the right. It is painted over in the seven full-window pictures with `swift erase.swift media/<file> 2274 12 270 60 media/<file>`, run from `docs/images/` like the crop commands; `erase.swift` gives each row of the rectangle the colour of the pixel left of it. The detail pictures are cut below the title bar.
 - The first row of the Problems tool window in `03-validation.png` shows the demo project's location as the IDE prints it.
 - For `03-validation.png`, "Weak Warning" and "Show Other Problems" were switched off in the Problems tool window's view options, so that the IDE's own writing hints do not appear beside the plugin's three errors.
