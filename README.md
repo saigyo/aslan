@@ -174,14 +174,14 @@ never the file content.
 
 ## Releasing
 
-A release takes its version from its tag; `gradle.properties` only holds the version of local builds. Put the notes of the new version first in the change notes of `plugin.xml`, as a paragraph that starts with the version and a colon (`0.9.1: …`), merge that to `main`, then tag the commit on `main` and push the tag:
+A release takes its version from its tag; `gradle.properties` only holds the version of local builds. Put the notes of the new version first in the change notes of `plugin.xml`, as a paragraph that starts with the version and a colon (`1.0.1: …`), merge that to `main`, then tag the commit on `main` and push the tag:
 
 ```
-git tag v0.9.1
-git push origin v0.9.1
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
-The Release workflow checks that the tag is a version number, that the commit is on `main` and that the change notes start with that version. It runs the tests and the plugin verifier, builds the plugin with the version of the tag, and publishes a GitHub release with the plugin zip and the change notes. The zip is not signed.
+The Release workflow checks that the tag is a version number, that the commit is on `main` and that the change notes start with that version. It runs the tests and the plugin verifier, builds the plugin with the version of the tag, signs it, and publishes a GitHub release with the signed zip and the change notes. When the repository variable `MARKETPLACE_UPLOAD` is `true`, it then uploads the same zip to the JetBrains Marketplace, where JetBrains reviews each version before it is shown. The signing key, its secrets and the Marketplace token are set up with `tools/release/signing.sh`, run in your own terminal; the first upload to the Marketplace is done by hand, as `docs/marketplace/listing.md` describes.
 
 ## Design
 
