@@ -1,88 +1,56 @@
 <idea-plugin>
     <id>io.github.saigyo.aslan</id>
-    <name>Aslan</name>
+    <name>Aslan ASL Editor</name>
     <vendor email="aslan@kaixo.de" url="https://github.com/saigyo/aslan">saigyo</vendor>
 
     <description><![CDATA[
-        <p>Editor support for AWS Step Functions state machine definitions (Amazon States Language) in YAML and JSON: completion, checks, JSONata, variable navigation, links from comments to code and a live diagram.</p>
+        <p>Edit and visualize AWS Step Functions state machines written in Amazon States Language (ASL), in YAML and JSON: completion, checks, JSONata, variables, a live diagram and links from comments to code.</p>
         <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/diagram.png" width="700" alt="A definition in the editor beside its diagram, with the selected state's details below"></p>
         <p><b>Editing</b></p>
         <ul>
-            <li>Completion of field names, state types, fixed values, error names and state names; choosing a state type in a new YAML state inserts the fields it needs</li>
-            <li>Checks, each with its own inspection that can be switched off; a problem is an error only where AWS rejects the definition at deployment</li>
+            <li>Completion of field names, state types, values, error names and state names; a new state gets the fields its type needs</li>
+            <li>Checks as AWS applies them at deployment, each an inspection that can be switched off</li>
             <li>Quick documentation for fields, state types and values, with links to the AWS documentation</li>
-            <li>Go to a state, find the transitions that name it, and rename it together with all of them</li>
-            <li>A structure view that lists the states with an icon for each type, nested for Map and Parallel states</li>
-            <li>Highlighting of ASL field names, state names, transition targets and <code>${name}</code> placeholders</li>
+            <li>Go to, find and rename states, and a structure view of the states</li>
         </ul>
         <p><b>JSONata</b></p>
         <ul>
-            <li>Highlighting of <code>{% … %}</code> expressions and syntax checks exactly as Step Functions parses them (JSONata 2.0.6)</li>
-            <li>Inspections for a field of <code>$states</code> that does not exist where it is used, an operator of JSONata 2.1, a name evaluated without an input, an unknown function and <code>$eval</code></li>
-            <li>Completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation and parameter hints for functions</li>
-            <li>Go to declaration, find usages, usage highlighting and rename for local variables</li>
+            <li>Highlighting and syntax checks of <code>{% … %}</code> expressions, exactly as Step Functions parses them</li>
+            <li>Completion, quick documentation and parameter hints for functions, <code>$states</code> and local variables</li>
+            <li>Go to declaration, find usages and rename for local variables</li>
         </ul>
-        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/jsonata.png" width="700" alt="A JSONata expression in YAML, highlighted, with the completion list of functions"></p>
         <p><b>Variables</b></p>
         <ul>
-            <li>State machine variables (<code>Assign</code> and <code>$name</code>) in JSONata and JSONPath states: usage highlighting in one colour for assignments and another for reads</li>
-            <li>Next Highlighted Usage and Previous Highlighted Usage step through the usages: Ctrl+Option+Down and Ctrl+Option+Up in the default macOS keymap; the default Windows and Linux keymaps bind none, so assign one under Settings | Keymap</li>
-            <li>Go to declaration, find usages, rename that refuses when it cannot keep the meaning, and completion after <code>$</code></li>
-            <li>Inspections for a read of a variable that nothing assigns, an <code>Assign</code> key that AWS rejects, an assignment of a name an outer state machine assigns, and a variable that is never read</li>
+            <li>The assignments and reads of a state machine variable highlighted in two colours; Next Highlighted Usage and Previous Highlighted Usage step through them (Ctrl+Option+Down and Ctrl+Option+Up on macOS; on Windows and Linux, assign keys under Settings | Keymap)</li>
+            <li>Go to declaration, find usages, rename and completion after <code>$</code></li>
+            <li>Checks for a variable that nothing assigns, one that is never read, and an assignment that AWS rejects</li>
         </ul>
-        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/variables.png" width="700" alt="A variable's assignments and reads highlighted in two colours, with Find Usages listing the reads"></p>
         <p><b>Diagram</b></p>
         <ul>
-            <li>A diagram of the state machine beside the editor, redrawn shortly after you stop typing; buttons switch between editor, both, and diagram</li>
-            <li>Selection shared with the editor: the caret selects its state, and a click on a state or a path moves the caret there</li>
-            <li>Choice paths labelled with their conditions, catch paths that can be shown, muted or hidden, and collapsible boxes for Map and Parallel states</li>
-            <li>A loose and a compact layout, zoom and fit to window, also with the keyboard and the trackpad's pinch, and a details panel with the selected state's description, notes, resource, variables, retriers, catchers and next states, whose height a divider sets</li>
+            <li>A live diagram beside the editor that follows the caret; a click on a state or a path moves the caret there</li>
+            <li>Choice paths labelled with their conditions, catch paths shown, muted or hidden, and collapsible Map and Parallel states</li>
+            <li>Two layouts, zoom, and a details panel with the selected state's description, resource, variables, retriers and catchers</li>
         </ul>
         <p><b>Comments and links to code</b></p>
         <ul>
-            <li>The block of <code>#</code> lines above a state's name and its <code>Comment</code> field show as the state's description in the details panel, and the comment lines inside the state as its notes</li>
-            <li>A file path in a comment, such as <code>lambdas/src/intake/handler.ts</code>, opens its file with Cmd+Click (Ctrl+Click) or Go to Declaration; <code>contracts.ts#IntakeInput</code> goes to the type's declaration in any language the IDE reads, such as TypeScript, Java or Python. The same paths are links in the details panel</li>
-            <li>Find Usages on a declaration in the source lists the comments that link to it; a path that names no file, or a type that is not found, gets a weak warning</li>
+            <li>The comments of a state show as its description and notes in the details panel</li>
+            <li>A file path in a comment, such as <code>lambdas/src/intake/handler.ts</code>, opens the file; <code>contracts.ts#IntakeInput</code> goes to the type's declaration, in the editor and from the details panel</li>
         </ul>
-        <p><img src="https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/links.png" width="700" alt="A Task state whose comment lines name its Lambda handler and the types of its input and output, and the details panel showing them as links"></p>
-        <p><b>Getting started</b></p>
-        <ol>
-            <li>Name the definition <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code>, or add your own pattern under Settings | Languages &amp; Frameworks | Amazon States Language.</li>
-            <li>Open the file. The editor is on the left and the diagram on the right; the buttons at the top right of the editor switch between editor, both, and diagram.</li>
-            <li>Click a state in the diagram or in the Structure tool window to go to it. Place the caret on a variable to see where it is assigned and read.</li>
-            <li>The checks are listed under Settings | Editor | Inspections | Amazon States Language; each can be switched off.</li>
-        </ol>
-        <p>A problem is shown as an error only where AWS rejects the definition at deployment; anything that deploys is at most a warning. Placeholders, YAML anchors and aliases, and the contents of free-form data fields are never reported, and a JSONata expression that contains <code>${</code> outside a string literal is not judged. The plugin makes no network requests.</p>
+        <p>The plugin works on files named <code>*.asl.yaml</code>, <code>*.asl.yml</code> or <code>*.asl.json</code>; more patterns can be added under Settings | Languages &amp; Frameworks | Amazon States Language. It makes no network requests.</p>
         <p>Documentation: <a href="https://github.com/saigyo/aslan#readme">README</a>. Questions and problems: <a href="https://github.com/saigyo/aslan/issues">issue tracker</a>.</p>
-        <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. This project is not affiliated with or endorsed by Amazon.</p>
-        <p>"JetBrains", "IntelliJ IDEA" and the names of other JetBrains products are trademarks of JetBrains. This project is not affiliated with or endorsed by JetBrains.</p>
+        <p>"Amazon Web Services", "AWS" and "AWS Step Functions" are trademarks of Amazon.com, Inc. or its affiliates. "JetBrains", "IntelliJ IDEA" and the names of other JetBrains products are trademarks of JetBrains. This project is not affiliated with or endorsed by Amazon or JetBrains.</p>
     ]]></description>
 
     <change-notes><![CDATA[
-        <p>0.9.3: Descriptions and links to code.</p>
-        <ul>
-            <li>The details panel shows a selected state's description, from its <code>Comment</code> field and the <code>#</code> lines above its name, and the comment lines inside it as notes</li>
-            <li>A file path in a comment, with an optional <code>#Type</code>, opens the file and goes to the type's declaration, from the editor and from the details panel; Find Usages on the declaration lists the comments that link to it</li>
-            <li>A weak warning marks a path in a comment that names no file, or a type that is not found</li>
-            <li>A divider sets the height of the details panel, which is remembered</li>
-            <li>After a state is selected in the diagram alone, the editor marks its name when it is shown again</li>
-        </ul>
-        <p>0.9.2: Diagram improvements.</p>
-        <ul>
-            <li>The compact layout gives every path its own line, so large machines stay readable</li>
-            <li>A path that leads back leaves its state at the bottom; fewer paths of one state cross, and none runs through a start or end mark</li>
-            <li>Selecting a path shows the states it connects and its condition in the details panel</li>
-            <li>Zoom with Cmd+Plus and Cmd+Minus (Ctrl on Windows and Linux) and with the pinch on a trackpad</li>
-            <li>The layout and catch drop-downs close when an option is chosen</li>
-        </ul>
-        <p>0.9.1: Find Usages and Show Usages list the reads of a state machine variable in the order of the file.</p>
-        <p>0.9.0: Preview of the first release, for testing.</p>
+        <p>1.0.0: First release on the JetBrains Marketplace.</p>
         <ul>
             <li>Editing: completion, checks, quick documentation, navigation and rename for states, and a structure view</li>
             <li>JSONata: highlighting, syntax checks, inspections, completion, documentation and local variables</li>
             <li>Variables: usage highlighting, stepping through usages, go to declaration, find usages, rename, completion and inspections</li>
             <li>Diagram: a live diagram beside the editor, with shared selection, two layouts, a catch switch and a details panel</li>
+            <li>Comments: a state's description and notes in the details panel, and file paths in comments that open the code they name</li>
         </ul>
+        <p>The previews for testing, 0.9.0 to 0.9.3, are on the <a href="https://github.com/saigyo/aslan/releases">releases page</a>.</p>
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>

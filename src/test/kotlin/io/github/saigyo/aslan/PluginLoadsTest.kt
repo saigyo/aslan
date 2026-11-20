@@ -7,6 +7,6 @@ class PluginLoadsTest : AslTestCase() {
     fun `test plugin is loaded`() {
         val plugin = PluginManagerCore.getPlugin(PluginId.getId("io.github.saigyo.aslan"))
         assertNotNull(plugin)
-        assertEquals("Aslan", plugin!!.name)
+        assertEquals("Aslan ASL Editor", plugin!!.name)
     }
 }
