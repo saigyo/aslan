@@ -33,6 +33,13 @@ intellijPlatform {
         }
     }
 
+    // Signing runs only where the key is given, in the release workflow from its secrets (see tools/release/signing.sh).
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+
     pluginVerification {
         ides {
             create(IntelliJPlatformType.IntellijIdea, "2026.2.3")
@@ -44,6 +51,11 @@ intellijPlatform {
 // The licence and the notice of the repository go into the plugin's jar, where the Apache License asks for them.
 tasks.processResources {
     from(files("LICENSE", "NOTICE")) { into("META-INF") }
+}
+
+// The check of the signature reads the signed zip; without this it may run before the zip is written.
+tasks.verifyPluginSignature {
+    dependsOn(tasks.signPlugin)
 }
 
 tasks.test {

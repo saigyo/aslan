@@ -1,16 +1,19 @@
 # Marketplace listing
 
-What to do and enter when the plugin is put on the JetBrains Marketplace, in order. Signing and uploading are outside this project.
+What to do and enter when the plugin is put on the JetBrains Marketplace, in order.
 
 ## 1. Before uploading
 
-Make the repository `saigyo/aslan` on GitHub public and merge the branch with this file into `main`. The plugin description shows three images from `https://raw.githubusercontent.com/saigyo/aslan/main/docs/images/` and links to the README and the issue tracker; until both steps are done, the images do not show and the links do not work.
+- Set up the signing key and the GitHub secrets with `tools/release/signing.sh`, run in your own terminal. It makes a private key and a self-signed certificate outside the repository and stores them as secrets for the release workflow.
+- Push the tag `v1.0.0`. The release workflow builds, checks and signs the plugin and attaches the signed zip, `aslan-1.0.0.zip`, to the GitHub release.
 
-## 2. Build, sign and upload
+## 2. The first upload
 
-Build the plugin with `./gradlew buildPlugin`. The zip is `build/distributions/aslan-<version>.zip`. Sign it and upload it as the JetBrains documentation describes ("Plugin Signing" and "Publishing a Plugin" in the IntelliJ Platform SDK documentation).
+The first version must be uploaded by hand. Sign in on https://plugins.jetbrains.com with your JetBrains account, accept the Developer Agreement, and choose Add new plugin on your profile page. Upload the signed zip from the GitHub release.
 
-Name, vendor, description, change notes, version and logo come from the zip. The vendor is `saigyo`, with the email `aslan@kaixo.de` and the website `https://github.com/saigyo/aslan`.
+The upload creates your vendor profile. Its vendor ID cannot be changed later; its public name, email and website can. Name, vendor, description, change notes, version and logo come from the zip. The vendor in plugin.xml has the email `aslan@kaixo.de` and the website `https://github.com/saigyo/aslan`; reviewers check that both work.
+
+Once JetBrains has approved the first version, re-run `tools/release/signing.sh` to store the Marketplace token and switch on the upload by the release workflow (the repository variable `MARKETPLACE_UPLOAD`). Every later version is reviewed by JetBrains too, so it appears on the Marketplace some days after its GitHub release.
 
 ## 3. The fields of the upload form and the plugin page
 
@@ -25,7 +28,7 @@ Name, vendor, description, change notes, version and logo come from the zip. The
 
 ## 4. Media
 
-Upload the six screenshots in `docs/images/media/` in this order. Each is 2560 by 1600 pixels.
+Upload the seven screenshots in `docs/images/media/` in this order. Each is 2560 by 1600 pixels, taken in the default light theme.
 
 | File | Caption |
 |---|---|
@@ -35,11 +38,6 @@ Upload the six screenshots in `docs/images/media/` in this order. Each is 2560 b
 | `04-jsonata.png` | A JSONata expression, highlighted, with completion of functions and their signatures. |
 | `05-variables.png` | The assignments and reads of a variable highlighted in two colours, with Find Usages below. |
 | `06-diagram.png` | The diagram alone in the loose layout, with a Choice path selected and catch paths muted. |
+| `07-links.png` | A state's comments as its description and notes in the details panel, with links to the Lambda handler and its types. |
 
-Three things to know about the pictures before uploading:
-
-- The title bar shows "Unlock Ultimate", because the sandbox IDE they were taken in runs without a licence.
-- The first row of the Problems tool window in `03-validation.png` shows the location of the demo project on the machine where the pictures were taken, as the IDE prints it.
-- The images inside the description are links to `raw.githubusercontent.com/saigyo/aslan/main/…`. They show only once the repository is public and this branch is merged (step 1).
-
-How the pictures were taken is in `tools/demo/README.md`.
+The first row of the Problems tool window in `03-validation.png` shows the location of the demo project on the machine where the pictures were taken, as the IDE prints it. How the pictures were taken is in `tools/demo/README.md`.
