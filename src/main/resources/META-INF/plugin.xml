@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>io.github.saigyo.aslan</id>
     <name>Aslan ASL Editor</name>
-    <vendor email="aslan@kaixo.de" url="https://github.com/saigyo/aslan">saigyo</vendor>
+    <vendor email="aslan@kaixo.de" url="https://github.com/saigyo/aslan">Markus Ackermann</vendor>
 
     <description><![CDATA[
         <p>Edit and visualize AWS Step Functions state machines written in Amazon States Language (ASL), in YAML and JSON: completion, checks, JSONata, variables, a live diagram and links from comments to code.</p>

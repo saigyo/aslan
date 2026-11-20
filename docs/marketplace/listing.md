@@ -11,7 +11,7 @@ What to do and enter when the plugin is put on the JetBrains Marketplace, in ord
 
 The first version must be uploaded by hand. Sign in on https://plugins.jetbrains.com with your JetBrains account, accept the Developer Agreement, and choose Add new plugin on your profile page. Upload the signed zip from the GitHub release.
 
-The upload creates your vendor profile. Its vendor ID cannot be changed later; its public name, email and website can. Name, vendor, description, change notes, version and logo come from the zip. The vendor in plugin.xml has the email `aslan@kaixo.de` and the website `https://github.com/saigyo/aslan`; reviewers check that both work.
+The upload creates your vendor profile. Its vendor ID cannot be changed later; its public name, email and website can. Name, vendor, description, change notes, version and logo come from the zip. The vendor in plugin.xml is Markus Ackermann, with the email `aslan@kaixo.de` and the website `https://github.com/saigyo/aslan`; reviewers check that both work. Give the vendor profile the same public name.
 
 Once JetBrains has approved the first version, re-run `tools/release/signing.sh` to store the Marketplace token and switch on the upload by the release workflow (the repository variable `MARKETPLACE_UPLOAD`). Every later version is reviewed by JetBrains too, so it appears on the Marketplace some days after its GitHub release.
 
