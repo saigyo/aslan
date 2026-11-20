@@ -19,7 +19,7 @@ class ListingTest {
 
     @Test
     fun `test the media screenshots share one size of at least 1200 by 760`() {
-        val names = listOf("01-overview", "02-completion", "03-validation", "04-jsonata", "05-variables", "06-diagram")
+        val names = listOf("01-overview", "02-completion", "03-validation", "04-jsonata", "05-variables", "06-diagram", "07-links")
         val sizes = names.map { name ->
             val file = File("docs/images/media/$name.png")
             assertTrue("$name.png is missing", file.isFile)
@@ -48,7 +48,7 @@ class ListingTest {
         val summary = descriptionText().take(40)
         assertEquals(40, summary.length)
         assertTrue("not plain ASCII text: $summary", summary.all { it in ' '..'~' })
-        assertTrue("starts with: $summary", summary.startsWith("Editor support for AWS Step Functions"))
+        assertTrue("starts with: $summary", summary.startsWith("Edit and visualize AWS Step Functions"))
     }
 
     @Test
@@ -79,6 +79,13 @@ class ListingTest {
         for (name in listOf("Next Highlighted Usage", "Previous Highlighted Usage", "Ctrl+Option+Down", "Ctrl+Option+Up")) {
             assertTrue("the description does not name $name", name in text)
         }
+    }
+
+    @Test
+    fun `test the name keeps to the Marketplace rules`() {
+        val name = Regex("""<name>([^<]*)</name>""").find(pluginXml())?.groupValues?.get(1).orEmpty()
+        assertTrue("at most 30 characters, was ${name.length}: $name", name.isNotEmpty() && name.length <= 30)
+        for (word in listOf("Plugin", "IntelliJ", "JetBrains")) assertTrue("the name holds $word: $name", word !in name)
     }
 
     @Test
