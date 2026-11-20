@@ -16,7 +16,7 @@
         <p><b>JSONata</b></p>
         <ul>
             <li>Highlighting and syntax checks of <code>{% … %}</code> expressions, exactly as Step Functions parses them</li>
-            <li>Completion, quick documentation and parameter hints for functions, <code>$states</code> and local variables</li>
+            <li>Completion of functions, <code>$states</code> and its fields, local variables and keywords; quick documentation for functions and <code>$states</code>; parameter hints for functions</li>
             <li>Go to declaration, find usages and rename for local variables</li>
         </ul>
         <p><b>Variables</b></p>
