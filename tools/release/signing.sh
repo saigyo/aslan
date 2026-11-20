@@ -217,8 +217,16 @@ say "The folder also gets signing.env with the answers below that are not secret
 read -e -r -p "  Folder [$KEY_DIR_DEFAULT]: " KEY_DIR || true
 KEY_DIR="${KEY_DIR:-$KEY_DIR_DEFAULT}"
 KEY_DIR="${KEY_DIR/#\~/$HOME}"
-case "$KEY_DIR" in "$PWD"|"$PWD"/*) warn "That folder is inside the repository; choose another."; exit 1;; esac
+[[ "$KEY_DIR" == /* ]] || KEY_DIR="$PWD/$KEY_DIR"
 (umask 077 && mkdir -p "$KEY_DIR")
+# Compare where the folders really are, after relative parts and symbolic links are resolved.
+REPO_REAL=$(pwd -P)
+KEY_DIR=$(cd "$KEY_DIR" && pwd -P)
+case "$KEY_DIR" in
+  "$REPO_REAL"|"$REPO_REAL"/*)
+    rmdir "$KEY_DIR" 2>/dev/null || true
+    warn "$KEY_DIR is inside the repository; choose a folder outside it."; exit 1;;
+esac
 chmod 700 "$KEY_DIR"
 ENV_FILE="$KEY_DIR/signing.env"
 KEY="$KEY_DIR/private_encrypted.pem"
@@ -265,7 +273,17 @@ fi
 pause
 
 stage "The certificate"
-if [[ -f "$CHAIN" ]] && ! confirm "A certificate exists ($(openssl x509 -in "$CHAIN" -noout -enddate)). Make a new one?"; then
+NEW_CHAIN=yes
+if [[ -f "$CHAIN" ]]; then
+  if [[ "$(openssl x509 -in "$CHAIN" -noout -pubkey)" != "$(openssl pkey -in "$KEY" -passin env:PRIVATE_KEY_PASSWORD -pubout)" ]]; then
+    warn "The existing certificate belongs to another key than $KEY."
+    say "If you still have the key that belongs to it, stop now (Ctrl-C), put that key in $KEY_DIR and run the wizard again."
+    confirm "Make a new certificate for the key in $KEY_DIR instead?" || exit 1
+  elif ! confirm "A certificate for this key exists ($(openssl x509 -in "$CHAIN" -noout -enddate)). Make a new one?"; then
+    NEW_CHAIN=no
+  fi
+fi
+if [[ "$NEW_CHAIN" == no ]]; then
   say "Kept the existing certificate."
 else
   say "Making a self-signed certificate for '$CERT_NAME', valid for ten years."
