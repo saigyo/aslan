@@ -10,6 +10,8 @@ name: Release
 # So a workflow changed on another branch or tag cannot read them, and nothing is signed or uploaded without approval.
 # Both jobs wait for an approval of their own: the second one is the moment to check the GitHub release before the zip
 # goes to JetBrains. If the environment is ever recreated, restore both rules (Settings | Environments | release).
+# The actions are pinned to commit hashes, so that no one can change the code that runs next to the secrets by moving a
+# tag. Dependabot (.github/dependabot.yml) proposes updates of the hashes as pull requests.
 on:
   push:
     tags: ['v*']
@@ -36,7 +38,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Check the tag
@@ -69,18 +71,18 @@ jobs:
             echo "::error::The secrets for signing are missing; set them up in the environment release with tools/release/signing.sh"
             exit 1
           fi
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: zulu
           java-version: 25
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       # the version of the build is the version of the tag
       - run: ./gradlew check buildPlugin verifyPlugin signPlugin verifyPluginSignature -Pversion="$VERSION"
         env:
           CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: reports
@@ -106,7 +108,7 @@ jobs:
             tools/release/notes.sh > "$RUNNER_TEMP/notes.html"
             gh release create "$TAG" "$zip" --verify-tag --title "Aslan $VERSION" --notes-file "$RUNNER_TEMP/notes.html"
           fi
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plugin
           path: dist/aslan-${{ env.VERSION }}.zip
@@ -122,7 +124,7 @@ jobs:
     environment: release
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: plugin
       - name: Upload the signed zip
