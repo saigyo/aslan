@@ -4,8 +4,8 @@ What to do and enter when the plugin is put on the JetBrains Marketplace, in ord
 
 ## 1. Before uploading
 
-- Set up the signing key and the GitHub secrets with `tools/release/signing.sh`, run in your own terminal. It makes a private key and a self-signed certificate outside the repository and stores them as secrets for the release workflow.
-- Push the tag `v1.0.0`. The release workflow builds, checks and signs the plugin and attaches the signed zip, `aslan-1.0.0.zip`, to the GitHub release.
+- Set up the signing key and the GitHub secrets with `tools/release/signing.sh`, run in your own terminal. It makes a private key and a self-signed certificate outside the repository and stores them as secrets of the GitHub environment `release`, which the release workflow uses.
+- Push the tag `v1.0.0` and approve the run under Actions. The release workflow builds, checks and signs the plugin and attaches the signed zip, `aslan-1.0.0.zip`, to the GitHub release.
 
 ## 2. The first upload
 
