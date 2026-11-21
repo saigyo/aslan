@@ -203,9 +203,26 @@ finish() {
 # GitHub secrets and the variable the workflow reads. Run it in your own terminal from anywhere in the repository; it
 # shows and asks for secrets, so it is not meant to run inside an AI session. Re-running it keeps an existing key.
 
+# The secrets go into the protected environment the release workflow uses, not into the repository.
+ENVIRONMENT=release
+
+# set_env_secret NAME VALUE sets a secret of the environment, like set_secret does for the repository.
+set_env_secret() {
+  local name="$1" value="$2"
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if printf '%s' "$value" | gh secret set "$name" --env "$ENVIRONMENT" >/dev/null 2>&1; then
+      WRITTEN_SECRET+=("$name")
+      printf '  %s✓ set%s secret %s of the environment %s\n' "$GREEN" "$RESET" "$name" "$ENVIRONMENT"
+      return
+    fi
+  fi
+  SKIPPED+=("secret $name of the environment $ENVIRONMENT (set it by hand: gh secret set $name --env $ENVIRONMENT)")
+  warn "skipped secret $name: gh is not ready, or the environment $ENVIRONMENT does not exist"
+}
+
 run_wizard() {
 
-TOTAL_STAGES=9
+TOTAL_STAGES=10
 cd "$(dirname "$0")/../.."
 KEY_DIR_DEFAULT="$HOME/.aslan-signing"
 
@@ -315,11 +332,12 @@ pause
 
 stage "GitHub secrets for signing"
 say "The release workflow signs with CERTIFICATE_CHAIN, PRIVATE_KEY and PRIVATE_KEY_PASSWORD."
+say "They are stored in the environment $ENVIRONMENT, which hands them only to approved runs from v* tags."
 say "Repository: $(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo 'unknown, gh is not ready')"
 if confirm "Set the three secrets now (an existing one is replaced)?"; then
-  set_secret CERTIFICATE_CHAIN "$(cat "$CHAIN")"
-  set_secret PRIVATE_KEY "$(cat "$KEY")"
-  set_secret PRIVATE_KEY_PASSWORD "$PRIVATE_KEY_PASSWORD"
+  set_env_secret CERTIFICATE_CHAIN "$(cat "$CHAIN")"
+  set_env_secret PRIVATE_KEY "$(cat "$KEY")"
+  set_env_secret PRIVATE_KEY_PASSWORD "$PRIVATE_KEY_PASSWORD"
 else
   SKIPPED+=("the GitHub secrets for signing (re-run this wizard)")
 fi
@@ -333,7 +351,7 @@ if confirm "Create and store the token now?"; then
   step "Sign in, choose to generate a new token, and name it 'aslan release workflow'."
   step "Copy the token; the page shows it only once."
   ask_secret MARKETPLACE_TOKEN "Paste the token:"
-  set_secret MARKETPLACE_TOKEN "$MARKETPLACE_TOKEN"
+  set_env_secret MARKETPLACE_TOKEN "$MARKETPLACE_TOKEN"
 else
   SKIPPED+=("the secret MARKETPLACE_TOKEN (re-run this wizard)")
 fi
@@ -346,6 +364,34 @@ if confirm "Has the first version been approved, and should releases now be uplo
   set_var MARKETPLACE_UPLOAD true
 else
   SKIPPED+=("the variable MARKETPLACE_UPLOAD=true, after the first version is approved (re-run this wizard)")
+fi
+pause
+
+stage "Old repository secrets"
+say "Earlier versions of this wizard stored the secrets in the repository, where any workflow can read them."
+say "Copies that the environment $ENVIRONMENT now holds as well can be deleted from the repository."
+OLD_SECRETS=()
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  REPO_SECRETS=$(gh secret list --json name -q '.[].name' 2>/dev/null || true)
+  ENV_SECRETS=$(gh secret list --env "$ENVIRONMENT" --json name -q '.[].name' 2>/dev/null || true)
+  for name in CERTIFICATE_CHAIN PRIVATE_KEY PRIVATE_KEY_PASSWORD MARKETPLACE_TOKEN; do
+    if grep -qx "$name" <<< "$REPO_SECRETS" && grep -qx "$name" <<< "$ENV_SECRETS"; then
+      OLD_SECRETS+=("$name")
+    fi
+  done
+fi
+if (( ${#OLD_SECRETS[@]} == 0 )); then
+  note "None found."
+elif confirm "Delete the repository secrets ${OLD_SECRETS[*]}?"; then
+  for name in "${OLD_SECRETS[@]}"; do
+    if gh secret delete "$name" >/dev/null 2>&1; then
+      printf '  %s✓ deleted%s repository secret %s\n' "$GREEN" "$RESET" "$name"
+    else
+      warn "could not delete the repository secret $name; delete it under Settings | Secrets and variables | Actions"
+    fi
+  done
+else
+  SKIPPED+=("deleting the repository secrets ${OLD_SECRETS[*]} (re-run this wizard)")
 fi
 pause
 

@@ -4,6 +4,12 @@ name: Release
 # GitHub release with the signed zip attached. When the repository variable MARKETPLACE_UPLOAD is true, the same zip is then
 # uploaded to the JetBrains Marketplace, where it waits for JetBrains' review. Nothing is released when a check fails.
 # The secrets CERTIFICATE_CHAIN, PRIVATE_KEY, PRIVATE_KEY_PASSWORD and MARKETPLACE_TOKEN are set up with tools/release/signing.sh.
+#
+# The secrets live in the environment 'release', not in the repository. GitHub hands them to a job only after the
+# environment's rules pass: the run comes from a v* tag, and the repository owner approves the job in the Actions tab.
+# So a workflow changed on another branch or tag cannot read them, and nothing is signed or uploaded without approval.
+# Both jobs wait for an approval of their own: the second one is the moment to check the GitHub release before the zip
+# goes to JetBrains. If the environment is ever recreated, restore both rules (Settings | Environments | release).
 on:
   push:
     tags: ['v*']
@@ -19,6 +25,7 @@ jobs:
   release:
     name: Build and publish the release
     runs-on: ubuntu-latest
+    environment: release
     timeout-minutes: 60
     outputs:
       version: ${{ steps.tag.outputs.version }}
@@ -59,7 +66,7 @@ jobs:
           PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
         run: |
           if [ -z "$CERTIFICATE_CHAIN" ] || [ -z "$PRIVATE_KEY" ] || [ -z "$PRIVATE_KEY_PASSWORD" ]; then
-            echo "::error::The secrets for signing are missing; set them up with tools/release/signing.sh"
+            echo "::error::The secrets for signing are missing; set them up in the environment release with tools/release/signing.sh"
             exit 1
           fi
       - uses: actions/setup-java@v6
@@ -112,6 +119,7 @@ jobs:
     # Off until the first version has been uploaded by hand and approved; then set the variable to true.
     if: vars.MARKETPLACE_UPLOAD == 'true'
     runs-on: ubuntu-latest
+    environment: release
     timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v7
@@ -123,7 +131,7 @@ jobs:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::error::The secret MARKETPLACE_TOKEN is missing; set it up with tools/release/signing.sh"
+            echo "::error::The secret MARKETPLACE_TOKEN is missing; set it up in the environment release with tools/release/signing.sh"
             exit 1
           fi
           curl --fail-with-body -sS https://plugins.jetbrains.com/api/updates/upload \

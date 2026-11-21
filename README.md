@@ -183,6 +183,8 @@ git push origin v1.0.1
 
 The Release workflow checks that the tag is a version number, that the commit is on `main` and that the change notes start with that version. It runs the tests and the plugin verifier, builds the plugin with the version of the tag, signs it, and publishes a GitHub release with the signed zip and the change notes. When the repository variable `MARKETPLACE_UPLOAD` is `true`, it then uploads the same zip to the JetBrains Marketplace, where JetBrains reviews each version before it is shown. The signing key, its secrets and the Marketplace token are set up with `tools/release/signing.sh`, run in your own terminal; the first upload to the Marketplace is done by hand, as `docs/marketplace/listing.md` describes.
 
+The secrets are kept in the GitHub environment `release`, not in the repository. GitHub passes them only to runs from a `v*` tag that the repository owner has approved, so each release waits under Actions until you choose Review deployments and approve it. The upload to the Marketplace is a job of its own and waits for a second approval, which gives you the chance to check the GitHub release first.
+
 ## Design
 
 The design, with the reasons behind the checks and the evidence they rest on, is in [docs/superpowers/specs/2026-11-13-aslan-design.md](docs/superpowers/specs/2026-11-13-aslan-design.md). How the diagram is drawn and laid out is in [docs/superpowers/research/2026-11-15-diagram-rendering.md](docs/superpowers/research/2026-11-15-diagram-rendering.md). The implementation plans are in [docs/superpowers/plans](docs/superpowers/plans).
